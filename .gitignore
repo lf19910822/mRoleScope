@@ -1,0 +1,27 @@
+# Environment and editor state
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+
+# Go
+bin/
+coverage.out
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/coverage/
+
+# Runtime artifacts (successful production archives do not belong in Git)
+var/
+artifacts/
+snapshots/

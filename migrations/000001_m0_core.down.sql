@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS aggregate_snapshots;
+DROP TABLE IF EXISTS change_events;
+DROP TABLE IF EXISTS education_requirements;
+DROP TABLE IF EXISTS job_locations;
+DROP TABLE IF EXISTS job_skills;
+DROP TABLE IF EXISTS experience_requirements;
+DROP TABLE IF EXISTS job_classifications;
+DROP TABLE IF EXISTS parsed_versions;
+DROP TABLE IF EXISTS parse_batches;
+DROP TABLE IF EXISTS run_jobs;
+DROP TABLE IF EXISTS jd_versions;
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS publication_state;
+DROP INDEX IF EXISTS collection_runs_schedule_key_active_idx;
+DROP TABLE IF EXISTS collection_runs;
+DROP TYPE IF EXISTS collection_run_status;

@@ -1,0 +1,46 @@
+openapi: 3.0.3
+info:
+  title: MHY JD Observatory API
+  version: 0.1.0
+  description: |
+    Anonymous read-only API for a non-official public-job observation project.
+    M0 exposes service status only; domain endpoints are added after their data
+    definitions and tests are accepted.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Process liveness
+      responses:
+        '200':
+          description: Process is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /readyz:
+    get:
+      summary: Database readiness
+      responses:
+        '200':
+          description: Database is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: Database is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+components:
+  schemas:
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, ready, not_ready]

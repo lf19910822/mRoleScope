@@ -1,0 +1,31 @@
+{
+  "list_pages": [
+    {
+      "success": true,
+      "data": {
+        "total": 1,
+        "list": [
+          {
+            "id": "8771",
+            "title": "服务端研发工程师",
+            "addressDetailList": [
+              { "addressDetail": "上海" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "details": {
+    "8771": {
+      "success": true,
+      "data": {
+        "id": "8771",
+        "title": "服务端研发工程师",
+        "description": "<p>负责在线服务开发。</p>",
+        "jobRequire": "<p>3年以上 Go 开发经验。</p>",
+        "addition": "<p>熟悉游戏业务优先。</p>"
+      }
+    }
+  }
+}
