@@ -3,19 +3,20 @@
 # Root-owned deployment entry point for the remote-development environment.
 #
 # Its interface is intentionally narrow: the self-hosted runner can supply
-# exactly two immutable GHCR image digests and one short-lived token over
-# standard input. It cannot choose Compose files, secret files, image tags,
-# ports, commands, or a shell to execute.
+# exactly two immutable Docker Hub image digests in one configured public
+# namespace. It cannot choose Compose files, secret files, image tags, ports,
+# commands, or a shell to execute.
 
 set -euo pipefail
 
 readonly COMPOSE_FILE="/opt/mrolescope/remote-development.compose.yaml"
 readonly SECRETS_FILE="/etc/mrolescope/secrets/remote-development.env"
+readonly DEPLOY_CONFIG_FILE="/etc/mrolescope/remote-development.conf"
 readonly RELEASE_DIR="/var/lib/mrolescope/releases"
 readonly LOCK_FILE="/var/lib/mrolescope/releases/deploy.lock"
 readonly PROJECT_NAME="mrolescope-remote-development"
-readonly API_PATTERN='^ghcr\.io/lf19910822/mrolescope-api@sha256:[a-f0-9]{64}$'
-readonly MIGRATE_PATTERN='^ghcr\.io/lf19910822/mrolescope-migrate@sha256:[a-f0-9]{64}$'
+readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
+readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
 readonly SHA_PATTERN='^[a-f0-9]{40}$'
 
 PATH='/usr/sbin:/usr/bin:/sbin:/bin'
@@ -26,8 +27,11 @@ api_image="${1:-}"
 migrate_image="${2:-}"
 phase="preflight"
 deployment_succeeded=false
-docker_config=""
+deployment_config_loaded=false
 api_revision=""
+dockerhub_namespace=""
+api_pattern=""
+migrate_pattern=""
 
 die() {
   printf 'mrolescope deployment failed during %s: %s\n' "$phase" "$1" >&2
@@ -53,11 +57,28 @@ is_root_owned_mode() {
   [[ "$metadata" == "root:root:${expected_mode}" ]]
 }
 
+load_deployment_config() {
+  local -a config_lines=()
+
+  is_root_owned_mode "$DEPLOY_CONFIG_FILE" 644 || die "deployment configuration must be root:root mode 0644"
+  mapfile -t config_lines <"$DEPLOY_CONFIG_FILE"
+  [[ "${#config_lines[@]}" -eq 1 ]] || die "deployment configuration must contain exactly one line"
+  [[ "${config_lines[0]}" == DOCKERHUB_NAMESPACE=* ]] \
+    || die "deployment configuration must define DOCKERHUB_NAMESPACE"
+
+  dockerhub_namespace="${config_lines[0]#DOCKERHUB_NAMESPACE=}"
+  [[ "$dockerhub_namespace" =~ $NAMESPACE_PATTERN ]] \
+    || die "deployment configuration has an invalid Docker Hub namespace"
+  api_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-api@${DIGEST_PATTERN}$"
+  migrate_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
+  deployment_config_loaded=true
+}
+
 read_current_api() {
   local current_file="$RELEASE_DIR/current.env" candidate
   [[ -f "$current_file" && ! -L "$current_file" ]] || return 0
-  candidate=$(sed -nE 's/^api_image=(ghcr\.io\/lf19910822\/mrolescope-api@sha256:[a-f0-9]{64})$/\1/p' "$current_file" | tail -n 1)
-  if [[ -n "$candidate" && "$candidate" =~ $API_PATTERN ]]; then
+  candidate=$(sed -nE "s|^api_image=(docker\\.io/${dockerhub_namespace}/mrolescope-api@sha256:[a-f0-9]{64})$|\\1|p" "$current_file" | tail -n 1)
+  if [[ -n "$candidate" && "$candidate" =~ $api_pattern ]]; then
     printf '%s' "$candidate"
   fi
 }
@@ -135,11 +156,7 @@ rollback_api() {
 cleanup() {
   local exit_code=$?
   trap - EXIT
-  unset ghcr_token 2>/dev/null || true
-  if [[ -n "$docker_config" && "$docker_config" == /run/mrolescope-ghcr.* ]]; then
-    rm -rf -- "$docker_config"
-  fi
-  if [[ "$deployment_succeeded" != true && "$api_image" =~ $API_PATTERN && "$migrate_image" =~ $MIGRATE_PATTERN && -d "$RELEASE_DIR" ]]; then
+  if [[ "$deployment_succeeded" != true && "$deployment_config_loaded" == true && "$api_image" =~ $api_pattern && "$migrate_image" =~ $migrate_pattern && -d "$RELEASE_DIR" ]]; then
     write_record failed "$phase" "$api_image" "$migrate_image" "$api_revision" || true
     prune_records || true
   fi
@@ -152,10 +169,11 @@ if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "mrolescope-deploy" ]]; then
   die "only the mrolescope-deploy service account may invoke this through sudo"
 fi
 [[ "$#" -eq 2 ]] || die "expected API and migration image digests"
-[[ "$api_image" =~ $API_PATTERN ]] || die "API image is not an allowed immutable GHCR digest"
-[[ "$migrate_image" =~ $MIGRATE_PATTERN ]] || die "migration image is not an allowed immutable GHCR digest"
 is_root_owned_mode "$COMPOSE_FILE" 644 || die "Compose definition must be root:root mode 0644"
 is_root_owned_mode "$SECRETS_FILE" 600 || die "runtime secrets must be root:root mode 0600"
+load_deployment_config
+[[ "$api_image" =~ $api_pattern ]] || die "API image is not an allowed immutable Docker Hub digest"
+[[ "$migrate_image" =~ $migrate_pattern ]] || die "migration image is not an allowed immutable Docker Hub digest"
 [[ -d "$RELEASE_DIR" ]] || die "release directory is missing"
 [[ "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die "release directory must be root:root mode 0700"
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
@@ -175,16 +193,6 @@ for required_value in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL; 
   [[ -n "${!required_value:-}" ]] || die "required runtime configuration is missing"
 done
 
-phase="read-token"
-ghcr_token=""
-IFS= read -r ghcr_token || true
-[[ -n "$ghcr_token" ]] || die "a short-lived GHCR token is required on standard input"
-
-phase="registry-login"
-docker_config=$(mktemp -d /run/mrolescope-ghcr.XXXXXX)
-printf '%s' "$ghcr_token" | DOCKER_CONFIG="$docker_config" docker login ghcr.io --username lf19910822 --password-stdin >/dev/null
-unset ghcr_token
-export DOCKER_CONFIG="$docker_config"
 export MROLESCOPE_API_IMAGE="$api_image"
 export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
 

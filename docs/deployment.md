@@ -14,7 +14,7 @@
 
 1. 用户确认腾讯云上海地域、实际报价和个人付款方式。
 2. 在受保护 `main` 合入远端部署资产后，以固定 commit SHA bootstrap CVM；不从 IDE 或 SSH 复制业务源码。
-3. 注册非登录的专用 runner，使用临时 `GITHUB_TOKEN` 拉取固定 GHCR digest；禁止提交 `.env` 或向浏览器下发存储/数据库凭据。
+3. 注册非登录的专用 runner；部署仅拉取固定的公开 Docker Hub digest，并通过腾讯云 Docker Hub 镜像加速器获取。Docker Hub 写入 Token 仅保存在 GitHub Actions Secret，禁止提交 `.env` 或向浏览器下发存储/数据库凭据。
 4. 确认无公网 `5432`、`8080`、`80` 或 `443`；本期不配置 HTTPS、告警或调度器。
 5. 仅使用离线 fixture 验收迁移、`/healthz`、`/readyz` 与发布记录；不运行 worker 在线采集。
 6. 数据后台、COS 归档、告警和任何自动同步须另行实现和验收后再启用。

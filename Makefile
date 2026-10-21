@@ -39,8 +39,8 @@ api:
 	go run ./cmd/api
 
 deploy-config-check:
-	MROLESCOPE_API_IMAGE=ghcr.io/lf19910822/mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-	MROLESCOPE_MIGRATE_IMAGE=ghcr.io/lf19910822/mrolescope-migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+	MROLESCOPE_API_IMAGE=docker.io/mrolescopeverify/mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+	MROLESCOPE_MIGRATE_IMAGE=docker.io/mrolescopeverify/mrolescope-migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
 	POSTGRES_DB=mrolescope_verify \
 	POSTGRES_USER=mrolescope_verify \
 	POSTGRES_PASSWORD=not-a-real-password \
