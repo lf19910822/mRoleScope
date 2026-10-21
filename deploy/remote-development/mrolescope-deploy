@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+#
+# Root-owned deployment entry point for the remote-development environment.
+#
+# Its interface is intentionally narrow: the self-hosted runner can supply
+# exactly two immutable GHCR image digests and one short-lived token over
+# standard input. It cannot choose Compose files, secret files, image tags,
+# ports, commands, or a shell to execute.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE="/opt/mrolescope/remote-development.compose.yaml"
+readonly SECRETS_FILE="/etc/mrolescope/secrets/remote-development.env"
+readonly RELEASE_DIR="/var/lib/mrolescope/releases"
+readonly LOCK_FILE="/var/lib/mrolescope/releases/deploy.lock"
+readonly PROJECT_NAME="mrolescope-remote-development"
+readonly API_PATTERN='^ghcr\.io/lf19910822/mrolescope-api@sha256:[a-f0-9]{64}$'
+readonly MIGRATE_PATTERN='^ghcr\.io/lf19910822/mrolescope-migrate@sha256:[a-f0-9]{64}$'
+readonly SHA_PATTERN='^[a-f0-9]{40}$'
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+api_image="${1:-}"
+migrate_image="${2:-}"
+phase="preflight"
+deployment_succeeded=false
+docker_config=""
+api_revision=""
+
+die() {
+  printf 'mrolescope deployment failed during %s: %s\n' "$phase" "$1" >&2
+  exit 1
+}
+
+log() {
+  printf 'mrolescope deployment: %s\n' "$1"
+}
+
+compose() {
+  docker compose \
+    --project-name "$PROJECT_NAME" \
+    --file "$COMPOSE_FILE" \
+    --env-file "$SECRETS_FILE" \
+    "$@"
+}
+
+is_root_owned_mode() {
+  local path="$1" expected_mode="$2" metadata
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  metadata=$(stat -c '%U:%G:%a' "$path")
+  [[ "$metadata" == "root:root:${expected_mode}" ]]
+}
+
+read_current_api() {
+  local current_file="$RELEASE_DIR/current.env" candidate
+  [[ -f "$current_file" && ! -L "$current_file" ]] || return 0
+  candidate=$(sed -nE 's/^api_image=(ghcr\.io\/lf19910822\/mrolescope-api@sha256:[a-f0-9]{64})$/\1/p' "$current_file" | tail -n 1)
+  if [[ -n "$candidate" && "$candidate" =~ $API_PATTERN ]]; then
+    printf '%s' "$candidate"
+  fi
+}
+
+write_record() {
+  local status="$1" record_phase="$2" record_api="$3" record_migrate="$4" record_revision="$5"
+  local timestamp temporary record suffix
+
+  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+  temporary=$(mktemp "$RELEASE_DIR/.release.XXXXXX")
+  suffix="${temporary##*.}"
+  record="$RELEASE_DIR/release-${timestamp}-${status}-${suffix}.env"
+  {
+    printf 'status=%s\n' "$status"
+    printf 'phase=%s\n' "$record_phase"
+    printf 'api_image=%s\n' "$record_api"
+    printf 'migrate_image=%s\n' "$record_migrate"
+    printf 'revision=%s\n' "$record_revision"
+    printf 'recorded_at=%s\n' "$(date -u +%FT%TZ)"
+  } >"$temporary"
+  chmod 0600 "$temporary"
+  mv -f -- "$temporary" "$record"
+}
+
+write_current() {
+  local temporary
+  temporary=$(mktemp "$RELEASE_DIR/.current.XXXXXX")
+  {
+    printf 'api_image=%s\n' "$api_image"
+    printf 'migrate_image=%s\n' "$migrate_image"
+    printf 'revision=%s\n' "$api_revision"
+    printf 'verified_at=%s\n' "$(date -u +%FT%TZ)"
+  } >"$temporary"
+  chmod 0600 "$temporary"
+  mv -f -- "$temporary" "$RELEASE_DIR/current.env"
+}
+
+prune_matching_records() {
+  local pattern="$1" keep="$2"
+  local -a records=()
+  local index
+  mapfile -t records < <(find "$RELEASE_DIR" -maxdepth 1 -type f -name "$pattern" -printf '%f\n' | sort -r)
+  for ((index = keep; index < ${#records[@]}; index += 1)); do
+    rm -f -- "$RELEASE_DIR/${records[$index]}"
+  done
+}
+
+prune_records() {
+  prune_matching_records 'release-*-success-*.env' 10
+  prune_matching_records 'release-*-failed-*.env' 10
+}
+
+healthy_api() {
+  local attempt
+  for ((attempt = 1; attempt <= 20; attempt += 1)); do
+    if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1 \
+      && curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+rollback_api() {
+  local previous_api="$1"
+  [[ -n "$previous_api" && "$previous_api" != "$api_image" ]] || return 1
+
+  log "new API did not become healthy; restoring the previous verified API digest"
+  export MROLESCOPE_API_IMAGE="$previous_api"
+  compose up -d --no-deps api
+  healthy_api
+}
+
+cleanup() {
+  local exit_code=$?
+  trap - EXIT
+  unset ghcr_token 2>/dev/null || true
+  if [[ -n "$docker_config" && "$docker_config" == /run/mrolescope-ghcr.* ]]; then
+    rm -rf -- "$docker_config"
+  fi
+  if [[ "$deployment_succeeded" != true && "$api_image" =~ $API_PATTERN && "$migrate_image" =~ $MIGRATE_PATTERN && -d "$RELEASE_DIR" ]]; then
+    write_record failed "$phase" "$api_image" "$migrate_image" "$api_revision" || true
+    prune_records || true
+  fi
+  exit "$exit_code"
+}
+trap cleanup EXIT
+
+[[ "${EUID}" -eq 0 ]] || die "must be invoked through sudo"
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "mrolescope-deploy" ]]; then
+  die "only the mrolescope-deploy service account may invoke this through sudo"
+fi
+[[ "$#" -eq 2 ]] || die "expected API and migration image digests"
+[[ "$api_image" =~ $API_PATTERN ]] || die "API image is not an allowed immutable GHCR digest"
+[[ "$migrate_image" =~ $MIGRATE_PATTERN ]] || die "migration image is not an allowed immutable GHCR digest"
+is_root_owned_mode "$COMPOSE_FILE" 644 || die "Compose definition must be root:root mode 0644"
+is_root_owned_mode "$SECRETS_FILE" 600 || die "runtime secrets must be root:root mode 0600"
+[[ -d "$RELEASE_DIR" ]] || die "release directory is missing"
+[[ "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die "release directory must be root:root mode 0700"
+command -v docker >/dev/null 2>&1 || die "docker is not installed"
+command -v curl >/dev/null 2>&1 || die "curl is not installed"
+command -v flock >/dev/null 2>&1 || die "flock is not installed"
+exec 9>"$LOCK_FILE"
+flock -n 9 || die "another deployment is already running"
+
+# The root-owned file is a deliberately simple dotenv file. It is sourced only
+# after ownership and mode checks so Compose and the validation below use one
+# identical set of values. No value is ever printed.
+set -a
+# shellcheck disable=SC1090
+. "$SECRETS_FILE"
+set +a
+for required_value in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL; do
+  [[ -n "${!required_value:-}" ]] || die "required runtime configuration is missing"
+done
+
+phase="read-token"
+ghcr_token=""
+IFS= read -r ghcr_token || true
+[[ -n "$ghcr_token" ]] || die "a short-lived GHCR token is required on standard input"
+
+phase="registry-login"
+docker_config=$(mktemp -d /run/mrolescope-ghcr.XXXXXX)
+printf '%s' "$ghcr_token" | DOCKER_CONFIG="$docker_config" docker login ghcr.io --username lf19910822 --password-stdin >/dev/null
+unset ghcr_token
+export DOCKER_CONFIG="$docker_config"
+export MROLESCOPE_API_IMAGE="$api_image"
+export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
+
+phase="pull-images"
+compose pull postgres migrate api
+api_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$api_image" 2>/dev/null || true)
+[[ "$api_revision" =~ $SHA_PATTERN ]] || die "API image is missing its immutable source revision label"
+migrate_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$migrate_image" 2>/dev/null || true)
+[[ "$migrate_revision" == "$api_revision" ]] || die "API and migration images were not built from the same revision"
+
+previous_api=$(read_current_api || true)
+
+phase="start-database"
+compose up -d --wait --wait-timeout 60 postgres
+
+phase="migrate-database"
+compose run --rm migrate
+
+phase="start-api"
+if ! compose up -d --no-deps api; then
+  rollback_api "$previous_api" || true
+  die "could not start the new API container"
+fi
+
+phase="verify-api"
+if ! healthy_api; then
+  rollback_api "$previous_api" || true
+  die "the new API did not pass local health and readiness checks"
+fi
+
+phase="record-release"
+write_current
+write_record success "$phase" "$api_image" "$migrate_image" "$api_revision"
+prune_records
+deployment_succeeded=true
+log "deployment verified at revision ${api_revision}"

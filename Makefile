@@ -3,11 +3,12 @@
 # The development image has legacy docker-compose; newer systems can override
 # this with: make COMPOSE='docker compose' <target>
 COMPOSE ?= docker-compose
+DEPLOY_COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && printf 'docker compose' || printf 'docker-compose')
 
-.PHONY: help fmt test test-go test-python collector-fixture db-up db-down migrate-up api
+.PHONY: help fmt test test-go test-python collector-fixture db-up db-down migrate-up api deploy-config-check
 
 help:
-	@printf '%s\n' 'Targets: fmt test collector-fixture db-up db-down migrate-up api'
+	@printf '%s\n' 'Targets: fmt test collector-fixture db-up db-down migrate-up api deploy-config-check'
 
 fmt:
 	gofmt -w $$(find cmd internal -name '*.go' -type f)
@@ -36,3 +37,12 @@ migrate-up:
 
 api:
 	go run ./cmd/api
+
+deploy-config-check:
+	MROLESCOPE_API_IMAGE=ghcr.io/lf19910822/mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+	MROLESCOPE_MIGRATE_IMAGE=ghcr.io/lf19910822/mrolescope-migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+	POSTGRES_DB=mrolescope_verify \
+	POSTGRES_USER=mrolescope_verify \
+	POSTGRES_PASSWORD=not-a-real-password \
+	DATABASE_URL='postgres://mrolescope_verify:not-a-real-password@postgres:5432/mrolescope_verify?sslmode=disable' \
+	$(DEPLOY_COMPOSE) -f deploy/remote-development/compose.yaml config --quiet
