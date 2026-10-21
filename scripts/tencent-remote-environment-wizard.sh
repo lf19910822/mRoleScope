@@ -233,7 +233,7 @@ open_url "https://console.cloud.tencent.com/cvm/instance/index"
 step "在 CVM 控制台新建实例：地域上海、可用区按当天库存、Ubuntu 22.04 LTS x86_64、2 vCPU / 2 GiB、50 GiB 系统盘、月付。购买页的 1 Mbps 带宽可保留；首次镜像拉取较慢但本期无需加购。"
 step "创建或选择独立 VPC/子网和安全组。入站默认拒绝：不要添加 5432、8080、80 或 443；优先不用 SSH。"
 step "如确实需要 SSH 救援，才添加 TCP 22，来源只填你的固定个人公网 IP；绝不能填 0.0.0.0/0。"
-step "保持到 GitHub、GHCR、系统更新和腾讯云服务的必要出站 HTTPS；公网 IPv4 仅供低成本出站连接，不代表开放公网服务。"
+step "保持到 GitHub、Docker Hub（经腾讯云官方镜像加速器）、系统更新和腾讯云服务的必要出站 HTTPS；公网 IPv4 仅供低成本出站连接，不代表开放公网服务。"
 warn "购买会产生费用。请在支付前复核地域、月付周期、续费价、带宽与公共 IPv4 的账单。"
 if ! confirm "已自行创建符合上述规格与安全组边界的 CVM？"; then
   say "尚未购买也没关系；不要继续后续主机配置。"
@@ -280,7 +280,7 @@ if ! confirm "main 的保护与 remote-development Environment 已按可用功�
 fi
 
 stage "部署资产就绪检查"
-say "接下来需要仓库中的远端 Compose 定义、GHCR 构建工作流、手动部署工作流和 root 受控部署入口。"
+say "接下来需要仓库中的远端 Compose 定义、Docker Hub 构建工作流、手动部署工作流和 root 受控部署入口。"
 say "这些是项目代码工作，不应由你在 CVM 上手工复制或临时编写。"
 required_deploy_assets=(
   ".github/workflows/remote-development-deploy.yml"
@@ -300,11 +300,13 @@ if (( ${#missing_deploy_assets[@]} )); then
   return 2
 fi
 step "检测到完整的部署资产。审阅 workflow、Compose、root 部署入口与 bootstrap 脚本；镜像名、runner 标签和部署入口必须与本向导后续阶段一致。"
+step "先在 Docker Hub 创建两个公开仓库：<你的 Docker Hub 用户名>/mrolescope-api 与 <你的 Docker Hub 用户名>/mrolescope-migrate。创建一个仅用于推送的最小权限 Docker Hub Token；它是秘密，不要粘贴到本向导或聊天。"
+step "在 GitHub 仓库 Settings → Secrets and variables → Actions 添加：非秘密 Variable DOCKERHUB_USERNAME（小写 Docker Hub 用户名）和 Secret DOCKERHUB_TOKEN（刚创建的 Token）。"
 step "将这些文件经正常审阅合入受保护 main。打开 main 的提交页面，复制这次合入后的完整 40 位 commit SHA；它像‘带封条的图纸版本号’，不是 main 分支名。"
 step "在 CVM 上仅用该固定 SHA 安装部署边界。先下载 bootstrap："
 say "curl --fail --location --proto '=https' --tlsv1.2 \"https://raw.githubusercontent.com/lf19910822/mRoleScope/<FULL_MAIN_COMMIT_SHA>/deploy/remote-development/bootstrap.sh\" --output /tmp/mrolescope-bootstrap.sh"
-say "sudo bash /tmp/mrolescope-bootstrap.sh <FULL_MAIN_COMMIT_SHA>"
-note "这一步只安装 root 所有的 Compose、受控部署入口和 sudoers 规则；不会下载业务源码、拉取应用镜像、启动容器或创建密码。"
+say "sudo bash /tmp/mrolescope-bootstrap.sh <FULL_MAIN_COMMIT_SHA> <DOCKERHUB_USERNAME>"
+note "这一步只安装 root 所有的 Compose、受控部署入口、Docker Hub 命名空间配置和 sudoers 规则；不会下载业务源码、拉取应用镜像、启动容器或创建密码。"
 if ! confirm "已确认部署资产已审阅、合并到受保护 main，并已用完整 SHA 成功运行 bootstrap？"; then
   return 1
 fi
@@ -336,7 +338,7 @@ fi
 stage "首次离线部署与环境验收"
 say "现在只验收远端开发环境；不启动同步定时器、不请求招聘官网、不形成正式采集批次。"
 open_url "https://github.com/lf19910822/mRoleScope/actions"
-step "在 Actions 中选择 remote-development 手动部署工作流，从 main 发起；确认它先运行测试，再构建并推送私有 GHCR 镜像，最后在专用 runner 上部署固定 digest。"
+step "在 Actions 中选择 remote-development 手动部署工作流，从 main 发起；确认它先运行测试，再构建并推送公开 Docker Hub 镜像，最后通过腾讯云官方镜像加速器在专用 runner 上部署固定 digest。"
 step "通过受控运维通道在 CVM 本机检查：curl -fsS http://127.0.0.1:8080/healthz 和 curl -fsS http://127.0.0.1:8080/readyz。"
 step "检查 docker compose ps、发布记录、运行镜像 digest 与工作流 Git SHA 一致；再用 sudo ss -ltn 确认 5432 和 API 没有公网监听。"
 step "故意不创建调度器、不运行 worker 在线采集、不切换旧同步任务。验收通过后，环境才可作为后续数据后台开发基础。"
