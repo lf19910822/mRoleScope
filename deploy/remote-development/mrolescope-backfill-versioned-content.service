@@ -1,0 +1,11 @@
+[Unit]
+Description=mRoleScope versioned JD-content baseline backfill
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mrolescope-backfill-versioned-content run
+TimeoutStartSec=45m
+NoNewPrivileges=true
+PrivateTmp=true

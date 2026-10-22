@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Root-owned, fixed entry point for the one-time additive baseline backfill.
+# It intentionally accepts no caller-controlled database URL, image, command,
+# Compose path, or other arguments.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
+readonly LOCK_FILE="${RELEASE_DIR}/operation.lock"
+readonly PROJECT_NAME='mrolescope-remote-development'
+readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
+readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+die() {
+  printf 'mrolescope versioned-content backfill failed: %s\n' "$1" >&2
+  exit 1
+}
+
+log() {
+  printf 'mrolescope versioned-content backfill: %s\n' "$1"
+}
+
+is_root_owned_mode() {
+  local path="$1" expected_mode="$2"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:${expected_mode}" ]]
+}
+
+compose() {
+  docker compose \
+    --project-name "$PROJECT_NAME" \
+    --file "$COMPOSE_FILE" \
+    --env-file "$SECRETS_FILE" \
+    "$@"
+}
+
+load_release() {
+  local namespace api_image migrate_image worker_image api_pattern migrate_pattern worker_pattern
+  is_root_owned_mode /etc/mrolescope/remote-development.conf 644 || die 'deployment configuration must be root:root mode 0644'
+  is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
+  # shellcheck disable=SC1090
+  . /etc/mrolescope/remote-development.conf
+  # shellcheck disable=SC1090
+  . "$CURRENT_FILE"
+  namespace="${DOCKERHUB_NAMESPACE:-}"
+  api_image="${api_image:-}"
+  migrate_image="${migrate_image:-}"
+  worker_image="${worker_image:-}"
+  [[ "$namespace" =~ $NAMESPACE_PATTERN ]] || die 'invalid configured Docker Hub namespace'
+  api_pattern="^docker\\.io/${namespace}/mrolescope-api@${DIGEST_PATTERN}$"
+  migrate_pattern="^docker\\.io/${namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
+  worker_pattern="^docker\\.io/${namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  [[ "$api_image" =~ $api_pattern ]] || die 'verified release has no allowed API image digest'
+  [[ "$migrate_image" =~ $migrate_pattern ]] || die 'verified release has no allowed migration image digest'
+  [[ "$worker_image" =~ $worker_pattern ]] || die 'verified release has no allowed worker image digest'
+  export MROLESCOPE_API_IMAGE="$api_image"
+  export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
+  export MROLESCOPE_WORKER_IMAGE="$worker_image"
+}
+
+load_database_secret() {
+  is_root_owned_mode "$SECRETS_FILE" 600 || die 'runtime secrets must be root:root mode 0600'
+  set -a
+  # shellcheck disable=SC1090
+  . "$SECRETS_FILE"
+  set +a
+  [[ -n "${DATABASE_URL:-}" ]] || die 'required runtime configuration is missing: DATABASE_URL'
+}
+
+[[ "${EUID}" -eq 0 ]] || die 'must run as root'
+[[ "$#" -eq 1 && "$1" == 'run' ]] || die 'usage: mrolescope-backfill-versioned-content run'
+is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
+[[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
+command -v docker >/dev/null 2>&1 || die 'docker is required'
+command -v flock >/dev/null 2>&1 || die 'flock is required'
+load_release
+load_database_secret
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || die 'another deployment or synchronization is already running'
+compose up -d --wait --wait-timeout 60 postgres
+compose --profile backfill run --rm --no-deps backfill
+log 'baseline backfill completed'

@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS technology_analysis_audit_events;
+DROP TABLE IF EXISTS technology_analysis_work_items;
+DROP TABLE IF EXISTS technology_analysis_runs;
+DROP TABLE IF EXISTS technology_analysis_publication_state;
+DROP TABLE IF EXISTS technology_analysis_configurations;
+DROP TYPE IF EXISTS technology_analysis_trigger;
+DROP TYPE IF EXISTS technology_analysis_work_status;
+DROP TYPE IF EXISTS technology_analysis_run_status;
+DROP TYPE IF EXISTS technology_analysis_configuration_status;

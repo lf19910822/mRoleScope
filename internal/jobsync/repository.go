@@ -20,6 +20,17 @@ type Repository struct {
 	pool *pgxpool.Pool
 }
 
+// BackfillSummary deliberately contains counts only. It is safe to expose in
+// controlled CVM operations because it has no source text, snippets, source
+// identifiers, archive locations, credentials, or database error details.
+type BackfillSummary struct {
+	PublishedObservations    int
+	VersionReferencesCreated int
+	BodyPeriodsCreated       int
+	SkippedObservations      int
+	SkippedBodyPeriods       int
+}
+
 func NewRepository(ctx context.Context, databaseURL string) (*Repository, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -32,6 +43,241 @@ func (repository *Repository) Close() {
 	if repository != nil && repository.pool != nil {
 		repository.pool.Close()
 	}
+}
+
+// BackfillVersionedContent maps the already-published legacy baseline into
+// the additive metadata/body model. It never modifies legacy source facts or
+// COS references. Where an old database row lacks sufficient normalized input
+// to reconstruct a canonical version, it records only a safe skipped count;
+// the private source archive remains the authoritative historical evidence.
+func (repository *Repository) BackfillVersionedContent(ctx context.Context) (BackfillSummary, error) {
+	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return BackfillSummary{}, fmt.Errorf("begin versioned-content backfill: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	summary, err := backfillVersionedContent(ctx, tx)
+	if err != nil {
+		return BackfillSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BackfillSummary{}, fmt.Errorf("commit versioned-content backfill: %w", err)
+	}
+	return summary, nil
+}
+
+func backfillVersionedContent(ctx context.Context, tx pgx.Tx) (BackfillSummary, error) {
+	rows, err := tx.Query(ctx, `
+SELECT rj.run_id::text, rj.job_id::text, j.source_company, j.source_job_id,
+       rj.jd_version_id::text, jd.raw_fields, jd.display_text, rj.observed_at
+FROM run_jobs AS rj
+JOIN collection_runs AS run ON run.id = rj.run_id
+JOIN jobs AS j ON j.id = rj.job_id
+JOIN jd_versions AS jd ON jd.id = rj.jd_version_id
+WHERE run.status = 'published'
+ORDER BY rj.run_id, rj.job_id`)
+	if err != nil {
+		return BackfillSummary{}, fmt.Errorf("query published legacy observations: %w", err)
+	}
+	defer rows.Close()
+
+	type legacyObservationRow struct {
+		runID, jobID, sourceCompany, sourceJobID, legacyVersionID string
+		rawFields, displayFields                                  []byte
+		observedAt                                                time.Time
+	}
+	legacyRows := make([]legacyObservationRow, 0)
+	for rows.Next() {
+		var row legacyObservationRow
+		if err := rows.Scan(&row.runID, &row.jobID, &row.sourceCompany, &row.sourceJobID, &row.legacyVersionID, &row.rawFields, &row.displayFields, &row.observedAt); err != nil {
+			return BackfillSummary{}, fmt.Errorf("scan published legacy observation: %w", err)
+		}
+		legacyRows = append(legacyRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return BackfillSummary{}, fmt.Errorf("iterate published legacy observations: %w", err)
+	}
+	rows.Close()
+
+	summary := BackfillSummary{}
+	legacyToBody := make(map[string]string)
+	for _, row := range legacyRows {
+		summary.PublishedObservations++
+
+		observation, ok := observationFromLegacyVersion(row.sourceCompany, row.sourceJobID, row.rawFields, row.displayFields, row.observedAt)
+		if !ok {
+			summary.SkippedObservations++
+			continue
+		}
+		metadataID, err := upsertSourceMetadataVersion(ctx, tx, row.jobID, observation)
+		if err != nil {
+			return BackfillSummary{}, err
+		}
+		bodyID, err := upsertBodyContentVersion(ctx, tx, row.jobID, observation)
+		if err != nil {
+			return BackfillSummary{}, err
+		}
+		legacyToBody[row.legacyVersionID] = bodyID
+		command, err := tx.Exec(ctx, `
+INSERT INTO run_job_version_references (
+    run_id, job_id, source_metadata_version_id, body_content_version_id, observed_at
+) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (run_id, job_id) DO NOTHING`, row.runID, row.jobID, metadataID, bodyID, observation.ObservedAt)
+		if err != nil {
+			return BackfillSummary{}, fmt.Errorf("insert canonical run reference: %w", err)
+		}
+		summary.VersionReferencesCreated += int(command.RowsAffected())
+	}
+
+	periodRows, err := tx.Query(ctx, `
+SELECT id::text, presence_period_id::text, jd_version_id::text,
+       valid_from_run_id::text, valid_from, valid_to_run_id::text, valid_to
+FROM job_content_periods
+ORDER BY id`)
+	if err != nil {
+		return BackfillSummary{}, fmt.Errorf("query legacy content periods: %w", err)
+	}
+	defer periodRows.Close()
+	type legacyPeriodRow struct {
+		presencePeriodID, legacyVersionID, validFromRunID string
+		validFrom                                         time.Time
+		validToRunID                                      *string
+		validTo                                           *time.Time
+	}
+	legacyPeriods := make([]legacyPeriodRow, 0)
+	for periodRows.Next() {
+		var ignoredID string
+		var period legacyPeriodRow
+		if err := periodRows.Scan(&ignoredID, &period.presencePeriodID, &period.legacyVersionID, &period.validFromRunID, &period.validFrom, &period.validToRunID, &period.validTo); err != nil {
+			return BackfillSummary{}, fmt.Errorf("scan legacy content period: %w", err)
+		}
+		legacyPeriods = append(legacyPeriods, period)
+	}
+	if err := periodRows.Err(); err != nil {
+		return BackfillSummary{}, fmt.Errorf("iterate legacy content periods: %w", err)
+	}
+	periodRows.Close()
+	for _, period := range legacyPeriods {
+		bodyID, exists := legacyToBody[period.legacyVersionID]
+		if !exists {
+			summary.SkippedBodyPeriods++
+			continue
+		}
+		command, err := tx.Exec(ctx, `
+INSERT INTO job_body_content_periods (
+    presence_period_id, body_content_version_id, valid_from_run_id, valid_from, valid_to_run_id, valid_to
+) VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (presence_period_id, valid_from_run_id, body_content_version_id) DO NOTHING`,
+			period.presencePeriodID, bodyID, period.validFromRunID, period.validFrom, period.validToRunID, period.validTo)
+		if err != nil {
+			return BackfillSummary{}, fmt.Errorf("insert canonical body content period: %w", err)
+		}
+		summary.BodyPeriodsCreated += int(command.RowsAffected())
+	}
+	return summary, nil
+}
+
+func observationFromLegacyVersion(sourceCompany, sourceJobID string, rawFields, displayFields []byte, observedAt time.Time) (Observation, bool) {
+	var detail, display map[string]any
+	if json.Unmarshal(rawFields, &detail) != nil || json.Unmarshal(displayFields, &display) != nil {
+		return Observation{}, false
+	}
+	listItem := legacyListFallback(sourceJobID, display)
+	observation, err := NormalizeObservation(sourceCompany, listItem, detail, observedAt)
+	if err != nil {
+		return Observation{}, false
+	}
+	return observation, true
+}
+
+// legacyListFallback uses only the old database representation when an M0/M1
+// detail payload did not contain a field. It does not claim unavailable source
+// IDs or types existed; those distinctions remain recoverable from COS.
+func legacyListFallback(sourceJobID string, display map[string]any) map[string]any {
+	listItem := map[string]any{"id": sourceJobID}
+	for target, source := range map[string]string{
+		"title":       "title",
+		"description": "description",
+		"jobRequire":  "requirements",
+		"addition":    "additional",
+		"category":    "category",
+		"jobNature":   "nature",
+		"projectName": "project",
+	} {
+		if value, exists := display[source]; exists {
+			listItem[target] = value
+		}
+	}
+	if locations, ok := display["locations"].([]any); ok {
+		addressDetails := make([]any, 0, len(locations))
+		for _, location := range locations {
+			addressDetails = append(addressDetails, map[string]any{"addressDetail": location})
+		}
+		listItem["addressDetailList"] = addressDetails
+	}
+	return listItem
+}
+
+func upsertSourceMetadataVersion(ctx context.Context, tx pgx.Tx, jobID string, observation Observation) (string, error) {
+	var id string
+	err := tx.QueryRow(ctx, `
+INSERT INTO job_source_metadata_versions (
+    job_id, metadata_sha256, normalization_version, metadata_payload
+) VALUES ($1, $2, $3, $4)
+ON CONFLICT (job_id, metadata_sha256)
+DO UPDATE SET metadata_sha256 = EXCLUDED.metadata_sha256
+RETURNING id::text`, jobID, observation.MetadataSHA256, observation.MetadataNormalizationVersion, []byte(observation.MetadataPayload)).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("upsert source metadata version: %w", err)
+	}
+	return id, nil
+}
+
+func upsertBodyContentVersion(ctx context.Context, tx pgx.Tx, jobID string, observation Observation) (string, error) {
+	id, _, err := upsertBodyContentVersionWithCreated(ctx, tx, jobID, observation)
+	return id, err
+}
+
+// upsertBodyContentVersionWithCreated distinguishes a new analysis input from
+// a reused historic body. The flag is used only to enqueue downstream work;
+// it is never inferred from a metadata or legacy merged-version change.
+func upsertBodyContentVersionWithCreated(ctx context.Context, tx pgx.Tx, jobID string, observation Observation) (string, bool, error) {
+	var id string
+	err := tx.QueryRow(ctx, `
+	SELECT id::text
+FROM job_body_content_versions
+WHERE job_id = $1 AND body_sha256 = $2`, jobID, observation.BodySHA256).Scan(&id)
+	if err == nil {
+		return id, false, nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", false, fmt.Errorf("find body content version: %w", err)
+	}
+	err = tx.QueryRow(ctx, `
+INSERT INTO job_body_content_versions (
+    job_id, body_sha256, normalization_version,
+    description_text, job_require_text, addition_text,
+    description_sha256, job_require_sha256, addition_sha256
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (job_id, body_sha256) DO NOTHING
+RETURNING id::text`,
+		jobID, observation.BodySHA256, observation.BodyNormalizationVersion,
+		observation.DescriptionText, observation.JobRequireText, observation.AdditionText,
+		observation.DescriptionSHA256, observation.JobRequireSHA256, observation.AdditionSHA256).Scan(&id)
+	if err == nil {
+		return id, true, nil
+	}
+	if err == pgx.ErrNoRows {
+		err = tx.QueryRow(ctx, `
+SELECT id::text
+FROM job_body_content_versions
+WHERE job_id = $1 AND body_sha256 = $2`, jobID, observation.BodySHA256).Scan(&id)
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("upsert body content version: %w", err)
+	}
+	return id, false, nil
 }
 
 type StoredScope struct {
@@ -268,6 +514,14 @@ WHERE observation_scope_id = $1
 FOR UPDATE`, input.Scope.ID); err != nil {
 		return fmt.Errorf("lock scope publication state: %w", err)
 	}
+	// A source publication takes a shared lock for its whole transaction. A
+	// candidate promotion takes the corresponding exclusive lock, so it either
+	// sees this newly committed body or makes this transaction wait and enqueue
+	// against the newly published configuration. That closes the catch-up race
+	// without coupling source collection to analysis execution.
+	if err := lockAnalysisPublicationStateForSourcePublish(ctx, tx); err != nil {
+		return err
+	}
 
 	observedJobIDs := make(map[string]struct{}, len(input.Observations))
 	for _, observation := range input.Observations {
@@ -338,9 +592,25 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (run_id, job_id) DO NOTHING`, input.Run.ID, jobID, versionID, observation.ObservedAt); err != nil {
 		return fmt.Errorf("insert run observation for job %s: %w", observation.SourceJobID, err)
 	}
+	metadataVersionID, err := upsertSourceMetadataVersion(ctx, tx, jobID, observation)
+	if err != nil {
+		return fmt.Errorf("upsert source metadata version for job %s: %w", observation.SourceJobID, err)
+	}
+	bodyVersionID, bodyCreated, err := upsertBodyContentVersionWithCreated(ctx, tx, jobID, observation)
+	if err != nil {
+		return fmt.Errorf("upsert body content version for job %s: %w", observation.SourceJobID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO run_job_version_references (
+    run_id, job_id, source_metadata_version_id, body_content_version_id, observed_at
+) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (run_id, job_id) DO NOTHING`,
+		input.Run.ID, jobID, metadataVersionID, bodyVersionID, observation.ObservedAt); err != nil {
+		return fmt.Errorf("insert canonical run reference for job %s: %w", observation.SourceJobID, err)
+	}
 
 	var presenceID string
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 SELECT id::text
 FROM job_presence_periods
 WHERE observation_scope_id = $1 AND job_id = $2 AND closed_at IS NULL
@@ -375,26 +645,117 @@ INSERT INTO job_content_periods (id, presence_period_id, jd_version_id, valid_fr
 VALUES ($1, $2, $3, $4, $5)`, newUUID(), presenceID, versionID, input.Run.ID, observation.ObservedAt); err != nil {
 			return fmt.Errorf("open content period for job %s: %w", observation.SourceJobID, err)
 		}
+	} else if err != nil {
+		return fmt.Errorf("lock content period for job %s: %w", observation.SourceJobID, err)
+	} else if currentVersionID != versionID {
+		boundary := observation.ObservedAt
+		if !boundary.After(validFrom) {
+			boundary = validFrom.Add(time.Microsecond)
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE job_content_periods SET valid_to_run_id = $2, valid_to = $3 WHERE id = $1`, contentPeriodID, input.Run.ID, boundary); err != nil {
+			return fmt.Errorf("close content period for job %s: %w", observation.SourceJobID, err)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO job_content_periods (id, presence_period_id, jd_version_id, valid_from_run_id, valid_from)
+VALUES ($1, $2, $3, $4, $5)`, newUUID(), presenceID, versionID, input.Run.ID, boundary); err != nil {
+			return fmt.Errorf("open replacement content period for job %s: %w", observation.SourceJobID, err)
+		}
+	}
+	if err := ensureBodyContentPeriod(ctx, tx, presenceID, bodyVersionID, input.Run.ID, observation.ObservedAt); err != nil {
+		return fmt.Errorf("publish canonical body content period for job %s: %w", observation.SourceJobID, err)
+	}
+	if bodyCreated {
+		if err := enqueuePublishedBodyAnalysis(ctx, tx, bodyVersionID); err != nil {
+			return fmt.Errorf("enqueue body analysis for job %s: %w", observation.SourceJobID, err)
+		}
+	}
+	return nil
+}
+
+func ensureBodyContentPeriod(ctx context.Context, tx pgx.Tx, presenceID, bodyVersionID, runID string, observedAt time.Time) error {
+	var periodID, currentBodyVersionID string
+	var validFrom time.Time
+	err := tx.QueryRow(ctx, `
+SELECT id::text, body_content_version_id::text, valid_from
+FROM job_body_content_periods
+WHERE presence_period_id = $1 AND valid_to IS NULL
+FOR UPDATE`, presenceID).Scan(&periodID, &currentBodyVersionID, &validFrom)
+	if err == pgx.ErrNoRows {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO job_body_content_periods (
+    id, presence_period_id, body_content_version_id, valid_from_run_id, valid_from
+) VALUES ($1, $2, $3, $4, $5)`, newUUID(), presenceID, bodyVersionID, runID, observedAt); err != nil {
+			return fmt.Errorf("open body content period: %w", err)
+		}
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("lock content period for job %s: %w", observation.SourceJobID, err)
+		return fmt.Errorf("lock body content period: %w", err)
 	}
-	if currentVersionID == versionID {
+	if currentBodyVersionID == bodyVersionID {
 		return nil
 	}
-	boundary := observation.ObservedAt
+	boundary := observedAt
 	if !boundary.After(validFrom) {
 		boundary = validFrom.Add(time.Microsecond)
 	}
 	if _, err := tx.Exec(ctx, `
-UPDATE job_content_periods SET valid_to_run_id = $2, valid_to = $3 WHERE id = $1`, contentPeriodID, input.Run.ID, boundary); err != nil {
-		return fmt.Errorf("close content period for job %s: %w", observation.SourceJobID, err)
+UPDATE job_body_content_periods
+SET valid_to_run_id = $2, valid_to = $3
+WHERE id = $1`, periodID, runID, boundary); err != nil {
+		return fmt.Errorf("close body content period: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO job_content_periods (id, presence_period_id, jd_version_id, valid_from_run_id, valid_from)
-VALUES ($1, $2, $3, $4, $5)`, newUUID(), presenceID, versionID, input.Run.ID, boundary); err != nil {
-		return fmt.Errorf("open replacement content period for job %s: %w", observation.SourceJobID, err)
+INSERT INTO job_body_content_periods (
+    id, presence_period_id, body_content_version_id, valid_from_run_id, valid_from
+) VALUES ($1, $2, $3, $4, $5)`, newUUID(), presenceID, bodyVersionID, runID, boundary); err != nil {
+		return fmt.Errorf("open replacement body content period: %w", err)
+	}
+	return nil
+}
+
+// enqueuePublishedBodyAnalysis only targets the single published analysis
+// configuration. Candidate configurations are queued by the explicit,
+// all-history reanalysis flow; a source publication never causes a partial
+// candidate result set to become current.
+func enqueuePublishedBodyAnalysis(ctx context.Context, tx pgx.Tx, bodyVersionID string) error {
+	var configurationID string
+	err := tx.QueryRow(ctx, `
+SELECT configuration.id::text
+FROM technology_analysis_publication_state AS publication
+JOIN technology_analysis_configurations AS configuration
+  ON configuration.id = publication.configuration_id
+WHERE publication.singleton = true AND configuration.status = 'published'`).Scan(&configurationID)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find published analysis configuration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO technology_analysis_work_items (
+    configuration_id, body_content_version_id, trigger
+) VALUES ($1, $2, 'new_body')
+ON CONFLICT (configuration_id, body_content_version_id) DO NOTHING`, configurationID, bodyVersionID); err != nil {
+		return fmt.Errorf("enqueue published body analysis: %w", err)
+	}
+	return nil
+}
+
+func lockAnalysisPublicationStateForSourcePublish(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `
+INSERT INTO technology_analysis_publication_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING`); err != nil {
+		return fmt.Errorf("ensure analysis publication state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+SELECT singleton
+FROM technology_analysis_publication_state
+WHERE singleton = true
+FOR SHARE`); err != nil {
+		return fmt.Errorf("lock analysis publication state for source publication: %w", err)
 	}
 	return nil
 }
@@ -465,6 +826,13 @@ SET valid_to_run_id = $2,
     valid_to = CASE WHEN valid_from >= $3 THEN valid_from + interval '1 microsecond' ELSE $3 END
 WHERE presence_period_id = $1 AND valid_to IS NULL`, period.ID, input.Run.ID, now); err != nil {
 			return fmt.Errorf("close content period for job %s: %w", period.SourceJobID, err)
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE job_body_content_periods
+SET valid_to_run_id = $2,
+    valid_to = CASE WHEN valid_from >= $3 THEN valid_from + interval '1 microsecond' ELSE $3 END
+WHERE presence_period_id = $1 AND valid_to IS NULL`, period.ID, input.Run.ID, now); err != nil {
+			return fmt.Errorf("close body content period for job %s: %w", period.SourceJobID, err)
 		}
 	}
 	return nil

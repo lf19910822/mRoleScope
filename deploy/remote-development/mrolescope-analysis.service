@@ -1,0 +1,14 @@
+[Unit]
+Description=mRoleScope pending JD technology analysis
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mrolescope-analysis pending
+TimeoutStartSec=45m
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

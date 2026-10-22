@@ -62,10 +62,28 @@ func (trigger TriggerKind) Valid() bool {
 type Observation struct {
 	SourceCompany string
 	SourceJobID   string
+
+	// ContentSHA256 and DisplayFields are retained solely for the additive
+	// legacy jd_versions compatibility fact.  New business decisions use the
+	// separately-versioned metadata and body fields below.
 	ContentSHA256 string
 	RawFields     json.RawMessage
 	DisplayFields json.RawMessage
-	ObservedAt    time.Time
+
+	MetadataSHA256               string
+	MetadataNormalizationVersion string
+	MetadataPayload              json.RawMessage
+
+	BodySHA256               string
+	BodyNormalizationVersion string
+	DescriptionText          string
+	JobRequireText           string
+	AdditionText             string
+	DescriptionSHA256        string
+	JobRequireSHA256         string
+	AdditionSHA256           string
+
+	ObservedAt time.Time
 }
 
 type canonicalBusinessContent struct {
@@ -80,8 +98,9 @@ type canonicalBusinessContent struct {
 }
 
 // NormalizeObservation converts a raw detail response and its corresponding
-// list item into the fixed business representation used for version hashing.
-// Volatile transport data is deliberately absent from canonicalBusinessContent.
+// list item into the legacy merged representation and the canonical split
+// source-metadata/body representations. Volatile transport data is excluded
+// from all business fingerprints but remains in the remote-only raw archive.
 func NormalizeObservation(sourceCompany string, listItem, detail map[string]any, observedAt time.Time) (Observation, error) {
 	if sourceCompany == "" {
 		return Observation{}, fmt.Errorf("source company is required")
@@ -94,33 +113,58 @@ func NormalizeObservation(sourceCompany string, listItem, detail map[string]any,
 		return Observation{}, fmt.Errorf("detail response does not contain a job id")
 	}
 
+	metadata := normalizeSourceMetadata(detail, listItem)
+	body := normalizeBodyContent(detail, listItem)
+	if body.Description == "" || body.JobRequire == "" {
+		return Observation{}, fmt.Errorf("detail response is missing a required business field for job %s", sourceJobID)
+	}
+
+	// Keep the pre-existing merged payload for its legacy compatibility row.
+	// It must not be consulted to decide whether a body analysis is reusable.
 	content := canonicalBusinessContent{
 		Title:        firstNormalized(detail, listItem, "title", "jobName", "name"),
 		Locations:    normalizedLocations(detail, listItem),
 		Category:     firstNormalized(detail, listItem, "category", "competencyType", "positionCategory"),
 		Nature:       firstNormalized(detail, listItem, "hireTypeName", "jobNature", "nature"),
 		Project:      firstNormalized(detail, listItem, "projectName", "project", "businessLine"),
-		Description:  firstNormalized(detail, listItem, "description", "jobDescription", "responsibility"),
-		Requirements: firstNormalized(detail, listItem, "jobRequire", "requirements", "requirement"),
-		Additional:   firstNormalized(detail, listItem, "addition", "additional", "remark"),
+		Description:  body.Description,
+		Requirements: body.JobRequire,
+		Additional:   body.Addition,
 	}
-	if content.Title == "" || content.Description == "" || content.Requirements == "" {
+	if content.Title == "" {
 		return Observation{}, fmt.Errorf("detail response is missing a required business field for job %s", sourceJobID)
 	}
 
 	display := canonicalJSON(content)
-	sum := sha256.Sum256(display)
+	legacySum := sha256.Sum256(display)
 	raw, err := json.Marshal(detail)
 	if err != nil {
 		return Observation{}, fmt.Errorf("encode raw fields: %w", err)
 	}
+	metadataPayload := canonicalJSON(metadata)
+	metadataSHA := fingerprint(MetadataNormalizationVersion, metadata)
+	bodySHA := fingerprint(BodyNormalizationVersion, body)
 	return Observation{
 		SourceCompany: sourceCompany,
 		SourceJobID:   sourceJobID,
-		ContentSHA256: hex.EncodeToString(sum[:]),
+		ContentSHA256: hex.EncodeToString(legacySum[:]),
 		RawFields:     raw,
 		DisplayFields: display,
-		ObservedAt:    observedAt.UTC(),
+
+		MetadataSHA256:               metadataSHA,
+		MetadataNormalizationVersion: MetadataNormalizationVersion,
+		MetadataPayload:              metadataPayload,
+
+		BodySHA256:               bodySHA,
+		BodyNormalizationVersion: BodyNormalizationVersion,
+		DescriptionText:          body.Description,
+		JobRequireText:           body.JobRequire,
+		AdditionText:             body.Addition,
+		DescriptionSHA256:        textSHA256(body.Description),
+		JobRequireSHA256:         textSHA256(body.JobRequire),
+		AdditionSHA256:           textSHA256(body.Addition),
+
+		ObservedAt: observedAt.UTC(),
 	}, nil
 }
 
