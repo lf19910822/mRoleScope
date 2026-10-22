@@ -189,6 +189,38 @@ def collect_live(page_size: int, workers: int, retries: int, timeout_seconds: in
     return pages, details
 
 
+def probe_live(retries: int, timeout_seconds: int) -> Dict[str, Any]:
+    """Verify both public endpoints in memory without creating a task directory."""
+    list_data = response_data(
+        post_json(LIST_API, list_payload(1, 1), retries, timeout_seconds),
+        "list",
+    )
+    total = list_data.get("total")
+    items = list_data.get("list")
+    if not isinstance(total, int) or total <= 0:
+        raise CollectionError("list API returned an empty or invalid total")
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+        raise CollectionError("list API probe response did not contain exactly one job")
+
+    source_job_id = str(items[0].get("id") or "")
+    if not source_job_id:
+        raise CollectionError("list API probe response did not contain a job ID")
+    detail_data = response_data(
+        post_json(DETAIL_API, detail_payload(source_job_id), retries, timeout_seconds),
+        "detail",
+    )
+    required = ("id", "title", "description", "jobRequire")
+    if str(detail_data.get("id")) != source_job_id or any(not detail_data.get(field) for field in required):
+        raise CollectionError("detail API probe response is incomplete")
+
+    return {
+        "detail_validated": True,
+        "list_reported_total": total,
+        "mode": "live-probe",
+        "status": "ok",
+    }
+
+
 def collect_fixture(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     try:
         fixture = json.loads(path.read_text(encoding="utf-8"))
@@ -259,7 +291,12 @@ def write_task_directory(
 
 def run(arguments: List[str] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", required=True, help="empty task directory to create")
+    parser.add_argument("--output-dir", help="empty task directory to create")
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="request one list item and its detail in memory without writing response data or files",
+    )
     parser.add_argument("--run-id", default=None, help="worker-issued immutable run identity")
     parser.add_argument("--fixture", help="offline raw-response fixture; never contacts the public API")
     parser.add_argument("--page-size", type=int, default=100)
@@ -269,6 +306,29 @@ def run(arguments: List[str] = None) -> int:
     args = parser.parse_args(arguments)
     if args.page_size <= 0 or args.workers <= 0 or args.retries <= 0 or args.timeout_seconds <= 0:
         parser.error("page size, workers, retries and timeout must all be positive")
+
+    if args.probe:
+        if args.output_dir:
+            parser.error("--probe cannot be combined with --output-dir")
+        if args.fixture:
+            parser.error("--probe always contacts the public API and cannot use --fixture")
+        if args.run_id:
+            parser.error("--probe does not create a run and cannot use --run-id")
+        try:
+            print(json.dumps(probe_live(args.retries, args.timeout_seconds), ensure_ascii=False))
+            return 0
+        except CollectionError as exc:
+            print(
+                json.dumps(
+                    {"mode": "live-probe", "status": "failed", "failure": {"stage": "probe", "summary": str(exc)}},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            return 1
+
+    if not args.output_dir:
+        parser.error("--output-dir is required unless --probe is used")
 
     output_dir = Path(args.output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):

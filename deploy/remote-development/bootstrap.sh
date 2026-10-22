@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 #
 # One-time, root-run installer for the remote-development deployment boundary.
-# It intentionally downloads only two reviewed infrastructure assets from a
-# full, immutable Git commit: the Compose definition and the restricted root
-# helper. It never downloads application source, builds an image, starts a
-# service, or accepts a secret.
+# It intentionally downloads only reviewed infrastructure assets from a full,
+# immutable Git commit. It never downloads application source, builds an
+# image, starts an application service, or accepts a secret.
 
 set -euo pipefail
 
 readonly REPOSITORY='lf19910822/mRoleScope'
 readonly COMPOSE_DESTINATION='/opt/mrolescope/remote-development.compose.yaml'
 readonly HELPER_DESTINATION='/usr/local/sbin/mrolescope-deploy'
+readonly SYNC_HELPER_DESTINATION='/usr/local/sbin/mrolescope-sync'
+readonly OPERATIONS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-operations'
+readonly SYNC_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-sync.service'
+readonly SYNC_TIMER_DESTINATION='/etc/systemd/system/mrolescope-sync.timer'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
 readonly SECRETS_DIR='/etc/mrolescope/secrets'
@@ -66,7 +69,13 @@ download_asset() {
 
 download_asset 'deploy/remote-development/compose.yaml' "$staging_dir/compose.yaml"
 download_asset 'deploy/remote-development/mrolescope-deploy' "$staging_dir/mrolescope-deploy"
+download_asset 'deploy/remote-development/mrolescope-sync' "$staging_dir/mrolescope-sync"
+download_asset 'deploy/remote-development/mrolescope-operations' "$staging_dir/mrolescope-operations"
+download_asset 'deploy/remote-development/mrolescope-sync.service' "$staging_dir/mrolescope-sync.service"
+download_asset 'deploy/remote-development/mrolescope-sync.timer' "$staging_dir/mrolescope-sync.timer"
 bash -n "$staging_dir/mrolescope-deploy"
+bash -n "$staging_dir/mrolescope-sync"
+bash -n "$staging_dir/mrolescope-operations"
 printf 'DOCKERHUB_NAMESPACE=%s\n' "$DOCKERHUB_NAMESPACE" >"$staging_dir/remote-development.conf"
 
 if ! getent passwd "$DEPLOY_USER" >/dev/null; then
@@ -80,18 +89,24 @@ install -d -o root -g root -m 0755 /opt/mrolescope /etc/mrolescope /var/lib/mrol
 install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR"
 install -o root -g root -m 0644 "$staging_dir/compose.yaml" "$COMPOSE_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-deploy" "$HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-sync" "$SYNC_HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-operations" "$OPERATIONS_HELPER_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.service" "$SYNC_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.timer" "$SYNC_TIMER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
 
 sudoers_candidate="$staging_dir/mrolescope-deploy.sudoers"
 printf '%s\n' \
-  '# The helper validates both image arguments before it invokes Docker.' \
-  'mrolescope-deploy ALL=(root) NOPASSWD: /usr/local/sbin/mrolescope-deploy *' \
+  '# Root-owned helpers validate all arguments before invoking Docker or systemd.' \
+  'mrolescope-deploy ALL=(root) NOPASSWD: /usr/local/sbin/mrolescope-deploy *, /usr/local/sbin/mrolescope-operations *' \
   >"$sudoers_candidate"
 chmod 0440 "$sudoers_candidate"
 visudo -cf "$sudoers_candidate" >/dev/null
 install -o root -g root -m 0440 "$sudoers_candidate" "$SUDOERS_DESTINATION"
 visudo -cf "$SUDOERS_DESTINATION" >/dev/null
+systemctl daemon-reload
 
 printf '%s\n' 'mRoleScope remote-development deployment boundary is installed.'
 printf '%s\n' 'No application image was pulled and no runtime secret was created.'
+printf '%s\n' 'The daily sync timer is installed but remains disabled until a verified initialization run succeeds.'
 printf '%s\n' 'Next: ensure the labeled GitHub Actions runner and root-only runtime env file are ready.'

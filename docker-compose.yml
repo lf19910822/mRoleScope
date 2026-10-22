@@ -44,5 +44,33 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
 
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    profiles: [sync]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      COS_ENDPOINT: ${COS_ENDPOINT:-}
+      COS_REGION: ${COS_REGION:-}
+      COS_BUCKET: ${COS_BUCKET:-}
+      COS_PREFIX: ${COS_PREFIX:-mrolescope}
+      COS_ACCESS_KEY_ID: ${COS_ACCESS_KEY_ID:-}
+      COS_SECRET_ACCESS_KEY: ${COS_SECRET_ACCESS_KEY:-}
+      SYNC_TEMP_ROOT: /run/mrolescope-sync
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      SYNC_RETRY_DELAYS: ${SYNC_RETRY_DELAYS:-15m,45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: ${MROLESCOPE_SYNC_HOST_DIR:-./var/sync}
+        target: /run/mrolescope-sync
+    networks: [default]
+
 volumes:
   postgres_data:

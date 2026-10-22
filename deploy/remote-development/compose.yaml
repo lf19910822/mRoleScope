@@ -48,6 +48,37 @@ services:
       - /tmp
     networks: [backend, edge]
 
+  worker:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [sync]
+    restart: "no"
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      COLLECTOR_TIMEOUT: "15m"
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      SYNC_RETRY_DELAYS: ${SYNC_RETRY_DELAYS:-15m,45m}
+      SYNC_TEMP_ROOT: /run/mrolescope-sync
+      COS_ENDPOINT: ${COS_ENDPOINT:-}
+      COS_REGION: ${COS_REGION:-}
+      COS_BUCKET: ${COS_BUCKET:-}
+      COS_PREFIX: ${COS_PREFIX:-mrolescope}
+      COS_ACCESS_KEY_ID: ${COS_ACCESS_KEY_ID:-}
+      COS_SECRET_ACCESS_KEY: ${COS_SECRET_ACCESS_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: ${MROLESCOPE_SYNC_HOST_DIR:-/run/mrolescope-sync-not-configured}
+        target: /run/mrolescope-sync
+    # No port is published. edge supplies outbound HTTPS for the source and COS;
+    # PostgreSQL remains reachable only on the internal backend network.
+    networks: [backend, edge]
+
 networks:
   backend:
     internal: true

@@ -20,6 +20,15 @@ grep -Fqx '    networks: [backend, edge]' "$compose_file" \
 [[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 2 ]] \
   || die 'only PostgreSQL and migration services may use backend alone'
 
+grep -Fqx '    profiles: [sync]' "$compose_file" \
+  || die 'worker must remain an explicitly requested one-shot profile'
+
+[[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \
+  || die 'only API and no-port worker may attach to the ordinary edge network'
+
+[[ "$(grep -Fxc '    ports:' "$compose_file")" -eq 1 ]] \
+  || die 'only API may publish a host port'
+
 grep -Fqx '      - "127.0.0.1:8080:8080"' "$compose_file" \
   || die 'API must publish port 8080 only on the host loopback address'
 

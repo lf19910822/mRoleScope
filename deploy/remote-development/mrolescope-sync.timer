@@ -1,0 +1,10 @@
+[Unit]
+Description=Run mRoleScope job synchronization at 02:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Asia/Shanghai
+Persistent=false
+Unit=mrolescope-sync.service
+
+[Install]
+WantedBy=timers.target

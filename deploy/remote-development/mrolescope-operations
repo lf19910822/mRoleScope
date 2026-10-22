@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Root-owned operations entry point for the remote-development GitHub Actions
+# runner. It deliberately accepts only a small, fixed vocabulary and never
+# accepts a shell fragment, image name, Compose path, environment file, or
+# systemd unit from the caller.
+
+set -euo pipefail
+
+readonly SYNC_HELPER='/usr/local/sbin/mrolescope-sync'
+readonly SYNC_SERVICE='mrolescope-sync.service'
+readonly SYNC_TIMER='mrolescope-sync.timer'
+readonly RUNNER_SERVICE='actions.runner.lf19910822-mRoleScope.mrolescope-remote-development.service'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+die() {
+  printf 'mrolescope operations failed: %s\n' "$1" >&2
+  exit 1
+}
+
+print_unit_state() {
+  local unit="$1"
+  printf '%s enabled: ' "$unit"
+  systemctl is-enabled "$unit" 2>&1 || true
+  printf '%s active: ' "$unit"
+  systemctl is-active "$unit" 2>&1 || true
+}
+
+show_status() {
+  local failed=0
+
+  printf '%s\n' '--- system services ---'
+  print_unit_state docker.service
+  print_unit_state "$RUNNER_SERVICE"
+  print_unit_state "$SYNC_SERVICE"
+  print_unit_state "$SYNC_TIMER"
+
+  printf '%s\n' '--- API health ---'
+  if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz; then
+    failed=1
+  fi
+  printf '\n'
+  if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz; then
+    failed=1
+  fi
+  printf '\n'
+
+  printf '%s\n' '--- containers ---'
+  docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+  printf '%s\n' '--- next synchronization ---'
+  systemctl list-timers "$SYNC_TIMER" --all --no-pager
+
+  return "$failed"
+}
+
+[[ "${EUID}" -eq 0 ]] || die 'must be invoked through sudo'
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != 'mrolescope-deploy' ]]; then
+  die 'only the mrolescope-deploy service account may invoke this through sudo'
+fi
+[[ "$#" -eq 1 ]] || die 'usage: mrolescope-operations <status|initialize-sync|enable-sync-timer|disable-sync-timer|sync-logs>'
+
+case "$1" in
+  status)
+    show_status
+    ;;
+  initialize-sync)
+    [[ -x "$SYNC_HELPER" ]] || die 'synchronization helper is not installed'
+    if systemctl is-active --quiet "$SYNC_TIMER"; then
+      die 'disable the daily timer before requesting initialization synchronization'
+    fi
+    exec "$SYNC_HELPER" initialize
+    ;;
+  enable-sync-timer)
+    [[ -x "$SYNC_HELPER" ]] || die 'synchronization helper is not installed'
+    [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
+    systemctl enable --now "$SYNC_TIMER"
+    systemctl is-active --quiet "$SYNC_TIMER" || die 'daily timer did not become active'
+    systemctl list-timers "$SYNC_TIMER" --all --no-pager
+    ;;
+  disable-sync-timer)
+    # This prevents future starts. It deliberately does not interrupt a
+    # currently running one-shot synchronization, which could leave an
+    # upstream request or object upload half complete.
+    systemctl disable --now "$SYNC_TIMER"
+    ;;
+  sync-logs)
+    journalctl --unit "$SYNC_SERVICE" --since today --no-pager
+    ;;
+  *)
+    die 'operation must be status, initialize-sync, enable-sync-timer, disable-sync-timer, or sync-logs'
+    ;;
+esac

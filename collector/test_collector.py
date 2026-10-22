@@ -1,10 +1,13 @@
 import hashlib
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from email.message import Message
 from pathlib import Path
 from urllib import error
+from unittest.mock import patch
 
 from collector import mihoyo_collector
 
@@ -56,6 +59,53 @@ class CollectorContractTests(unittest.TestCase):
             (output / "existing.txt").write_text("do not overwrite", encoding="utf-8")
             with self.assertRaises(mihoyo_collector.CollectionError):
                 mihoyo_collector.run(["--output-dir", str(output), "--fixture", str(fixture)])
+
+    def test_probe_checks_one_list_and_one_detail_without_writing_responses(self):
+        requests = []
+
+        def fake_post(url, payload, retries, timeout_seconds):
+            requests.append((url, payload, retries, timeout_seconds))
+            if url == mihoyo_collector.LIST_API:
+                return {
+                    "success": True,
+                    "data": {"total": 159, "list": [{"id": "probe-job", "title": "must not print"}]},
+                }
+            if url == mihoyo_collector.DETAIL_API:
+                return {
+                    "success": True,
+                    "data": {
+                        "id": "probe-job",
+                        "title": "must not print",
+                        "description": "must not print",
+                        "jobRequire": "must not print",
+                    },
+                }
+            self.fail("unexpected URL: {0}".format(url))
+
+        standard_output = io.StringIO()
+        with patch.object(mihoyo_collector, "post_json", side_effect=fake_post), \
+             patch.object(mihoyo_collector, "write_json", side_effect=AssertionError("probe must not write files")), \
+             patch.object(mihoyo_collector, "write_task_directory", side_effect=AssertionError("probe must not write files")), \
+             redirect_stdout(standard_output):
+            result = mihoyo_collector.run(["--probe", "--retries", "1", "--timeout-seconds", "1"])
+
+        self.assertEqual(0, result)
+        self.assertEqual(
+            [
+                (mihoyo_collector.LIST_API, mihoyo_collector.list_payload(1, 1), 1, 1),
+                (mihoyo_collector.DETAIL_API, mihoyo_collector.detail_payload("probe-job"), 1, 1),
+            ],
+            requests,
+        )
+        self.assertEqual(
+            {
+                "detail_validated": True,
+                "list_reported_total": 159,
+                "mode": "live-probe",
+                "status": "ok",
+            },
+            json.loads(standard_output.getvalue()),
+        )
 
 
 if __name__ == "__main__":

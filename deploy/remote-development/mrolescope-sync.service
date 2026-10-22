@@ -1,0 +1,13 @@
+[Unit]
+Description=mRoleScope daily job synchronization
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mrolescope-sync scheduled
+# Three 45-minute worker attempts plus two bounded retries fit below this
+# watchdog. It prevents an upstream hang from holding the daily lock forever.
+TimeoutStartSec=4h
+NoNewPrivileges=true
+PrivateTmp=true
