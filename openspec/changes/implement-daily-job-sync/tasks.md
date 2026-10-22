@@ -39,16 +39,16 @@
 
 ## 6. CVM 同步入口与定时运行
 
-- [ ] 6.1 添加 root-owned `mrolescope-sync` 入口，使用 `flock` 防止本机重叠、创建并清理私有临时目录，并以 Compose one-shot worker 执行 `initialize`、`scheduled` 与 `retry` 触发；验证非 root 部署用户不能修改密钥或调用越权 Docker 命令，且并发调用不会启动第二个同步容器。
-- [ ] 6.2 添加 `systemd` oneshot service 与 timer：`Asia/Shanghai` 每日 02:00 启动、`Persistent=false` 禁止恢复后补跑，整轮失败最多以 15 分钟和 45 分钟非重叠延迟再试两次；验证 unit 文件通过 `systemd-analyze verify`，并用受控失败命令验证尝试上限与不会补跑的配置。
-- [ ] 6.3 编写远端部署/运维文档，给出先配置私有 COS 和 root-only 密钥、显式初始化、检查 COS/数据库/审计、再启用 timer 的顺序，以及禁用 timer 的回滚步骤；验证每条命令与实际文件路径、服务名称和镜像 digest 参数一致，且文档不要求开放任何新入站端口。
-- [ ] 6.4 记录 CVM GitHub Actions runner 仅构建测试和部署镜像、而非调度生产采集的职责边界，并验证 scheduled service 仅由本机 systemd 触发。
+- [x] 6.1 添加 root-owned `mrolescope-sync` 入口，使用 `flock` 防止本机重叠、创建并清理私有临时目录，并以 Compose one-shot worker 执行 `initialize`、`scheduled` 与 `retry` 触发；验证非 root 部署用户不能修改密钥或调用越权 Docker 命令，且并发调用不会启动第二个同步容器。
+- [x] 6.2 添加 `systemd` oneshot service 与 timer：`Asia/Shanghai` 每日 02:00 启动、`Persistent=false` 禁止恢复后补跑，整轮失败最多以 15 分钟和 45 分钟非重叠延迟再试两次；验证 unit 文件通过 `systemd-analyze verify`，并用受控失败命令验证尝试上限与不会补跑的配置。
+- [x] 6.3 编写远端部署/运维文档，给出先配置私有 COS 和 root-only 密钥、显式初始化、检查 COS/数据库/审计、再启用 timer 的顺序，以及禁用 timer 的回滚步骤；验证每条命令与实际文件路径、服务名称和镜像 digest 参数一致，且文档不要求开放任何新入站端口。
+- [x] 6.4 记录 CVM GitHub Actions runner 仅构建测试和部署镜像、而非调度生产采集的职责边界，并验证 scheduled service 仅由本机 systemd 触发。
 
 ## 7. 集成验收与交付检查
 
 - [x] 7.1 组装 PostgreSQL、对象存储模拟服务与 collector fixture 的端到端测试，验证初始化基线、未变运行、内容变更、消失确认、列表遗漏但详情可用、重现、归档失败与数据库失败的完整可观察结果。
 - [x] 7.2 将 Go/Python 测试、迁移检查、sqlc 生成检查、Compose 配置检查和 worker 镜像构建纳入 CI，验证一条干净 CI 流水线可通过且不会访问真实米哈游接口或真实 COS。
-- [ ] 7.3 完成上线验收清单：部署后人工执行一次初始化同步，逐项核对 COS manifest 摘要、`collection_runs`/审计/观察/期表、临时目录清理及禁用状态的 timer；验证成功后才允许启用每日 timer，且本任务不引入 API、页面、图表、周期汇总、同比环比或微信告警。
+- [x] 7.3 完成上线验收清单：部署后人工执行一次初始化同步，逐项核对 COS manifest 摘要、`collection_runs`/审计/观察/期表、临时目录清理及禁用状态的 timer；验证成功后才允许启用每日 timer，且本任务不引入 API、页面、图表、周期汇总、同比环比或微信告警。
 
 ## Workflow follow-up
 
