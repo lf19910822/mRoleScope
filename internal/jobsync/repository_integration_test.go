@@ -117,6 +117,133 @@ func TestRepositoryPublishIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestRepositoryWritesCanonicalVersionsAndQueuesOnlyNewBodies(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	configurationID := insertPublishedAnalysisConfiguration(t, repository)
+	base := time.Date(2026, 10, 22, 2, 0, 0, 0, time.UTC)
+	first := publishFixtureRun(t, repository, scope, base, 1, []Observation{integrationObservationWithTitleAndBody("Synthetic title A", "v1", base)}, nil)
+	second := publishFixtureRun(t, repository, scope, base.Add(time.Minute), 1, []Observation{integrationObservationWithTitleAndBody("Synthetic title B", "v1", base.Add(time.Minute))}, nil)
+	third := publishFixtureRun(t, repository, scope, base.Add(2*time.Minute), 1, []Observation{integrationObservationWithTitleAndBody("Synthetic title B", "v2", base.Add(2*time.Minute))}, nil)
+	publishFixtureRun(t, repository, scope, base.Add(3*time.Minute), 1, nil, map[string]RecheckResult{"8771": {Outcome: RecheckDefinitelyUnavailable, Code: "synthetic_unavailable"}})
+	fifth := publishFixtureRun(t, repository, scope, base.Add(4*time.Minute), 1, []Observation{integrationObservationWithTitleAndBody("Synthetic title B", "v2", base.Add(4*time.Minute))}, nil)
+
+	var metadataVersions, bodyVersions, references, bodyPeriods, closedBodyPeriods, queueItems int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM job_source_metadata_versions),
+  (SELECT count(*) FROM job_body_content_versions),
+  (SELECT count(*) FROM run_job_version_references),
+  (SELECT count(*) FROM job_body_content_periods),
+  (SELECT count(*) FROM job_body_content_periods WHERE valid_to IS NOT NULL),
+  (SELECT count(*) FROM technology_analysis_work_items WHERE configuration_id = $1)`, configurationID).Scan(
+		&metadataVersions, &bodyVersions, &references, &bodyPeriods, &closedBodyPeriods, &queueItems); err != nil {
+		t.Fatal(err)
+	}
+	if metadataVersions != 2 || bodyVersions != 2 || references != 4 || bodyPeriods != 3 || closedBodyPeriods != 2 || queueItems != 2 {
+		t.Fatalf("canonical publication counts = metadata:%d body:%d references:%d bodyPeriods:%d closedBodyPeriods:%d queue:%d", metadataVersions, bodyVersions, references, bodyPeriods, closedBodyPeriods, queueItems)
+	}
+	firstMetadata, firstBody := canonicalReferenceForRun(t, repository, first.ID)
+	secondMetadata, secondBody := canonicalReferenceForRun(t, repository, second.ID)
+	thirdMetadata, thirdBody := canonicalReferenceForRun(t, repository, third.ID)
+	_, fifthBody := canonicalReferenceForRun(t, repository, fifth.ID)
+	if firstMetadata == secondMetadata || secondMetadata != thirdMetadata {
+		t.Fatal("metadata-only title change did not produce exactly one new metadata version")
+	}
+	if firstBody != secondBody || secondBody == thirdBody || thirdBody != fifthBody {
+		t.Fatal("body version references do not preserve metadata-only reuse, body changes, and reappearance")
+	}
+	var pendingNewBodyItems int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM technology_analysis_work_items
+WHERE configuration_id = $1 AND status = 'pending' AND trigger = 'new_body'`, configurationID).Scan(&pendingNewBodyItems); err != nil {
+		t.Fatal(err)
+	}
+	if pendingNewBodyItems != 2 {
+		t.Fatalf("pending new-body work items = %d, want 2", pendingNewBodyItems)
+	}
+}
+
+func TestRepositoryBackfillsVersionedContentWithoutChangingLegacyHistory(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 22, 2, 0, 0, 0, time.UTC)
+	publishFixtureRun(t, repository, scope, base, 1, []Observation{integrationObservation("v1", base)}, nil)
+	publishFixtureRun(t, repository, scope, base.Add(time.Minute), 1, []Observation{integrationObservation("v1", base.Add(time.Minute))}, nil)
+	publishFixtureRun(t, repository, scope, base.Add(2*time.Minute), 1, []Observation{integrationObservation("v2", base.Add(2*time.Minute))}, nil)
+	if _, err := repository.pool.Exec(ctx, `
+DELETE FROM technology_analysis_work_items;
+DELETE FROM job_body_content_periods;
+DELETE FROM run_job_version_references;
+DELETE FROM job_body_content_versions;
+DELETE FROM job_source_metadata_versions`); err != nil {
+		t.Fatal(err)
+	}
+
+	var legacyJobs, legacyVersions, legacyRunJobs, legacyPeriods, archiveReferences int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM jobs),
+  (SELECT count(*) FROM jd_versions),
+  (SELECT count(*) FROM run_jobs),
+  (SELECT count(*) FROM job_content_periods),
+  (SELECT count(*) FROM collection_runs WHERE archive_uri IS NOT NULL)`).Scan(
+		&legacyJobs, &legacyVersions, &legacyRunJobs, &legacyPeriods, &archiveReferences); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := repository.BackfillVersionedContent(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.PublishedObservations != 3 || first.VersionReferencesCreated != 3 || first.BodyPeriodsCreated != 2 || first.SkippedObservations != 0 || first.SkippedBodyPeriods != 0 {
+		t.Fatalf("unexpected first backfill summary: %#v", first)
+	}
+	var metadataVersions, bodyVersions, versionReferences, bodyPeriods int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM job_source_metadata_versions),
+  (SELECT count(*) FROM job_body_content_versions),
+  (SELECT count(*) FROM run_job_version_references),
+  (SELECT count(*) FROM job_body_content_periods)`).Scan(&metadataVersions, &bodyVersions, &versionReferences, &bodyPeriods); err != nil {
+		t.Fatal(err)
+	}
+	if metadataVersions != 2 || bodyVersions != 2 || versionReferences != 3 || bodyPeriods != 2 {
+		t.Fatalf("backfill counts = metadata:%d body:%d refs:%d periods:%d", metadataVersions, bodyVersions, versionReferences, bodyPeriods)
+	}
+
+	second, err := repository.BackfillVersionedContent(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.VersionReferencesCreated != 0 || second.BodyPeriodsCreated != 0 {
+		t.Fatalf("second backfill was not idempotent: %#v", second)
+	}
+	var gotLegacyJobs, gotLegacyVersions, gotLegacyRunJobs, gotLegacyPeriods, gotArchiveReferences int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM jobs),
+  (SELECT count(*) FROM jd_versions),
+  (SELECT count(*) FROM run_jobs),
+  (SELECT count(*) FROM job_content_periods),
+  (SELECT count(*) FROM collection_runs WHERE archive_uri IS NOT NULL)`).Scan(
+		&gotLegacyJobs, &gotLegacyVersions, &gotLegacyRunJobs, &gotLegacyPeriods, &gotArchiveReferences); err != nil {
+		t.Fatal(err)
+	}
+	if gotLegacyJobs != legacyJobs || gotLegacyVersions != legacyVersions || gotLegacyRunJobs != legacyRunJobs || gotLegacyPeriods != legacyPeriods || gotArchiveReferences != archiveReferences {
+		t.Fatal("backfill changed legacy job history or archive references")
+	}
+}
+
 func TestServicePublishesAndSafelyRecordsFailures(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -273,13 +400,38 @@ func newIntegrationRepository(t *testing.T) *Repository {
 		t.Fatal(err)
 	}
 	t.Cleanup(repository.Close)
+	acquireJobsyncIntegrationTestLock(t, repository)
 	if _, err := repository.pool.Exec(context.Background(), `
-TRUNCATE collection_run_audit_events, job_content_periods, job_presence_periods,
+TRUNCATE collection_run_audit_events, job_body_content_periods,
+         run_job_version_references, job_body_content_versions,
+         job_source_metadata_versions, job_content_periods, job_presence_periods,
          run_jobs, jd_versions, jobs, observation_scope_publication_state,
          collection_runs, observation_scopes CASCADE`); err != nil {
 		t.Fatalf("clear disposable test database: %v", err)
 	}
+	if _, err := repository.pool.Exec(context.Background(), `
+INSERT INTO technology_analysis_publication_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING`); err != nil {
+		t.Fatalf("restore disposable analysis publication state: %v", err)
+	}
 	return repository
+}
+
+func acquireJobsyncIntegrationTestLock(t *testing.T, repository *Repository) {
+	t.Helper()
+	connection, err := repository.pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Exec(context.Background(), `SELECT pg_advisory_lock(873210004)`); err != nil {
+		connection.Release()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = connection.Exec(context.Background(), `SELECT pg_advisory_unlock(873210004)`)
+		connection.Release()
+	})
 }
 
 func publishFixtureRun(t *testing.T, repository *Repository, scope StoredScope, at time.Time, attempt int, observations []Observation, rechecks map[string]RecheckResult) Run {
@@ -308,23 +460,73 @@ func publishFixtureRun(t *testing.T, repository *Repository, scope StoredScope, 
 	return run
 }
 
-func integrationObservation(version string, at time.Time) Observation {
-	display, _ := json.Marshal(map[string]string{"title": version})
-	return Observation{
-		SourceCompany: SourceCompanyMihoyo,
-		SourceJobID:   "8771",
-		ContentSHA256: contentHashForTest(version),
-		RawFields:     json.RawMessage(`{"id":"8771"}`),
-		DisplayFields: display,
-		ObservedAt:    at,
+func insertPublishedAnalysisConfiguration(t *testing.T, repository *Repository) string {
+	t.Helper()
+	const (
+		dictionaryID    = "00000000-0000-4000-8000-000000000801"
+		configurationID = "00000000-0000-4000-8000-000000000802"
+	)
+	ctx := context.Background()
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_dictionary_versions (
+    id, version_label, content_sha256, status, source_document, created_by, published_at
+) VALUES ($1, 'synthetic-published-dictionary', $2, 'published', 'synthetic test', 'test', now())`, dictionaryID, strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_analysis_configurations (
+    id, parser_version, dictionary_version_id, status, created_by, published_at
+) VALUES ($1, 'synthetic-parser', $2, 'published', 'test', now())`, configurationID, dictionaryID); err != nil {
+		t.Fatal(err)
+	}
+	command, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_publication_state
+SET configuration_id = $1, updated_at = now()
+WHERE singleton = true`, configurationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.RowsAffected() != 1 {
+		t.Fatal("analysis publication state was not initialized")
+	}
+	t.Cleanup(func() {
+		cleanupContext := context.Background()
+		_, _ = repository.pool.Exec(cleanupContext, `DELETE FROM technology_analysis_work_items WHERE configuration_id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `UPDATE technology_analysis_publication_state SET configuration_id = NULL, updated_at = now() WHERE singleton = true`)
+		_, _ = repository.pool.Exec(cleanupContext, `DELETE FROM technology_analysis_configurations WHERE id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `DELETE FROM technology_dictionary_versions WHERE id = $1`, dictionaryID)
+	})
+	return configurationID
 }
 
-func contentHashForTest(version string) string {
-	// Any 64-character lowercase value is valid for the persistence contract;
-	// changing its final byte models a canonical business-content change.
-	base := "000000000000000000000000000000000000000000000000000000000000000"
-	return base[:63] + version[len(version)-1:]
+func canonicalReferenceForRun(t *testing.T, repository *Repository, runID string) (metadataID, bodyID string) {
+	t.Helper()
+	if err := repository.pool.QueryRow(context.Background(), `
+SELECT source_metadata_version_id::text, body_content_version_id::text
+FROM run_job_version_references
+WHERE run_id = $1`, runID).Scan(&metadataID, &bodyID); err != nil {
+		t.Fatal(err)
+	}
+	return metadataID, bodyID
+}
+
+func integrationObservation(version string, at time.Time) Observation {
+	return integrationObservationWithTitleAndBody("Synthetic "+version, version, at)
+}
+
+func integrationObservationWithTitleAndBody(title, bodyVersion string, at time.Time) Observation {
+	observation, err := NormalizeObservation(SourceCompanyMihoyo,
+		map[string]any{"id": "8771", "addressDetailList": []any{map[string]any{"addressId": "1", "addressDetail": "Synthetic city"}}},
+		map[string]any{
+			"id": "8771", "title": title,
+			"description": "Synthetic description " + bodyVersion,
+			"jobRequire":  "Synthetic requirement",
+			"addition":    "Synthetic addition",
+		}, at)
+	if err != nil {
+		panic(err)
+	}
+	return observation
 }
 
 func assertCounts(t *testing.T, repository *Repository, ctx context.Context, jobs, versions, presence, content, closedPresence int) {

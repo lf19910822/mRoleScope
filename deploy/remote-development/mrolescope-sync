@@ -11,6 +11,7 @@ readonly RELEASE_DIR='/var/lib/mrolescope/releases'
 readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
 readonly LOCK_FILE="${RELEASE_DIR}/operation.lock"
 readonly PROJECT_NAME='mrolescope-remote-development'
+readonly ANALYSIS_SERVICE='mrolescope-analysis.service'
 readonly WORKER_UID='10001'
 readonly WORKER_GID='10001'
 readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
@@ -132,6 +133,13 @@ run_attempt() {
   unset MROLESCOPE_SYNC_HOST_DIR
   cleanup_temp_dir
   sync_temp_dir=''
+  if [[ "$status" -eq 0 ]]; then
+    # Downstream analysis is deliberately best-effort. Its own durable queue
+    # retains work on failure; source collection must remain successful.
+    if ! systemctl start --no-block "$ANALYSIS_SERVICE"; then
+      log 'published source synchronization could not trigger pending analysis; work remains queued'
+    fi
+  fi
   return "$status"
 }
 

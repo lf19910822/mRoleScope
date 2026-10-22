@@ -79,6 +79,45 @@ services:
     # PostgreSQL remains reachable only on the internal backend network.
     networks: [backend, edge]
 
+  analysis:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [analysis]
+    restart: "no"
+    command: ["analyze"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # This one-shot consumer reads only the database's normalized JD versions.
+    # It has no port, no raw-data bind mount, no COS credentials, and no edge
+    # network path to the source or object storage.
+    networks: [backend]
+
+  backfill:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [backfill]
+    restart: "no"
+    command: ["backfill-versioned-content"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The baseline conversion only reads published rows from PostgreSQL. It has
+    # no port, raw-data mount, COS credentials, or edge-network route.
+    networks: [backend]
+
 networks:
   backend:
     internal: true

@@ -12,6 +12,8 @@ on:
           - initialize-sync
           - enable-sync-timer
           - disable-sync-timer
+          - backfill-versioned-content
+          - run-pending-analysis
           - sync-logs
       confirmation:
         description: For a state-changing operation, type its required phrase exactly
@@ -47,6 +49,12 @@ jobs:
               ;;
             disable-sync-timer)
               expected='DISABLE_DAILY_SYNC'
+              ;;
+            backfill-versioned-content)
+              expected='BACKFILL_VERSIONED_CONTENT'
+              ;;
+            run-pending-analysis)
+              expected='RUN_PENDING_ANALYSIS'
               ;;
             *)
               echo 'Unsupported fixed operation.' >&2

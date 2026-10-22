@@ -72,5 +72,24 @@ services:
         target: /run/mrolescope-sync
     networks: [default]
 
+  analysis:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    profiles: [analysis]
+    command: ["analyze"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Analysis is PostgreSQL-only: no collector task bind mount, COS
+    # credentials, port, or edge-network reachability is supplied.
+    networks: [default]
+
 volumes:
   postgres_data:

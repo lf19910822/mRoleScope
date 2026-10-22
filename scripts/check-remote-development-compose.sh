@@ -17,11 +17,17 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 2 ]] \
-  || die 'only PostgreSQL and migration services may use backend alone'
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 4 ]] \
+  || die 'only PostgreSQL, migration, analysis, and backfill services may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
   || die 'worker must remain an explicitly requested one-shot profile'
+
+grep -Fqx '    profiles: [analysis]' "$compose_file" \
+  || die 'analysis must remain an explicitly requested one-shot profile'
+
+grep -Fqx '    profiles: [backfill]' "$compose_file" \
+  || die 'backfill must remain an explicitly requested one-shot profile'
 
 [[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \
   || die 'only API and no-port worker may attach to the ordinary edge network'
@@ -37,3 +43,27 @@ grep -Fqx '    internal: true' "$compose_file" \
 
 grep -Fqx '  edge: {}' "$compose_file" \
   || die 'edge network must be an ordinary bridge network'
+
+analysis_block=$(awk '
+  /^  analysis:/ { in_block = 1 }
+  in_block { print }
+  in_block && /^networks:/ { exit }
+' "$compose_file")
+[[ -n "$analysis_block" ]] || die 'analysis service was not found'
+grep -Fqx '    command: ["analyze"]' <<<"$analysis_block" \
+  || die 'analysis must use the fixed analyze command'
+if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$analysis_block"; then
+  die 'analysis must not receive COS, edge-network, ports, or volumes'
+fi
+
+backfill_block=$(awk '
+  /^  backfill:/ { in_block = 1 }
+  in_block { print }
+  in_block && /^networks:/ { exit }
+' "$compose_file")
+[[ -n "$backfill_block" ]] || die 'backfill service was not found'
+grep -Fqx '    command: ["backfill-versioned-content"]' <<<"$backfill_block" \
+  || die 'backfill must use the fixed versioned-content command'
+if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$backfill_block"; then
+  die 'backfill must not receive COS, edge-network, ports, or volumes'
+fi
