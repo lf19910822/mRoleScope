@@ -16,6 +16,7 @@ readonly RELEASE_DIR='/var/lib/mrolescope/releases'
 readonly SECRETS_DIR='/etc/mrolescope/secrets'
 readonly SUDOERS_DESTINATION='/etc/sudoers.d/mrolescope-deploy'
 readonly DEPLOY_USER='mrolescope-deploy'
+readonly ASSET_MIRROR="${MROLESCOPE_ASSET_MIRROR:-github-raw}"
 
 die() {
   printf 'mrolescope bootstrap failed: %s\n' "$1" >&2
@@ -42,9 +43,24 @@ cleanup() {
 trap cleanup EXIT
 
 download_asset() {
-  local source_path="$1" destination="$2"
+  local source_path="$1" destination="$2" asset_url
+
+  case "$ASSET_MIRROR" in
+    github-raw)
+      asset_url="https://raw.githubusercontent.com/${REPOSITORY}/${REF}/${source_path}"
+      ;;
+    jsdelivr)
+      asset_url="https://cdn.jsdelivr.net/gh/${REPOSITORY}@${REF}/${source_path}"
+      ;;
+    *)
+      die "MROLESCOPE_ASSET_MIRROR must be github-raw or jsdelivr"
+      ;;
+  esac
+
+  printf 'mRoleScope bootstrap: downloading %s via %s...\n' "$source_path" "$ASSET_MIRROR"
   curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
-    "https://raw.githubusercontent.com/${REPOSITORY}/${REF}/${source_path}" \
+    --connect-timeout 10 --max-time 60 \
+    "$asset_url" \
     --output "$destination"
 }
 
