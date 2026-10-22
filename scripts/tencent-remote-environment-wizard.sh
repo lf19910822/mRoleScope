@@ -304,7 +304,7 @@ step "先在 Docker Hub 创建两个公开仓库：<你的 Docker Hub 用户名>
 step "在 GitHub 仓库 Settings → Secrets and variables → Actions 添加：非秘密 Variable DOCKERHUB_USERNAME（小写 Docker Hub 用户名）和 Secret DOCKERHUB_TOKEN（刚创建的 Token）。"
 step "将这些文件经正常审阅合入受保护 main。打开 main 的提交页面，复制这次合入后的完整 40 位 commit SHA；它像‘带封条的图纸版本号’，不是 main 分支名。"
 step "在 CVM 上仅用该固定 SHA 安装部署边界。先下载 bootstrap："
-say "curl --fail --location --proto '=https' --tlsv1.2 \"https://raw.githubusercontent.com/lf19910822/mRoleScope/<FULL_MAIN_COMMIT_SHA>/deploy/remote-development/bootstrap.sh\" --output /tmp/mrolescope-bootstrap.sh"
+say "curl --fail --location --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 \"https://raw.githubusercontent.com/lf19910822/mRoleScope/<FULL_MAIN_COMMIT_SHA>/deploy/remote-development/bootstrap.sh\" --output /tmp/mrolescope-bootstrap.sh"
 say "sudo bash /tmp/mrolescope-bootstrap.sh <FULL_MAIN_COMMIT_SHA> <DOCKERHUB_USERNAME>"
 note "这一步只安装 root 所有的 Compose、受控部署入口、Docker Hub 命名空间配置和 sudoers 规则；不会下载业务源码、拉取应用镜像、启动容器或创建密码。"
 if ! confirm "已确认部署资产已审阅、合并到受保护 main，并已用完整 SHA 成功运行 bootstrap？"; then
