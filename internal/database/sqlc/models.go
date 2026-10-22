@@ -104,6 +104,398 @@ func (ns NullCollectionTriggerKind) Value() (driver.Value, error) {
 	return string(ns.CollectionTriggerKind), nil
 }
 
+type TechnologyAnalysisConfigurationStatus string
+
+const (
+	TechnologyAnalysisConfigurationStatusCandidate  TechnologyAnalysisConfigurationStatus = "candidate"
+	TechnologyAnalysisConfigurationStatusPublished  TechnologyAnalysisConfigurationStatus = "published"
+	TechnologyAnalysisConfigurationStatusSuperseded TechnologyAnalysisConfigurationStatus = "superseded"
+	TechnologyAnalysisConfigurationStatusFailed     TechnologyAnalysisConfigurationStatus = "failed"
+	TechnologyAnalysisConfigurationStatusRetired    TechnologyAnalysisConfigurationStatus = "retired"
+)
+
+func (e *TechnologyAnalysisConfigurationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisConfigurationStatus(s)
+	case string:
+		*e = TechnologyAnalysisConfigurationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisConfigurationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisConfigurationStatus struct {
+	TechnologyAnalysisConfigurationStatus TechnologyAnalysisConfigurationStatus
+	Valid                                 bool // Valid is true if TechnologyAnalysisConfigurationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisConfigurationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisConfigurationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisConfigurationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisConfigurationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisConfigurationStatus), nil
+}
+
+type TechnologyAnalysisResultStatus string
+
+const (
+	TechnologyAnalysisResultStatusPending  TechnologyAnalysisResultStatus = "pending"
+	TechnologyAnalysisResultStatusRunning  TechnologyAnalysisResultStatus = "running"
+	TechnologyAnalysisResultStatusComplete TechnologyAnalysisResultStatus = "complete"
+	TechnologyAnalysisResultStatusFailed   TechnologyAnalysisResultStatus = "failed"
+)
+
+func (e *TechnologyAnalysisResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisResultStatus(s)
+	case string:
+		*e = TechnologyAnalysisResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisResultStatus struct {
+	TechnologyAnalysisResultStatus TechnologyAnalysisResultStatus
+	Valid                          bool // Valid is true if TechnologyAnalysisResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisResultStatus), nil
+}
+
+type TechnologyAnalysisRunStatus string
+
+const (
+	TechnologyAnalysisRunStatusRunning  TechnologyAnalysisRunStatus = "running"
+	TechnologyAnalysisRunStatusComplete TechnologyAnalysisRunStatus = "complete"
+	TechnologyAnalysisRunStatusFailed   TechnologyAnalysisRunStatus = "failed"
+)
+
+func (e *TechnologyAnalysisRunStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisRunStatus(s)
+	case string:
+		*e = TechnologyAnalysisRunStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisRunStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisRunStatus struct {
+	TechnologyAnalysisRunStatus TechnologyAnalysisRunStatus
+	Valid                       bool // Valid is true if TechnologyAnalysisRunStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisRunStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisRunStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisRunStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisRunStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisRunStatus), nil
+}
+
+type TechnologyAnalysisTrigger string
+
+const (
+	TechnologyAnalysisTriggerNewBody     TechnologyAnalysisTrigger = "new_body"
+	TechnologyAnalysisTriggerReanalysis  TechnologyAnalysisTrigger = "reanalysis"
+	TechnologyAnalysisTriggerManualRetry TechnologyAnalysisTrigger = "manual_retry"
+)
+
+func (e *TechnologyAnalysisTrigger) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisTrigger(s)
+	case string:
+		*e = TechnologyAnalysisTrigger(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisTrigger: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisTrigger struct {
+	TechnologyAnalysisTrigger TechnologyAnalysisTrigger
+	Valid                     bool // Valid is true if TechnologyAnalysisTrigger is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisTrigger) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisTrigger, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisTrigger.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisTrigger) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisTrigger), nil
+}
+
+type TechnologyAnalysisWorkStatus string
+
+const (
+	TechnologyAnalysisWorkStatusPending  TechnologyAnalysisWorkStatus = "pending"
+	TechnologyAnalysisWorkStatusRunning  TechnologyAnalysisWorkStatus = "running"
+	TechnologyAnalysisWorkStatusComplete TechnologyAnalysisWorkStatus = "complete"
+)
+
+func (e *TechnologyAnalysisWorkStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisWorkStatus(s)
+	case string:
+		*e = TechnologyAnalysisWorkStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisWorkStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisWorkStatus struct {
+	TechnologyAnalysisWorkStatus TechnologyAnalysisWorkStatus
+	Valid                        bool // Valid is true if TechnologyAnalysisWorkStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisWorkStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisWorkStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisWorkStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisWorkStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisWorkStatus), nil
+}
+
+type TechnologyDictionaryStatus string
+
+const (
+	TechnologyDictionaryStatusDraft     TechnologyDictionaryStatus = "draft"
+	TechnologyDictionaryStatusCandidate TechnologyDictionaryStatus = "candidate"
+	TechnologyDictionaryStatusPublished TechnologyDictionaryStatus = "published"
+	TechnologyDictionaryStatusRetired   TechnologyDictionaryStatus = "retired"
+)
+
+func (e *TechnologyDictionaryStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyDictionaryStatus(s)
+	case string:
+		*e = TechnologyDictionaryStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyDictionaryStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyDictionaryStatus struct {
+	TechnologyDictionaryStatus TechnologyDictionaryStatus
+	Valid                      bool // Valid is true if TechnologyDictionaryStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyDictionaryStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyDictionaryStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyDictionaryStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyDictionaryStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyDictionaryStatus), nil
+}
+
+type TechnologyMentionReviewVerdict string
+
+const (
+	TechnologyMentionReviewVerdictCorrect   TechnologyMentionReviewVerdict = "correct"
+	TechnologyMentionReviewVerdictIncorrect TechnologyMentionReviewVerdict = "incorrect"
+	TechnologyMentionReviewVerdictUncertain TechnologyMentionReviewVerdict = "uncertain"
+)
+
+func (e *TechnologyMentionReviewVerdict) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyMentionReviewVerdict(s)
+	case string:
+		*e = TechnologyMentionReviewVerdict(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyMentionReviewVerdict: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyMentionReviewVerdict struct {
+	TechnologyMentionReviewVerdict TechnologyMentionReviewVerdict
+	Valid                          bool // Valid is true if TechnologyMentionReviewVerdict is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyMentionReviewVerdict) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyMentionReviewVerdict, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyMentionReviewVerdict.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyMentionReviewVerdict) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyMentionReviewVerdict), nil
+}
+
+type TechnologyRuleDecision string
+
+const (
+	TechnologyRuleDecisionApprovedEnabled TechnologyRuleDecision = "approved_enabled"
+	TechnologyRuleDecisionSetConditional  TechnologyRuleDecision = "set_conditional"
+	TechnologyRuleDecisionSetCandidate    TechnologyRuleDecision = "set_candidate"
+	TechnologyRuleDecisionDisabled        TechnologyRuleDecision = "disabled"
+)
+
+func (e *TechnologyRuleDecision) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyRuleDecision(s)
+	case string:
+		*e = TechnologyRuleDecision(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyRuleDecision: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyRuleDecision struct {
+	TechnologyRuleDecision TechnologyRuleDecision
+	Valid                  bool // Valid is true if TechnologyRuleDecision is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyRuleDecision) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyRuleDecision, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyRuleDecision.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyRuleDecision) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyRuleDecision), nil
+}
+
+type TechnologyRuleState string
+
+const (
+	TechnologyRuleStateEnabled     TechnologyRuleState = "enabled"
+	TechnologyRuleStateConditional TechnologyRuleState = "conditional"
+	TechnologyRuleStateCandidate   TechnologyRuleState = "candidate"
+)
+
+func (e *TechnologyRuleState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyRuleState(s)
+	case string:
+		*e = TechnologyRuleState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyRuleState: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyRuleState struct {
+	TechnologyRuleState TechnologyRuleState
+	Valid               bool // Valid is true if TechnologyRuleState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyRuleState) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyRuleState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyRuleState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyRuleState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyRuleState), nil
+}
+
 type AggregateSnapshot struct {
 	ID                 pgtype.UUID
 	RunID              pgtype.UUID
@@ -205,6 +597,32 @@ type Job struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type JobBodyContentPeriod struct {
+	ID                   pgtype.UUID
+	PresencePeriodID     pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	ValidFromRunID       pgtype.UUID
+	ValidFrom            pgtype.Timestamptz
+	ValidToRunID         pgtype.UUID
+	// Exclusive SCD2 boundary: a body-content period is [valid_from, valid_to).
+	ValidTo   pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
+type JobBodyContentVersion struct {
+	ID                   pgtype.UUID
+	JobID                pgtype.UUID
+	BodySha256           string
+	NormalizationVersion string
+	DescriptionText      string
+	JobRequireText       string
+	AdditionText         string
+	DescriptionSha256    string
+	JobRequireSha256     string
+	AdditionSha256       string
+	CreatedAt            pgtype.Timestamptz
+}
+
 type JobClassification struct {
 	ID               pgtype.UUID
 	ParsedVersionID  pgtype.UUID
@@ -260,6 +678,15 @@ type JobSkill struct {
 	Evidence        []byte
 }
 
+type JobSourceMetadataVersion struct {
+	ID                   pgtype.UUID
+	JobID                pgtype.UUID
+	MetadataSha256       string
+	NormalizationVersion string
+	MetadataPayload      []byte
+	CreatedAt            pgtype.Timestamptz
+}
+
 type ObservationScope struct {
 	ID            pgtype.UUID
 	SourceCompany string
@@ -305,4 +732,169 @@ type RunJob struct {
 	JobID       pgtype.UUID
 	JdVersionID pgtype.UUID
 	ObservedAt  pgtype.Timestamptz
+}
+
+// Canonical metadata/body version references for each successfully published job observation.
+type RunJobVersionReference struct {
+	RunID                   pgtype.UUID
+	JobID                   pgtype.UUID
+	SourceMetadataVersionID pgtype.UUID
+	BodyContentVersionID    pgtype.UUID
+	ObservedAt              pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+}
+
+type TechnologyAnalysisAuditEvent struct {
+	ID              pgtype.UUID
+	ConfigurationID pgtype.UUID
+	RunID           pgtype.UUID
+	WorkItemID      pgtype.UUID
+	OccurredAt      pgtype.Timestamptz
+	Severity        string
+	Code            string
+	Message         string
+	Diagnostics     []byte
+}
+
+type TechnologyAnalysisConfiguration struct {
+	ID                  pgtype.UUID
+	ParserVersion       string
+	DictionaryVersionID pgtype.UUID
+	Status              TechnologyAnalysisConfigurationStatus
+	CreatedBy           string
+	CreatedAt           pgtype.Timestamptz
+	PublishedAt         pgtype.Timestamptz
+	FailedAt            pgtype.Timestamptz
+	SafeFailureCode     pgtype.Text
+}
+
+type TechnologyAnalysisPublicationState struct {
+	Singleton       bool
+	ConfigurationID pgtype.UUID
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type TechnologyAnalysisResult struct {
+	ID                   pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	ParserVersion        string
+	DictionaryVersionID  pgtype.UUID
+	Status               TechnologyAnalysisResultStatus
+	SafeFailureCode      pgtype.Text
+	CreatedAt            pgtype.Timestamptz
+	CompletedAt          pgtype.Timestamptz
+}
+
+type TechnologyAnalysisRun struct {
+	ID              pgtype.UUID
+	ConfigurationID pgtype.UUID
+	Trigger         TechnologyAnalysisTrigger
+	Status          TechnologyAnalysisRunStatus
+	StartedAt       pgtype.Timestamptz
+	CompletedAt     pgtype.Timestamptz
+	ClaimedCount    int32
+	CompletedCount  int32
+	FailedCount     int32
+	SafeFailureCode pgtype.Text
+}
+
+type TechnologyAnalysisWorkItem struct {
+	ID                   pgtype.UUID
+	ConfigurationID      pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	Trigger              TechnologyAnalysisTrigger
+	Status               TechnologyAnalysisWorkStatus
+	AttemptCount         int32
+	CurrentRunID         pgtype.UUID
+	LastAttemptRunID     pgtype.UUID
+	LastSafeErrorCode    pgtype.Text
+	QueuedAt             pgtype.Timestamptz
+	CompletedAt          pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type TechnologyDictionaryCandidate struct {
+	ID                           pgtype.UUID
+	DictionaryVersionID          pgtype.UUID
+	CandidateText                string
+	ProposedTechnologyIdentityID pgtype.UUID
+	State                        TechnologyRuleState
+	CandidateSummary             string
+	CreatedAt                    pgtype.Timestamptz
+}
+
+type TechnologyDictionaryRule struct {
+	ID                   pgtype.UUID
+	DictionaryVersionID  pgtype.UUID
+	TechnologyIdentityID pgtype.UUID
+	RuleKey              string
+	Alias                string
+	State                TechnologyRuleState
+	CaseMode             string
+	BoundaryMode         string
+	OverlapPriority      int32
+	RuleSummary          string
+	ApprovedBy           pgtype.Text
+	ApprovedAt           pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+}
+
+type TechnologyDictionaryRuleDecision struct {
+	ID        pgtype.UUID
+	RuleID    pgtype.UUID
+	Decision  TechnologyRuleDecision
+	Reviewer  string
+	Rationale string
+	DecidedAt pgtype.Timestamptz
+}
+
+type TechnologyDictionaryVersion struct {
+	ID             pgtype.UUID
+	VersionLabel   string
+	ContentSha256  string
+	Status         TechnologyDictionaryStatus
+	SourceDocument string
+	CreatedBy      string
+	CreatedAt      pgtype.Timestamptz
+	PublishedAt    pgtype.Timestamptz
+	RetiredAt      pgtype.Timestamptz
+}
+
+type TechnologyIdentity struct {
+	ID             pgtype.UUID
+	TechnologyKey  string
+	CanonicalName  string
+	TechnologyKind string
+	CreatedAt      pgtype.Timestamptz
+}
+
+type TechnologyMention struct {
+	ID                   pgtype.UUID
+	AnalysisResultID     pgtype.UUID
+	TechnologyIdentityID pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+}
+
+type TechnologyMentionEvidence struct {
+	ID                    pgtype.UUID
+	TechnologyMentionID   pgtype.UUID
+	SourceField           string
+	NormalizationVersion  string
+	NormalizedFieldSha256 string
+	DictionaryRuleID      pgtype.UUID
+	MatchedAlias          string
+	CodepointStart        int32
+	CodepointEnd          int32
+	CreatedAt             pgtype.Timestamptz
+}
+
+type TechnologyMentionReview struct {
+	ID                          pgtype.UUID
+	AnalysisResultID            pgtype.UUID
+	TechnologyMentionEvidenceID pgtype.UUID
+	Verdict                     TechnologyMentionReviewVerdict
+	ErrorCategory               pgtype.Text
+	Reviewer                    string
+	ReviewedAt                  pgtype.Timestamptz
+	CreatedAt                   pgtype.Timestamptz
 }
