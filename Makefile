@@ -39,6 +39,7 @@ api:
 	go run ./cmd/api
 
 deploy-config-check:
+	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
 	MROLESCOPE_API_IMAGE=docker.io/mrolescopeverify/mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 	MROLESCOPE_MIGRATE_IMAGE=docker.io/mrolescopeverify/mrolescope-migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
 	POSTGRES_DB=mrolescope_verify \

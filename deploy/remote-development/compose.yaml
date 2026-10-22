@@ -46,11 +46,12 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    networks: [backend]
+    networks: [backend, edge]
 
 networks:
   backend:
     internal: true
+  edge: {}
 
 volumes:
   postgres_data:
