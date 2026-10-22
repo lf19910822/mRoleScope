@@ -1,0 +1,66 @@
+name: Remote development operations
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Fixed remote operation to perform
+        required: true
+        type: choice
+        options:
+          - status
+          - initialize-sync
+          - enable-sync-timer
+          - disable-sync-timer
+          - sync-logs
+      confirmation:
+        description: For a state-changing operation, type its required phrase exactly
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  operate:
+    if: github.repository == 'lf19910822/mRoleScope' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, mrolescope-deploy]
+    environment: remote-development
+    concurrency:
+      group: remote-development-operations
+      cancel-in-progress: false
+    steps:
+      - name: Confirm state-changing operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          case "$OPERATION" in
+            status|sync-logs)
+              exit 0
+              ;;
+            initialize-sync)
+              expected='RUN_INITIAL_SYNC'
+              ;;
+            enable-sync-timer)
+              expected='ENABLE_DAILY_SYNC'
+              ;;
+            disable-sync-timer)
+              expected='DISABLE_DAILY_SYNC'
+              ;;
+            *)
+              echo 'Unsupported fixed operation.' >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$CONFIRMATION" != "$expected" ]]; then
+            echo "Confirmation must exactly equal ${expected}." >&2
+            exit 1
+          fi
+
+      - name: Run root-owned fixed operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION"

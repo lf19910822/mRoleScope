@@ -4,7 +4,7 @@
 
 ## 首期拓扑
 
-在用户个人账号下的一台云主机运行 Go API 和 PostgreSQL；迁移作为一次性容器任务运行。当前 `remote-development` 环境不运行反向代理、worker 或定时器，API 仅绑定本机回环地址，PostgreSQL 仅在私有 Docker 网络中可达。未来成功批次的原始归档目标是同地域私有 COS。
+在用户个人账号下的一台云主机运行 Go API 和 PostgreSQL；迁移作为一次性容器任务运行。当前 `remote-development` 环境不运行反向代理；API 仅绑定本机回环地址，PostgreSQL 仅在私有 Docker 网络中可达。worker 是不发布端口的、按需 profile 服务：它通过普通 Docker `edge` 网络仅作米哈游/COS HTTPS 出站，并通过内部网络访问 PostgreSQL。同步 timer 默认保持禁用，需先完成一次人工初始化验收；具体操作以[同步任务运行指导](../Docs/同步任务/同步任务运行指导.md)为准。
 
 ## 预算与选择门槛
 
@@ -15,6 +15,6 @@
 1. 用户确认腾讯云上海地域、实际报价和个人付款方式。
 2. 在受保护 `main` 合入远端部署资产后，以固定 commit SHA bootstrap CVM；不从 IDE 或 SSH 复制业务源码。
 3. 注册非登录的专用 runner；部署仅拉取固定的公开 Docker Hub digest，并通过腾讯云 Docker Hub 镜像加速器获取。Docker Hub 写入 Token 仅保存在 GitHub Actions Secret，禁止提交 `.env` 或向浏览器下发存储/数据库凭据。
-4. 确认无公网 `5432`、`8080`、`80` 或 `443`；本期不配置 HTTPS、告警或调度器。
-5. 仅使用离线 fixture 验收迁移、`/healthz`、`/readyz` 与发布记录；不运行 worker 在线采集。
-6. 数据后台、COS 归档、告警和任何自动同步须另行实现和验收后再启用。
+4. 确认无公网 `5432`、`8080`、`80` 或 `443`；worker 不发布端口，仍可仅为 HTTPS 出站加入 `edge` 网络。
+5. 先使用离线 fixture 验收迁移、`/healthz`、`/readyz` 与发布记录；配置私有 COS 后，按照同步任务运行指导执行一次明确的初始化采集。
+6. 仅在 COS、数据库和审计记录都通过人工核验后启用每日 timer；微信告警仍是后续能力。

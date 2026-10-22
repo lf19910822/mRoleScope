@@ -1,0 +1,16 @@
+FROM golang:1.22.5-alpine@sha256:0d3653dd6f35159ec6e3d10263a42372f6f194c3dea0b35235d72aabde86486e AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/mrolescope-worker ./cmd/worker
+
+# Python is required because the reviewed collector remains dependency-free
+# Python. The worker itself is static; no build tools ship in this image.
+FROM python:3.12.7-alpine3.20@sha256:5049c050bdc68575a10bcb1885baa0689b6c15152d8a56a7e399fb49f783bf98
+RUN addgroup -S -g 10001 mrolescope && adduser -S -D -H -u 10001 -G mrolescope mrolescope
+WORKDIR /app
+COPY --from=build /out/mrolescope-worker /usr/local/bin/mrolescope-worker
+COPY collector /app/collector
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/mrolescope-worker"]

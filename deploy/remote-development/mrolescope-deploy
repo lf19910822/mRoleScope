@@ -3,7 +3,7 @@
 # Root-owned deployment entry point for the remote-development environment.
 #
 # Its interface is intentionally narrow: the self-hosted runner can supply
-# exactly two immutable Docker Hub image digests in one configured public
+# exactly three immutable Docker Hub image digests in one configured public
 # namespace. It cannot choose Compose files, secret files, image tags, ports,
 # commands, or a shell to execute.
 
@@ -13,7 +13,7 @@ readonly COMPOSE_FILE="/opt/mrolescope/remote-development.compose.yaml"
 readonly SECRETS_FILE="/etc/mrolescope/secrets/remote-development.env"
 readonly DEPLOY_CONFIG_FILE="/etc/mrolescope/remote-development.conf"
 readonly RELEASE_DIR="/var/lib/mrolescope/releases"
-readonly LOCK_FILE="/var/lib/mrolescope/releases/deploy.lock"
+readonly LOCK_FILE="/var/lib/mrolescope/releases/operation.lock"
 readonly PROJECT_NAME="mrolescope-remote-development"
 readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
 readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
@@ -25,6 +25,7 @@ umask 077
 
 api_image="${1:-}"
 migrate_image="${2:-}"
+worker_image="${3:-}"
 phase="preflight"
 deployment_succeeded=false
 deployment_config_loaded=false
@@ -32,6 +33,7 @@ api_revision=""
 dockerhub_namespace=""
 api_pattern=""
 migrate_pattern=""
+worker_pattern=""
 
 die() {
   printf 'mrolescope deployment failed during %s: %s\n' "$phase" "$1" >&2
@@ -71,6 +73,7 @@ load_deployment_config() {
     || die "deployment configuration has an invalid Docker Hub namespace"
   api_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-api@${DIGEST_PATTERN}$"
   migrate_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
+  worker_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
   deployment_config_loaded=true
 }
 
@@ -84,7 +87,7 @@ read_current_api() {
 }
 
 write_record() {
-  local status="$1" record_phase="$2" record_api="$3" record_migrate="$4" record_revision="$5"
+  local status="$1" record_phase="$2" record_api="$3" record_migrate="$4" record_worker="$5" record_revision="$6"
   local timestamp temporary record suffix
 
   timestamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -96,6 +99,7 @@ write_record() {
     printf 'phase=%s\n' "$record_phase"
     printf 'api_image=%s\n' "$record_api"
     printf 'migrate_image=%s\n' "$record_migrate"
+    printf 'worker_image=%s\n' "$record_worker"
     printf 'revision=%s\n' "$record_revision"
     printf 'recorded_at=%s\n' "$(date -u +%FT%TZ)"
   } >"$temporary"
@@ -109,6 +113,7 @@ write_current() {
   {
     printf 'api_image=%s\n' "$api_image"
     printf 'migrate_image=%s\n' "$migrate_image"
+    printf 'worker_image=%s\n' "$worker_image"
     printf 'revision=%s\n' "$api_revision"
     printf 'verified_at=%s\n' "$(date -u +%FT%TZ)"
   } >"$temporary"
@@ -156,8 +161,8 @@ rollback_api() {
 cleanup() {
   local exit_code=$?
   trap - EXIT
-  if [[ "$deployment_succeeded" != true && "$deployment_config_loaded" == true && "$api_image" =~ $api_pattern && "$migrate_image" =~ $migrate_pattern && -d "$RELEASE_DIR" ]]; then
-    write_record failed "$phase" "$api_image" "$migrate_image" "$api_revision" || true
+  if [[ "$deployment_succeeded" != true && "$deployment_config_loaded" == true && "$api_image" =~ $api_pattern && "$migrate_image" =~ $migrate_pattern && "$worker_image" =~ $worker_pattern && -d "$RELEASE_DIR" ]]; then
+    write_record failed "$phase" "$api_image" "$migrate_image" "$worker_image" "$api_revision" || true
     prune_records || true
   fi
   exit "$exit_code"
@@ -168,12 +173,13 @@ trap cleanup EXIT
 if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "mrolescope-deploy" ]]; then
   die "only the mrolescope-deploy service account may invoke this through sudo"
 fi
-[[ "$#" -eq 2 ]] || die "expected API and migration image digests"
+[[ "$#" -eq 3 ]] || die "expected API, migration, and worker image digests"
 is_root_owned_mode "$COMPOSE_FILE" 644 || die "Compose definition must be root:root mode 0644"
 is_root_owned_mode "$SECRETS_FILE" 600 || die "runtime secrets must be root:root mode 0600"
 load_deployment_config
 [[ "$api_image" =~ $api_pattern ]] || die "API image is not an allowed immutable Docker Hub digest"
 [[ "$migrate_image" =~ $migrate_pattern ]] || die "migration image is not an allowed immutable Docker Hub digest"
+[[ "$worker_image" =~ $worker_pattern ]] || die "worker image is not an allowed immutable Docker Hub digest"
 [[ -d "$RELEASE_DIR" ]] || die "release directory is missing"
 [[ "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die "release directory must be root:root mode 0700"
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
@@ -195,13 +201,16 @@ done
 
 export MROLESCOPE_API_IMAGE="$api_image"
 export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
+export MROLESCOPE_WORKER_IMAGE="$worker_image"
 
 phase="pull-images"
-compose pull postgres migrate api
+compose pull postgres migrate api worker
 api_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$api_image" 2>/dev/null || true)
 [[ "$api_revision" =~ $SHA_PATTERN ]] || die "API image is missing its immutable source revision label"
 migrate_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$migrate_image" 2>/dev/null || true)
 [[ "$migrate_revision" == "$api_revision" ]] || die "API and migration images were not built from the same revision"
+worker_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$worker_image" 2>/dev/null || true)
+[[ "$worker_revision" == "$api_revision" ]] || die "API, migration, and worker images were not built from the same revision"
 
 previous_api=$(read_current_api || true)
 
@@ -225,7 +234,7 @@ fi
 
 phase="record-release"
 write_current
-write_record success "$phase" "$api_image" "$migrate_image" "$api_revision"
+write_record success "$phase" "$api_image" "$migrate_image" "$worker_image" "$api_revision"
 prune_records
 deployment_succeeded=true
 log "deployment verified at revision ${api_revision}"

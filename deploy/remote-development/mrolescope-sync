@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Root-owned, one-shot synchronization entry point. It deliberately has no
+# image, Compose-file, environment-file, or command arguments controlled by
+# GitHub Actions or an unprivileged account.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
+readonly LOCK_FILE="${RELEASE_DIR}/operation.lock"
+readonly PROJECT_NAME='mrolescope-remote-development'
+readonly WORKER_UID='10001'
+readonly WORKER_GID='10001'
+readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
+readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+mode="${1:-}"
+sync_temp_dir=''
+retry_delay_first='15m'
+retry_delay_second='45m'
+
+die() {
+  printf 'mrolescope sync failed: %s\n' "$1" >&2
+  exit 1
+}
+
+log() {
+  printf 'mrolescope sync: %s\n' "$1"
+}
+
+cleanup_temp_dir() {
+  if [[ -n "$sync_temp_dir" && -d "$sync_temp_dir" ]]; then
+    rm -rf -- "$sync_temp_dir"
+  fi
+}
+trap cleanup_temp_dir EXIT
+
+is_root_owned_mode() {
+  local path="$1" expected_mode="$2"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:${expected_mode}" ]]
+}
+
+compose() {
+  docker compose \
+    --project-name "$PROJECT_NAME" \
+    --file "$COMPOSE_FILE" \
+    --env-file "$SECRETS_FILE" \
+    "$@"
+}
+
+load_release() {
+  local namespace worker_image worker_pattern
+  is_root_owned_mode /etc/mrolescope/remote-development.conf 644 || die 'deployment configuration must be root:root mode 0644'
+  is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
+  # shellcheck disable=SC1090
+  . /etc/mrolescope/remote-development.conf
+  # shellcheck disable=SC1090
+  . "$CURRENT_FILE"
+  namespace="${DOCKERHUB_NAMESPACE:-}"
+  worker_image="${worker_image:-}"
+  [[ "$namespace" =~ $NAMESPACE_PATTERN ]] || die 'invalid configured Docker Hub namespace'
+  worker_pattern="^docker\\.io/${namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  [[ "$worker_image" =~ $worker_pattern ]] || die 'verified release has no allowed worker image digest'
+  export MROLESCOPE_WORKER_IMAGE="$worker_image"
+}
+
+load_secrets() {
+  is_root_owned_mode "$SECRETS_FILE" 600 || die 'runtime secrets must be root:root mode 0600'
+  set -a
+  # shellcheck disable=SC1090
+  . "$SECRETS_FILE"
+  set +a
+  local required
+  for required in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL COS_ENDPOINT COS_REGION COS_BUCKET COS_ACCESS_KEY_ID COS_SECRET_ACCESS_KEY; do
+    [[ -n "${!required:-}" ]] || die "required runtime configuration is missing: ${required}"
+  done
+  parse_retry_delays "${SYNC_RETRY_DELAYS:-15m,45m}"
+}
+
+parse_retry_delays() {
+  local configured="$1" first second extra
+  IFS=, read -r first second extra <<<"$configured"
+  [[ -n "$first" && -n "$second" && -z "${extra:-}" ]] || die 'SYNC_RETRY_DELAYS must contain exactly two delays'
+  for configured in "$first" "$second"; do
+    # The service has a four-hour watchdog. Limiting each delay to one hour
+    # keeps the three bounded attempts inside that operational window.
+    [[ "$configured" =~ ^[1-9][0-9]*[sm]$ ]] || die 'SYNC_RETRY_DELAYS values must be positive seconds or minutes'
+    local value="${configured%[sm]}" unit="${configured: -1}"
+    if [[ "$unit" == 'm' ]]; then
+      value=$((10#$value * 60))
+    else
+      value=$((10#$value))
+    fi
+    (( value <= 3600 )) || die 'SYNC_RETRY_DELAYS values must not exceed one hour'
+  done
+  retry_delay_first="$first"
+  retry_delay_second="$second"
+}
+
+run_attempt() {
+  local trigger="$1" attempt="$2" status=0
+  sync_temp_dir=$(mktemp -d /run/mrolescope-sync.XXXXXX)
+  chmod 0700 "$sync_temp_dir"
+  chown "${WORKER_UID}:${WORKER_GID}" "$sync_temp_dir"
+  export MROLESCOPE_SYNC_HOST_DIR="$sync_temp_dir"
+  if ! compose up -d --wait --wait-timeout 60 postgres; then
+    status=1
+  else
+    log "starting ${trigger} attempt ${attempt}"
+    if ! compose --profile sync run --rm --no-deps worker \
+      --trigger "$trigger" \
+      --attempt-number "$attempt" \
+      --output-dir /run/mrolescope-sync/task; then
+      status=1
+    fi
+  fi
+  unset MROLESCOPE_SYNC_HOST_DIR
+  cleanup_temp_dir
+  sync_temp_dir=''
+  return "$status"
+}
+
+[[ "${EUID}" -eq 0 ]] || die 'must run as root'
+[[ "$#" -eq 1 ]] || die 'usage: mrolescope-sync <initialize|scheduled>'
+[[ "$mode" == 'initialize' || "$mode" == 'scheduled' ]] || die 'mode must be initialize or scheduled'
+is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
+[[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
+command -v docker >/dev/null 2>&1 || die 'docker is required'
+command -v flock >/dev/null 2>&1 || die 'flock is required'
+load_release
+load_secrets
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || die 'another deployment or synchronization is already running'
+
+if [[ "$mode" == 'initialize' ]]; then
+  run_attempt initialization 1
+  log 'initialization synchronization succeeded; review COS and PostgreSQL before enabling the timer'
+  exit 0
+fi
+
+if run_attempt scheduled 1; then
+  log 'scheduled synchronization succeeded on attempt 1'
+  exit 0
+fi
+log "scheduled attempt 1 failed; retrying in ${retry_delay_first}"
+sleep "$retry_delay_first"
+if run_attempt retry 2; then
+  log 'scheduled synchronization succeeded on attempt 2'
+  exit 0
+fi
+log "scheduled attempt 2 failed; retrying in ${retry_delay_second}"
+sleep "$retry_delay_second"
+run_attempt retry 3
+log 'scheduled synchronization succeeded on attempt 3'
