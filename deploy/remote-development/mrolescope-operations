@@ -14,6 +14,7 @@ readonly SYNC_SERVICE='mrolescope-sync.service'
 readonly SYNC_TIMER='mrolescope-sync.timer'
 readonly ANALYSIS_SERVICE='mrolescope-analysis.service'
 readonly CANDIDATE_ANALYSIS_SERVICE='mrolescope-candidate-analysis.service'
+readonly CANDIDATE_V02_ANALYSIS_SERVICE='mrolescope-candidate-analysis-v0.2.service'
 readonly BACKFILL_SERVICE='mrolescope-backfill-versioned-content.service'
 readonly RUNNER_SERVICE='actions.runner.lf19910822-mRoleScope.mrolescope-remote-development.service'
 readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
@@ -45,6 +46,7 @@ show_status() {
   print_unit_state "$BACKFILL_SERVICE"
   print_unit_state "$ANALYSIS_SERVICE"
   print_unit_state "$CANDIDATE_ANALYSIS_SERVICE"
+  print_unit_state "$CANDIDATE_V02_ANALYSIS_SERVICE"
 
   printf '%s\n' '--- API health ---'
   if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz; then
@@ -126,11 +128,32 @@ case "$1" in
     [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
     exec "$DICTIONARY_HELPER" prepare-v0.1-analysis "$2"
     ;;
+  seed-v0.2-dictionary)
+    [[ "$#" -eq 2 ]] || die 'seed-v0.2-dictionary requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" seed-v0.2 "$2"
+    ;;
+  approve-v0.2-rule)
+    [[ "$#" -eq 3 ]] || die 'approve-v0.2-rule requires a rule key and the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" approve-v0.2-rule "$2" "$3"
+    ;;
+  prepare-v0.2-analysis)
+    [[ "$#" -eq 2 ]] || die 'prepare-v0.2-analysis requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" prepare-v0.2-analysis "$2"
+    ;;
   run-v0.1-candidate-analysis)
     [[ "$#" -eq 1 ]] || die 'run-v0.1-candidate-analysis accepts no arguments'
     [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
     [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
     systemctl start --wait "$CANDIDATE_ANALYSIS_SERVICE"
+    ;;
+  run-v0.2-candidate-analysis)
+    [[ "$#" -eq 1 ]] || die 'run-v0.2-candidate-analysis accepts no arguments'
+    [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
+    [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
+    systemctl start --wait "$CANDIDATE_V02_ANALYSIS_SERVICE"
     ;;
   sync-logs)
     [[ "$#" -eq 1 ]] || die 'sync-logs accepts no arguments'

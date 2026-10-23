@@ -7,8 +7,8 @@
 - 日常同步：`mrolescope-operations` 的固定操作 `initialize-sync`、`enable-sync-timer`、`disable-sync-timer`。
 - 基线回填：`mrolescope-operations backfill-versioned-content`。该操作只能启动 root-owned 的 `mrolescope-backfill-versioned-content.service`，它只能用已验证的 worker 镜像执行固定 `backfill-versioned-content` 子命令。
 - 待处理分析：`mrolescope-operations run-pending-analysis`。该操作只能启动 root-owned 的 `mrolescope-analysis.service`，它只能执行 worker 的固定 `analyze` 子命令。
-- 候选词典：`seed-v0.1-dictionary`、`approve-v0.1-rule` 和 `prepare-v0.1-analysis` 都只能转交给 root-owned 的 `mrolescope-dictionary`。它只接受固定的 v0.1 种子、受限格式的规则键和 GitHub 已认证操作者身份；不能接收正文、SQL、镜像、路径、数据库 URL 或自定义词典内容。
-- 隔离候选分析：`run-v0.1-candidate-analysis` 只能启动独立的 `mrolescope-candidate-analysis.service`。它只消费固定的未发布 v0.1 候选配置；日常 `run-pending-analysis` 仍只消费已发布配置。
+- 候选词典：当前使用 `seed-v0.2-dictionary`、`approve-v0.2-rule` 和 `prepare-v0.2-analysis`，都只能转交给 root-owned 的 `mrolescope-dictionary`。它只接受固定的 v0.2 种子、受限格式的规则键和 GitHub 已认证操作者身份；仓储层会拒绝不在人工审阅白名单内的 v0.2 规则。它不能接收正文、SQL、镜像、路径、数据库 URL 或自定义词典内容。v0.1 入口保留仅供历史候选记录审计，不用于当前分析。
+- 隔离候选分析：`run-v0.2-candidate-analysis` 只能启动独立的 `mrolescope-candidate-analysis-v0.2.service`。它只消费固定的未发布 v0.2 候选配置；日常 `run-pending-analysis` 仍只消费已发布配置。
 - 回填与分析容器仅在 `backend` 网络，未映射端口、未挂载采集目录，也不接收 COS 凭据或 edge 网络。
 - 同步成功后会 best-effort 启动分析服务。分析失败不会回滚同步、COS 归档或岗位可见期；待处理项保持在数据库中，稍后可重试固定分析操作。
 
@@ -26,17 +26,17 @@
 
 每一步均在 GitHub 的 `Remote development operations` 工作流中选择，且只可在受保护的 `main` 上运行。工作流以 `github.actor` 作为操作者/审核人，不接受自行填写的审核人名。
 
-1. **导入候选，不执行。** 选择 `seed-v0.1-dictionary`，确认文本为 `SEED_V01_DICTIONARY`。它把仓库内固定的 `technology-keyword-alias-map-v0.1` 导入为候选/条件规则；重复运行不会重复插入。此步不启用任何规则、不创建分析结果，也不入队。
-2. **逐条人工批准确定性规则。** 选择 `approve-v0.1-rule`，输入一个小写 v0.1 `rule_key`，确认文本为 `APPROVE_V01_RULE`。这是对**一条**候选规则的明确决定，重复批准同一条规则是幂等的。条件规则（例如需要阅读上下文才能判断的短词）会被拒绝，不能用这条入口绕过上下文策略。不要因为词典已导入就批量批准规则。
-3. **准备候选配置。** 至少有一条确定性规则已获批准后，选择 `prepare-v0.1-analysis`，确认文本为 `PREPARE_V01_ANALYSIS`。它创建或复用固定的“解析器版本＋词典版本”候选配置，并把全部历史正文版本加入该候选配置的队列；不会抓取来源网站，不会发布结果。
-4. **运行隔离的候选分析。** 选择 `run-v0.1-candidate-analysis`，确认文本为 `RUN_V01_CANDIDATE_ANALYSIS`。它不触碰已发布配置，也不改变每日同步定时器。工作流输出只应包含状态和计数，绝不能含正文、命中片段、原始响应或凭据。
-5. **候选追赶与复核。** 分析期间如果产生新的正文版本，发布前必须重新检查并补齐候选队列；不得将候选结果与旧发布结果混为“当前结果”。每一条实际命中的启用规则至少复核一条远端证据，另抽检高风险边界、多处命中和无命中正文。复核结论为“正确 / 错误 / 暂不确定”，不会覆盖自动结果。
+1. **导入候选，不执行。** 选择 `seed-v0.2-dictionary`，确认文本为 `SEED_V02_DICTIONARY`。它把仓库内固定的[技术关键词归一化映射表 v0.2](technical-keyword-alias-map-v0.2.md)导入为候选/条件规则；重复运行不会重复插入。此步不启用任何规则、不创建分析结果，也不入队。
+2. **逐条批准已审阅的确定性规则。** 选择 `approve-v0.2-rule`，输入一个小写 v0.2 `rule_key`，确认文本为 `APPROVE_V02_RULE`。这是对**一条**候选规则的明确决定，重复批准同一条规则是幂等的。仓储层只接受人工审阅表 A、B 中已批准项对应的键；条件、歧义和未审阅规则会被拒绝，不能用入口绕过上下文策略。
+3. **准备候选配置。** 至少有一条确定性规则已获批准后，选择 `prepare-v0.2-analysis`，确认文本为 `PREPARE_V02_ANALYSIS`。它创建或复用固定的“解析器版本＋词典版本”候选配置，并把全部历史正文版本加入该候选配置的队列；不会抓取来源网站，不会发布结果。
+4. **运行隔离的候选分析。** 选择 `run-v0.2-candidate-analysis`，确认文本为 `RUN_V02_CANDIDATE_ANALYSIS`。它不触碰已发布配置，也不改变每日同步定时器。工作流输出只应包含状态和计数，绝不能含正文、命中片段、原始响应或凭据。
+5. **候选追赶与复核。** 分析期间如果产生新的正文版本，发布前必须重新检查并补齐候选队列；不得将候选结果与旧发布结果混为“当前结果”。对于首期的确定性精确词面，项目负责人在本地审核词典身份、词面、边界和排除政策，记录在[技术词典 v0.1 人工确认记录](技术词典v0.1人工确认记录.md)和[人工审阅表](技术词典v0.1人工审阅表.md)；CVM 对全部证据做字段哈希、坐标、别名、正式边界和冻结规则集的确定性重放校验，并对多命中与无命中正文做安全抽样。这个组合替代了为首期精确提及而显示/复制真实 JD 的人工阅览。模糊匹配、上下文消歧、年限/学历等语义提取不适用该替代门禁，仍必须另设远端人工文本复核。复核结论为“正确 / 错误 / 暂不确定”，不会覆盖自动结果。
 6. **发布门禁尚未开放。** 当前没有“发布候选词典/配置”的 GitHub 操作，也没有可接受任意 SQL 或正文读取的运维入口。不要通过数据库直连、临时脚本或 `run-pending-analysis` 绕过复核。受控远端复核界面与“全部门禁通过后原子发布”的入口将在后续独立实现；旧结果和旧复核记录届时仍须保留，词典覆盖变化不得标注成岗位需求变化。
 
 ## 恢复与回退
 
 - 单个分析工作失败：保留为 `pending` 并记录固定错误码。修复原因后执行 `run-pending-analysis`，无需重新抓取来源或重传 COS。
-- 候选分析工作失败：候选配置和已完成的候选结果保留，修复后只重试 `run-v0.1-candidate-analysis`；不得把候选配置当成已发布配置来运行普通待处理分析。
+- 候选分析工作失败：候选配置和已完成的候选结果保留，修复后只重试 `run-v0.2-candidate-analysis`；不得把候选配置当成已发布配置来运行普通待处理分析。
 - 候选配置失败：标记候选失败，旧发布指针保持不变；不要删除旧结果或证据。
 - 需要回退展示：把发布指针切回已完成且验收过的旧配置；不删除候选配置及其结果。
 - 怀疑泄露：停止分析 helper，保留最小审计标识，按凭据轮换流程处理；不要通过日志搜寻或复制正文来排障。

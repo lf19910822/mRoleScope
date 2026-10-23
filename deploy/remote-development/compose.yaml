@@ -116,6 +116,25 @@ services:
     # the normal published-configuration analysis service.
     networks: [backend]
 
+  candidate-analysis-v0.2:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [candidate-analysis-v0.2]
+    restart: "no"
+    command: ["analyze-candidate-v0.2"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # This version-specific candidate remains isolated from published analysis,
+    # source collection, object storage, and host-mounted raw data.
+    networks: [backend]
+
   dictionary-seed:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [dictionary]
@@ -155,6 +174,57 @@ services:
     profiles: [dictionary]
     restart: "no"
     command: ["dictionary-v0.1", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.2-seed:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.2", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.2-approve:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.2", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.2-prepare:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.2", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
     environment:
       APP_ENV: remote-development
       DATABASE_URL: ${DATABASE_URL}

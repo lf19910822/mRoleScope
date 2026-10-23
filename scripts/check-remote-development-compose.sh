@@ -17,7 +17,7 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 8 ]] \
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 12 ]] \
   || die 'only PostgreSQL, migration, analysis, backfill, and fixed dictionary services may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
@@ -32,8 +32,11 @@ grep -Fqx '    profiles: [backfill]' "$compose_file" \
 grep -Fqx '    profiles: [candidate-analysis]' "$compose_file" \
   || die 'candidate analysis must remain an explicitly requested one-shot profile'
 
-[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 3 ]] \
-  || die 'the three dictionary lifecycle services must remain explicitly requested'
+grep -Fqx '    profiles: [candidate-analysis-v0.2]' "$compose_file" \
+  || die 'v0.2 candidate analysis must remain an explicitly requested one-shot profile'
+
+[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 6 ]] \
+  || die 'the fixed dictionary lifecycle services must remain explicitly requested'
 
 [[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \
   || die 'only API and no-port worker may attach to the ordinary edge network'
@@ -77,6 +80,10 @@ check_private_one_shot() {
 check_private_one_shot analysis analysis '["analyze"]'
 check_private_one_shot backfill backfill '["backfill-versioned-content"]'
 check_private_one_shot candidate-analysis candidate-analysis '["analyze-candidate-v0.1"]'
+check_private_one_shot candidate-analysis-v0.2 candidate-analysis-v0.2 '["analyze-candidate-v0.2"]'
 check_private_one_shot dictionary-seed dictionary '["dictionary-v0.1", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-approve dictionary '["dictionary-v0.1", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-prepare dictionary '["dictionary-v0.1", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.2-seed dictionary '["dictionary-v0.2", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.2-approve dictionary '["dictionary-v0.2", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.2-prepare dictionary '["dictionary-v0.2", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'

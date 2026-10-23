@@ -18,9 +18,13 @@ on:
           - approve-v0.1-rule
           - prepare-v0.1-analysis
           - run-v0.1-candidate-analysis
+          - seed-v0.2-dictionary
+          - approve-v0.2-rule
+          - prepare-v0.2-analysis
+          - run-v0.2-candidate-analysis
           - sync-logs
       rule_key:
-        description: Required only when approving one v0.1 candidate rule
+        description: Required only when approving one reviewed candidate rule
         required: false
         type: string
       confirmation:
@@ -76,6 +80,18 @@ jobs:
             run-v0.1-candidate-analysis)
               expected='RUN_V01_CANDIDATE_ANALYSIS'
               ;;
+            seed-v0.2-dictionary)
+              expected='SEED_V02_DICTIONARY'
+              ;;
+            approve-v0.2-rule)
+              expected='APPROVE_V02_RULE'
+              ;;
+            prepare-v0.2-analysis)
+              expected='PREPARE_V02_ANALYSIS'
+              ;;
+            run-v0.2-candidate-analysis)
+              expected='RUN_V02_CANDIDATE_ANALYSIS'
+              ;;
             *)
               echo 'Unsupported fixed operation.' >&2
               exit 1
@@ -94,12 +110,12 @@ jobs:
         run: |
           set -euo pipefail
           case "$OPERATION" in
-            seed-v0.1-dictionary|prepare-v0.1-analysis)
+            seed-v0.1-dictionary|prepare-v0.1-analysis|seed-v0.2-dictionary|prepare-v0.2-analysis)
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$REVIEWER"
               ;;
-            approve-v0.1-rule)
+            approve-v0.1-rule|approve-v0.2-rule)
               [[ "$RULE_KEY" =~ ^[a-z0-9][a-z0-9.-]{0,127}$ ]] || {
-                echo 'rule_key must be a lowercase v0.1 rule key.' >&2
+                echo 'rule_key must be a lowercase reviewed rule key.' >&2
                 exit 1
               }
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$RULE_KEY" "$REVIEWER"

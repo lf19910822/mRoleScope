@@ -1,0 +1,15 @@
+[Unit]
+Description=mRoleScope isolated v0.2 candidate JD technology analysis
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/mrolescope-analysis candidate-v0.2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mrolescope/releases
