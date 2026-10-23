@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Root-owned, fixed one-shot entry point for pending JD analysis. It accepts no
-# database URL, image, command, path, or configuration arguments from callers.
+# Root-owned, fixed one-shot entry point for either published pending analysis
+# or the isolated v0.1 candidate analysis. It accepts no database URL, image,
+# command, path, or configuration arguments from callers.
 
 set -euo pipefail
 
@@ -74,7 +75,8 @@ load_database_secret() {
 }
 
 [[ "${EUID}" -eq 0 ]] || die 'must run as root'
-[[ "$#" -eq 1 && "$1" == 'pending' ]] || die 'usage: mrolescope-analysis pending'
+[[ "$#" -eq 1 && ( "$1" == 'pending' || "$1" == 'candidate-v0.1' ) ]] \
+  || die 'usage: mrolescope-analysis <pending|candidate-v0.1>'
 is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
 [[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
 command -v docker >/dev/null 2>&1 || die 'docker is required'
@@ -85,5 +87,10 @@ load_database_secret
 exec 9>"$LOCK_FILE"
 flock -n 9 || die 'another analysis operation is already running'
 compose up -d --wait --wait-timeout 60 postgres
-compose --profile analysis run --rm --no-deps analysis
-log 'pending analysis completed'
+if [[ "$1" == 'pending' ]]; then
+  compose --profile analysis run --rm --no-deps analysis
+  log 'pending analysis completed'
+else
+  compose --profile candidate-analysis run --rm --no-deps candidate-analysis
+  log 'v0.1 candidate analysis completed'
+fi
