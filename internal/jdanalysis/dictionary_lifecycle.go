@@ -234,18 +234,30 @@ GROUP BY version.id`, dictionaryVersionLabel).Scan(&dictionaryVersionID, &enable
 	})
 }
 
-// CandidateConfigurationID resolves the one un-published configuration for a
-// fixed parser/dictionary pair. This is intentionally separate from normal
+// CandidateConfigurationID resolves the un-published configuration for the
+// current frozen enabled-rule set. This is intentionally separate from normal
 // pending analysis, which must consume only the published pointer.
 func (repository *Repository) CandidateConfigurationID(ctx context.Context, dictionaryVersionLabel, parserVersion string) (string, error) {
+	var dictionaryVersionID string
+	if err := repository.pool.QueryRow(ctx, `
+SELECT id::text
+FROM technology_dictionary_versions
+WHERE version_label = $1 AND status = 'candidate'`, dictionaryVersionLabel).Scan(&dictionaryVersionID); err != nil {
+		return "", fmt.Errorf("load candidate dictionary version: %w", err)
+	}
+	snapshot, err := repository.loadEnabledRuleSet(ctx, repository.pool, dictionaryVersionID)
+	if err != nil {
+		return "", err
+	}
 	var configurationID string
-	err := repository.pool.QueryRow(ctx, `
+	err = repository.pool.QueryRow(ctx, `
 SELECT configuration.id::text
 FROM technology_analysis_configurations AS configuration
 JOIN technology_dictionary_versions AS version ON version.id = configuration.dictionary_version_id
 WHERE version.version_label = $1
   AND configuration.parser_version = $2
-  AND configuration.status = 'candidate'`, dictionaryVersionLabel, parserVersion).Scan(&configurationID)
+  AND configuration.rule_set_sha256 = $3
+  AND configuration.status = 'candidate'`, dictionaryVersionLabel, parserVersion, snapshot.SHA256).Scan(&configurationID)
 	if err == pgx.ErrNoRows {
 		return "", fmt.Errorf("candidate analysis configuration is unavailable")
 	}

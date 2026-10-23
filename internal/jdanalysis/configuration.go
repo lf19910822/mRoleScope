@@ -2,6 +2,9 @@ package jdanalysis
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -37,6 +40,78 @@ type CandidatePromotion struct {
 	Reused          bool
 }
 
+type ruleSetSnapshotEntry struct {
+	TechnologyKey   string `json:"technology_key"`
+	RuleKey         string `json:"rule_key"`
+	Alias           string `json:"alias"`
+	CaseMode        string `json:"case_mode"`
+	BoundaryMode    string `json:"boundary_mode"`
+	OverlapPriority int    `json:"overlap_priority"`
+}
+
+type ruleSetSnapshot struct {
+	SHA256  string
+	RuleIDs []string
+}
+
+type ruleSetQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+// loadEnabledRuleSet serializes the exact executable matching semantics in a
+// stable order.  This is a configuration input, not a mutable dictionary
+// lookup: later approvals must result in a different configuration.
+func (repository *Repository) loadEnabledRuleSet(ctx context.Context, querier ruleSetQuerier, dictionaryVersionID string) (ruleSetSnapshot, error) {
+	rows, err := querier.Query(ctx, `
+SELECT rule.id::text, identity.technology_key, rule.rule_key, rule.alias,
+       rule.case_mode, rule.boundary_mode, rule.overlap_priority
+FROM technology_dictionary_rules AS rule
+JOIN technology_identities AS identity ON identity.id = rule.technology_identity_id
+WHERE rule.dictionary_version_id = $1 AND rule.state = 'enabled'
+ORDER BY rule.rule_key`, dictionaryVersionID)
+	if err != nil {
+		return ruleSetSnapshot{}, fmt.Errorf("load enabled rule-set snapshot: %w", err)
+	}
+	defer rows.Close()
+
+	entries := make([]ruleSetSnapshotEntry, 0)
+	ruleIDs := make([]string, 0)
+	for rows.Next() {
+		var entry ruleSetSnapshotEntry
+		var ruleID string
+		if err := rows.Scan(&ruleID, &entry.TechnologyKey, &entry.RuleKey, &entry.Alias,
+			&entry.CaseMode, &entry.BoundaryMode, &entry.OverlapPriority); err != nil {
+			return ruleSetSnapshot{}, fmt.Errorf("scan enabled rule-set snapshot: %w", err)
+		}
+		entries = append(entries, entry)
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	if err := rows.Err(); err != nil {
+		return ruleSetSnapshot{}, fmt.Errorf("iterate enabled rule-set snapshot: %w", err)
+	}
+	if len(entries) == 0 {
+		return ruleSetSnapshot{}, fmt.Errorf("analysis configuration requires at least one enabled dictionary rule")
+	}
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return ruleSetSnapshot{}, fmt.Errorf("encode enabled rule-set snapshot: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return ruleSetSnapshot{SHA256: hex.EncodeToString(sum[:]), RuleIDs: ruleIDs}, nil
+}
+
+func persistConfigurationRuleSnapshot(ctx context.Context, tx pgx.Tx, configurationID string, ruleIDs []string) error {
+	for _, ruleID := range ruleIDs {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO technology_analysis_configuration_rules (configuration_id, dictionary_rule_id)
+VALUES ($1, $2)
+ON CONFLICT (configuration_id, dictionary_rule_id) DO NOTHING`, configurationID, ruleID); err != nil {
+			return fmt.Errorf("persist configuration rule-set snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
 // PrepareCandidateConfiguration creates or resumes a candidate configuration
 // and queues every historical body version. The unique queue identity makes a
 // repeated request idempotent, while a candidate remains invisible to normal
@@ -53,16 +128,23 @@ func (repository *Repository) PrepareCandidateConfiguration(ctx context.Context,
 	if err := ensurePublicationState(ctx, tx); err != nil {
 		return CandidatePreparation{}, err
 	}
+	snapshot, err := repository.loadEnabledRuleSet(ctx, tx, input.DictionaryVersionID)
+	if err != nil {
+		return CandidatePreparation{}, err
+	}
 	var configurationID, status string
 	err = tx.QueryRow(ctx, `
 INSERT INTO technology_analysis_configurations (
-    parser_version, dictionary_version_id, status, created_by
-) VALUES ($1, $2, 'candidate', $3)
-ON CONFLICT (parser_version, dictionary_version_id)
+    parser_version, dictionary_version_id, rule_set_sha256, status, created_by
+) VALUES ($1, $2, $3, 'candidate', $4)
+ON CONFLICT (parser_version, dictionary_version_id, rule_set_sha256)
 DO UPDATE SET parser_version = EXCLUDED.parser_version
-RETURNING id::text, status::text`, input.ParserVersion, input.DictionaryVersionID, input.CreatedBy).Scan(&configurationID, &status)
+RETURNING id::text, status::text`, input.ParserVersion, input.DictionaryVersionID, snapshot.SHA256, input.CreatedBy).Scan(&configurationID, &status)
 	if err != nil {
 		return CandidatePreparation{}, fmt.Errorf("create or find candidate analysis configuration: %w", err)
+	}
+	if err := persistConfigurationRuleSnapshot(ctx, tx, configurationID, snapshot.RuleIDs); err != nil {
+		return CandidatePreparation{}, err
 	}
 	preparation := CandidatePreparation{ConfigurationID: configurationID, Reused: status == "published"}
 	if status == "failed" || status == "retired" {
@@ -157,10 +239,9 @@ SELECT count(*)
 FROM job_body_content_versions AS body
 LEFT JOIN technology_analysis_results AS result
   ON result.body_content_version_id = body.id
- AND result.parser_version = $1
- AND result.dictionary_version_id = $2
+ AND result.configuration_id = $1
  AND result.status = 'complete'
-WHERE result.id IS NULL`, configuration.ParserVersion, configuration.DictionaryVersionID).Scan(&promotion.MissingResults); err != nil {
+WHERE result.id IS NULL`, configuration.ID).Scan(&promotion.MissingResults); err != nil {
 		return CandidatePromotion{}, fmt.Errorf("count missing candidate analysis results: %w", err)
 	}
 	if promotion.Pending != 0 || promotion.MissingResults != 0 {

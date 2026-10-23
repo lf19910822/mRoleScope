@@ -12,12 +12,7 @@ func TestProcessorConsumesPostgreSQLQueueAndRetriesFailures(t *testing.T) {
 	ctx := context.Background()
 	bodyID, dictionaryID, _, _ := insertSyntheticAnalysisPrerequisites(t, repository)
 	configurationID := "00000000-0000-4000-8000-000000000506"
-	if _, err := repository.pool.Exec(ctx, `
-INSERT INTO technology_analysis_configurations (
-    id, parser_version, dictionary_version_id, created_by
-) VALUES ($1, 'synthetic-parser-v1', $2, 'test')`, configurationID, dictionaryID); err != nil {
-		t.Fatal(err)
-	}
+	insertSyntheticAnalysisConfiguration(t, repository, configurationID, "synthetic-parser-v1", dictionaryID)
 
 	inserted, err := repository.EnqueueBody(ctx, configurationID, bodyID, TriggerNewBody)
 	if err != nil || !inserted {
@@ -183,8 +178,9 @@ func TestReviewRecordsAreIndependentAndBoundToExactEvidence(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	configurationID := prepareSyntheticAnalysisConfiguration(t, repository, dictionaryID, "synthetic-review-parser")
 	first, err := repository.PublishCompleteResult(ctx, ResultIdentity{
-		BodyContentVersionID: bodyID, ParserVersion: "synthetic-review-parser", DictionaryVersionID: dictionaryID,
+		BodyContentVersionID: bodyID, ConfigurationID: configurationID,
 	}, []MentionInput{{
 		TechnologyIdentityID: technologyID,
 		Evidence: []EvidenceInput{
@@ -239,7 +235,7 @@ SELECT
 
 	secondBodyID := insertSyntheticAnalysisBody(t, repository, "00000000-0000-4000-8000-000000000509", "Go")
 	second, err := repository.PublishCompleteResult(ctx, ResultIdentity{
-		BodyContentVersionID: secondBodyID, ParserVersion: "synthetic-review-parser", DictionaryVersionID: dictionaryID,
+		BodyContentVersionID: secondBodyID, ConfigurationID: configurationID,
 	}, []MentionInput{{
 		TechnologyIdentityID: technologyID,
 		Evidence:             []EvidenceInput{{SourceField: SourceFieldDescription, RuleID: ruleID, Start: 0, End: 2}},

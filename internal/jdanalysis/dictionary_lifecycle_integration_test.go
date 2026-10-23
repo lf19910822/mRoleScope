@@ -68,3 +68,83 @@ SELECT
 		t.Fatalf("candidate lifecycle counts = enabled:%d decisions:%d queued:%d", enabledRules, decisions, queued)
 	}
 }
+
+func TestAdditionalCandidateRuleApprovalCreatesDistinctReanalysisSnapshot(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	_, _, _, _ = insertSyntheticAnalysisPrerequisites(t, repository)
+	secondBodyID := insertSyntheticAnalysisBody(t, repository, "00000000-0000-4000-8000-000000000510", "Kubernetes K8s")
+
+	seed := CandidateV01Seed()
+	if _, err := repository.ImportCandidateDictionary(ctx, seed, "remote-operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ApproveCandidateRule(ctx, seed.VersionLabel, "kubernetes.01", "remote-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := repository.PrepareCandidateConfigurationForDictionary(ctx, seed.VersionLabel, V01ParserVersion, "remote-operator")
+	if err != nil || first.Queued != 2 {
+		t.Fatalf("first candidate preparation = %#v err=%v", first, err)
+	}
+	if _, err := repository.ApproveCandidateRule(ctx, seed.VersionLabel, "kubernetes.02", "remote-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Processor{Repository: repository}).ProcessPending(ctx, first.ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+	var firstSnapshotNewRuleEvidence int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM technology_mention_evidence AS evidence
+JOIN technology_mentions AS mention ON mention.id = evidence.technology_mention_id
+JOIN technology_analysis_results AS result ON result.id = mention.analysis_result_id
+JOIN technology_dictionary_rules AS rule ON rule.id = evidence.dictionary_rule_id
+WHERE result.configuration_id = $1
+  AND result.body_content_version_id = $2
+  AND rule.rule_key = 'kubernetes.02'`, first.ConfigurationID, secondBodyID).Scan(&firstSnapshotNewRuleEvidence); err != nil {
+		t.Fatal(err)
+	}
+	if firstSnapshotNewRuleEvidence != 0 {
+		t.Fatalf("first snapshot unexpectedly used later-approved rule: %d", firstSnapshotNewRuleEvidence)
+	}
+
+	second, err := repository.PrepareCandidateConfigurationForDictionary(ctx, seed.VersionLabel, V01ParserVersion, "remote-operator")
+	if err != nil || second.ConfigurationID == first.ConfigurationID || second.Queued != 2 {
+		t.Fatalf("second candidate preparation = %#v first=%#v err=%v", second, first, err)
+	}
+	currentConfigurationID, err := repository.CandidateConfigurationID(ctx, seed.VersionLabel, V01ParserVersion)
+	if err != nil || currentConfigurationID != second.ConfigurationID {
+		t.Fatalf("current candidate configuration = %q, want %q err=%v", currentConfigurationID, second.ConfigurationID, err)
+	}
+	if _, err := (Processor{Repository: repository}).ProcessPending(ctx, second.ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+
+	var firstRuleEvidence, secondRuleEvidence int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE rule.rule_key = 'kubernetes.01'),
+  count(*) FILTER (WHERE rule.rule_key = 'kubernetes.02')
+FROM technology_mention_evidence AS evidence
+JOIN technology_mentions AS mention ON mention.id = evidence.technology_mention_id
+JOIN technology_analysis_results AS result ON result.id = mention.analysis_result_id
+JOIN technology_dictionary_rules AS rule ON rule.id = evidence.dictionary_rule_id
+WHERE result.configuration_id = $1 AND result.body_content_version_id = $2`, second.ConfigurationID, secondBodyID).Scan(&firstRuleEvidence, &secondRuleEvidence); err != nil {
+		t.Fatal(err)
+	}
+	if firstRuleEvidence != 1 || secondRuleEvidence != 1 {
+		t.Fatalf("second snapshot evidence = kubernetes.01:%d kubernetes.02:%d", firstRuleEvidence, secondRuleEvidence)
+	}
+
+	var firstSnapshotResults, secondSnapshotResults int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE configuration_id = $1 AND status = 'complete'),
+  count(*) FILTER (WHERE configuration_id = $2 AND status = 'complete')
+FROM technology_analysis_results`, first.ConfigurationID, second.ConfigurationID).Scan(&firstSnapshotResults, &secondSnapshotResults); err != nil {
+		t.Fatal(err)
+	}
+	if firstSnapshotResults != 2 || secondSnapshotResults != 2 {
+		t.Fatalf("complete results by snapshot = first:%d second:%d", firstSnapshotResults, secondSnapshotResults)
+	}
+}
