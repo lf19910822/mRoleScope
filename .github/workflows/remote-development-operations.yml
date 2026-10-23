@@ -23,6 +23,9 @@ on:
           - approve-v0.2-reviewed-rules
           - prepare-v0.2-analysis
           - run-v0.2-candidate-analysis
+          - publish-v0.2-baseline
+          - withdraw-v0.2-material-result-quality
+          - withdraw-v0.2-security-privacy
           - sync-logs
       rule_key:
         description: Required only when approving one reviewed candidate rule
@@ -96,6 +99,15 @@ jobs:
             run-v0.2-candidate-analysis)
               expected='RUN_V02_CANDIDATE_ANALYSIS'
               ;;
+            publish-v0.2-baseline)
+              expected='PUBLISH_V02_BASELINE'
+              ;;
+            withdraw-v0.2-material-result-quality)
+              expected='WITHDRAW_V02_MATERIAL_RESULT_QUALITY_DEFECT'
+              ;;
+            withdraw-v0.2-security-privacy)
+              expected='WITHDRAW_V02_SECURITY_PRIVACY_INCIDENT'
+              ;;
             *)
               echo 'Unsupported fixed operation.' >&2
               exit 1
@@ -111,6 +123,7 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           RULE_KEY: ${{ inputs.rule_key }}
           REVIEWER: ${{ github.actor }}
+          PUBLISHER: ${{ github.actor }}
         run: |
           set -euo pipefail
           case "$OPERATION" in
@@ -123,6 +136,9 @@ jobs:
                 exit 1
               }
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$RULE_KEY" "$REVIEWER"
+              ;;
+            publish-v0.2-baseline|withdraw-v0.2-material-result-quality|withdraw-v0.2-security-privacy)
+              sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$PUBLISHER"
               ;;
             *)
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION"

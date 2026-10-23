@@ -39,6 +39,9 @@ func main() {
 		case "analyze-candidate-v0.2":
 			runV02CandidateAnalysis(arguments[1:])
 			return
+		case "release-v0.2":
+			runV02ReleaseLifecycle(arguments[1:])
+			return
 		}
 	}
 	// Preserve the reviewed synchronization helper's existing flag-only
@@ -376,6 +379,78 @@ func runV02CandidateAnalysis(arguments []string) {
 		os.Exit(1)
 	}
 	slog.Info("candidate analysis completed", "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+}
+
+// runV02ReleaseLifecycle is deliberately a two-action worker command. Its
+// Compose services hard-code the action, and the publisher arrives only via
+// the root-owned adapter's authenticated-actor environment variable. It
+// cannot receive a configuration ID, dictionary, rule, SQL statement, path,
+// image, raw JD text, or free-form withdrawal reason.
+func runV02ReleaseLifecycle(arguments []string) {
+	if len(arguments) != 1 {
+		fmt.Fprintln(os.Stderr, "release-v0.2 accepts publish, withdraw-quality, or withdraw-security")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid release lifecycle configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("release lifecycle database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	publisher := os.Getenv("MROLESCOPE_RELEASE_PUBLISHER")
+
+	switch arguments[0] {
+	case "publish":
+		summary, err := repository.ReleaseV02Baseline(ctx, publisher)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+			os.Exit(1)
+		}
+		slog.Info("v0.2 analysis baseline published",
+			"configuration_id", summary.ConfigurationID,
+			"dictionary_version_id", summary.DictionaryVersionID,
+			"rule_set_sha256", summary.RuleSetSHA256,
+			"release_gate_version", summary.ReleaseGateVersion,
+			"publisher", summary.Publisher,
+			"queued", summary.Queued,
+			"pending", summary.Pending,
+			"missing_results", summary.MissingResults,
+			"evidence_total", summary.EvidenceTotal,
+			"invalid_evidence", summary.InvalidEvidence,
+			"reused", summary.Reused,
+		)
+	case "withdraw-quality":
+		runV02BaselineWithdrawal(ctx, repository, publisher, jdanalysis.WithdrawalMaterialResultQualityDefect)
+	case "withdraw-security":
+		runV02BaselineWithdrawal(ctx, repository, publisher, jdanalysis.WithdrawalSecurityPrivacyIncident)
+	default:
+		fmt.Fprintln(os.Stderr, "release-v0.2 action must be publish, withdraw-quality, or withdraw-security")
+		os.Exit(2)
+	}
+}
+
+func runV02BaselineWithdrawal(ctx context.Context, repository *jdanalysis.Repository, publisher string, category jdanalysis.WithdrawalCategory) {
+	summary, err := repository.WithdrawV02Baseline(ctx, publisher, category)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	slog.Warn("v0.2 analysis baseline withdrawn",
+		"configuration_id", summary.ConfigurationID,
+		"dictionary_version_id", summary.DictionaryVersionID,
+		"rule_set_sha256", summary.RuleSetSHA256,
+		"release_gate_version", summary.ReleaseGateVersion,
+		"publisher", summary.Publisher,
+		"withdrawal_category", summary.Category,
+		"reused", summary.Reused,
+	)
 }
 
 func isWithin(candidate, root string) bool {

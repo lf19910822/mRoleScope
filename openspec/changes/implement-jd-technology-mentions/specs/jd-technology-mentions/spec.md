@@ -124,3 +124,42 @@ The system SHALL retain remote-only review decisions separately from automated r
 - **WHEN** a candidate analysis version is considered for publication
 - **THEN** the system SHALL require remote verification of evidence coordinates, idempotent rerun behavior, redaction behavior, and the defined human review sample
 - **AND THEN** each enabled entry that produced a real match SHALL have at least one reviewed remote evidence record
+
+### Requirement: A released dictionary and its configuration are frozen together
+The system SHALL publish a candidate dictionary version and its exact completed analysis configuration together. It SHALL reject rule, alias, boundary, or approval changes to a published dictionary version; such changes SHALL require a new candidate dictionary version and full reanalysis.
+
+#### Scenario: The first complete candidate is published
+- **WHEN** an authorized operator releases a candidate whose dictionary, frozen rule set, and required body results satisfy the release gate
+- **THEN** the system SHALL atomically mark that dictionary version and analysis configuration published and advance the sole analysis publication pointer to that configuration
+- **AND THEN** it SHALL preserve the configuration's exact rule-set fingerprint and all prior candidate evidence
+
+#### Scenario: A change is proposed for a published dictionary
+- **WHEN** an operator attempts to add, enable, disable, or alter a rule in a published dictionary version
+- **THEN** the system SHALL reject the change
+- **AND THEN** it SHALL require a new candidate dictionary version before the changed rules can be analyzed or published
+
+### Requirement: Publication has a durable, controlled release attestation
+The system SHALL expose publication only through a fixed, authorized remote operation that rechecks release readiness. It SHALL persist an immutable attestation containing the released configuration and dictionary identities, rule-set fingerprint, release-gate policy version, timestamp, and resolved publisher identity; no raw JD text or arbitrary caller input may enter the attestation.
+
+#### Scenario: A candidate passes the controlled release gate
+- **WHEN** the fixed release operation verifies complete and non-failed work, full candidate coverage, configured evidence validation, and the approved review policy
+- **THEN** it SHALL atomically create the release attestation and publish the candidate
+- **AND THEN** it SHALL record the authenticated remote operator as publisher, or `FAN` only when that identity is unavailable
+
+#### Scenario: A candidate is incomplete or fails validation
+- **WHEN** the controlled release operation finds pending, missing, failed, or gate-invalid candidate work
+- **THEN** it SHALL leave the dictionary, configuration, and publication pointer unchanged
+- **AND THEN** it SHALL return only safe counts and stable error categories
+
+### Requirement: A published first baseline can be safely withdrawn
+The system SHALL allow a fixed, authorized withdrawal operation for a published first baseline only when a material result-quality defect or a security/privacy incident is declared using a fixed category. Withdrawal SHALL retain all historical facts, remove the active publication pointer, and leave source synchronization independent of analysis availability.
+
+#### Scenario: A material quality or privacy problem is confirmed
+- **WHEN** an authorized operator withdraws the only published baseline with an allowed withdrawal category
+- **THEN** the system SHALL retire that dictionary and configuration, append an immutable withdrawal attestation, and clear the publication pointer atomically
+- **AND THEN** daily source synchronization SHALL continue while ordinary downstream analysis safely remains unavailable until a replacement is published
+
+#### Scenario: Ordinary downstream processing has a transient failure
+- **WHEN** a normal analysis run fails without a confirmed material quality or security/privacy issue
+- **THEN** the system SHALL retain the published dictionary and configuration
+- **AND THEN** it SHALL keep only the affected work pending or safely failed for later recovery

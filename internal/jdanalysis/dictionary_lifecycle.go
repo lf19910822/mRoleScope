@@ -69,6 +69,25 @@ func (repository *Repository) ImportCandidateDictionary(ctx context.Context, see
 	if err != nil {
 		return DictionaryImportSummary{}, err
 	}
+	if reused {
+		var status string
+		if err := tx.QueryRow(ctx, `
+SELECT status::text
+FROM technology_dictionary_versions
+WHERE id = $1
+FOR UPDATE`, versionID).Scan(&status); err != nil {
+			return DictionaryImportSummary{}, fmt.Errorf("lock existing candidate dictionary version: %w", err)
+		}
+		if status == "published" || status == "retired" {
+			if err := tx.Commit(ctx); err != nil {
+				return DictionaryImportSummary{}, fmt.Errorf("commit reused frozen dictionary import: %w", err)
+			}
+			return DictionaryImportSummary{DictionaryVersionID: versionID, Reused: true}, nil
+		}
+		if status != "candidate" {
+			return DictionaryImportSummary{}, fmt.Errorf("candidate dictionary version is unavailable")
+		}
+	}
 	identityIDs := make(map[string]string, len(seed.Rules))
 	for _, rule := range seed.Rules {
 		identityID, err := upsertTechnologyIdentity(ctx, tx, rule)
@@ -151,10 +170,23 @@ func upsertTechnologyIdentity(ctx context.Context, tx pgx.Tx, rule DictionaryRul
 INSERT INTO technology_identities (technology_key, canonical_name, technology_kind)
 VALUES ($1, $2, $3)
 ON CONFLICT (technology_key)
-DO UPDATE SET technology_key = EXCLUDED.technology_key
+DO NOTHING
 RETURNING id::text`, rule.TechnologyKey, rule.CanonicalName, rule.TechnologyKind).Scan(&identityID)
-	if err != nil {
-		return "", fmt.Errorf("upsert technology identity: %w", err)
+	if err == nil {
+		return identityID, nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", fmt.Errorf("create technology identity: %w", err)
+	}
+	var canonicalName, technologyKind string
+	if err := tx.QueryRow(ctx, `
+SELECT id::text, canonical_name, technology_kind
+FROM technology_identities
+WHERE technology_key = $1`, rule.TechnologyKey).Scan(&identityID, &canonicalName, &technologyKind); err != nil {
+		return "", fmt.Errorf("load technology identity: %w", err)
+	}
+	if canonicalName != rule.CanonicalName || technologyKind != rule.TechnologyKind {
+		return "", fmt.Errorf("technology identity conflicts with the candidate dictionary")
 	}
 	return identityID, nil
 }
@@ -172,13 +204,13 @@ func (repository *Repository) ApproveCandidateRule(ctx context.Context, dictiona
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
-	var ruleID, state string
+	var ruleID, state, dictionaryStatus string
 	err = tx.QueryRow(ctx, `
-SELECT rule.id::text, rule.state::text
+SELECT rule.id::text, rule.state::text, version.status::text
 FROM technology_dictionary_rules AS rule
 JOIN technology_dictionary_versions AS version ON version.id = rule.dictionary_version_id
 WHERE version.version_label = $1 AND rule.rule_key = $2
-FOR UPDATE`, dictionaryVersionLabel, ruleKey).Scan(&ruleID, &state)
+FOR UPDATE OF rule, version`, dictionaryVersionLabel, ruleKey).Scan(&ruleID, &state, &dictionaryStatus)
 	if err == pgx.ErrNoRows {
 		return DictionaryApprovalSummary{}, fmt.Errorf("dictionary rule is unavailable for approval")
 	}
@@ -186,6 +218,16 @@ FOR UPDATE`, dictionaryVersionLabel, ruleKey).Scan(&ruleID, &state)
 		return DictionaryApprovalSummary{}, fmt.Errorf("lock dictionary rule for approval: %w", err)
 	}
 	summary := DictionaryApprovalSummary{RuleKey: ruleKey}
+	if dictionaryStatus != "candidate" {
+		if dictionaryStatus == "published" && state == string(RuleEnabled) {
+			summary.Reused = true
+			if err := tx.Commit(ctx); err != nil {
+				return DictionaryApprovalSummary{}, fmt.Errorf("commit reused frozen dictionary approval: %w", err)
+			}
+			return summary, nil
+		}
+		return DictionaryApprovalSummary{}, fmt.Errorf("dictionary rule belongs to an immutable version")
+	}
 	if state == string(RuleEnabled) {
 		summary.Reused = true
 		if err := tx.Commit(ctx); err != nil {
@@ -237,6 +279,24 @@ func (repository *Repository) ApproveAllV02ReviewedRules(ctx context.Context, re
 		return DictionaryBulkApprovalSummary{}, fmt.Errorf("begin v0.2 bulk dictionary approval: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	var dictionaryStatus string
+	if err := tx.QueryRow(ctx, `
+SELECT status::text
+FROM technology_dictionary_versions
+WHERE version_label = $1
+FOR UPDATE`, CandidateV02Seed().VersionLabel).Scan(&dictionaryStatus); err != nil {
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock v0.2 dictionary version for approval: %w", err)
+	}
+	if dictionaryStatus == "published" {
+		if err := tx.Commit(ctx); err != nil {
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("commit reused frozen v0.2 dictionary approval: %w", err)
+		}
+		return DictionaryBulkApprovalSummary{Reused: len(V02ApprovedRuleKeys())}, nil
+	}
+	if dictionaryStatus != "candidate" {
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("v0.2 dictionary version is immutable")
+	}
 
 	summary := DictionaryBulkApprovalSummary{}
 	for _, ruleKey := range V02ApprovedRuleKeys() {

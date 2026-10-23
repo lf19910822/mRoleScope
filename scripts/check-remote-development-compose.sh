@@ -17,7 +17,7 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 13 ]] \
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 16 ]] \
   || die 'only PostgreSQL, migration, analysis, backfill, and fixed dictionary services may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
@@ -34,6 +34,9 @@ grep -Fqx '    profiles: [candidate-analysis]' "$compose_file" \
 
 grep -Fqx '    profiles: [candidate-analysis-v0.2]' "$compose_file" \
   || die 'v0.2 candidate analysis must remain an explicitly requested one-shot profile'
+
+[[ "$(grep -Fxc '    profiles: [release-v0.2]' "$compose_file")" -eq 3 ]] \
+  || die 'the fixed v0.2 release lifecycle services must remain explicitly requested'
 
 [[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 7 ]] \
   || die 'the fixed dictionary lifecycle services must remain explicitly requested'
@@ -81,6 +84,9 @@ check_private_one_shot analysis analysis '["analyze"]'
 check_private_one_shot backfill backfill '["backfill-versioned-content"]'
 check_private_one_shot candidate-analysis candidate-analysis '["analyze-candidate-v0.1"]'
 check_private_one_shot candidate-analysis-v0.2 candidate-analysis-v0.2 '["analyze-candidate-v0.2"]'
+check_private_one_shot analysis-release-v0.2 release-v0.2 '["release-v0.2", "publish"]'
+check_private_one_shot analysis-withdraw-v0.2-quality release-v0.2 '["release-v0.2", "withdraw-quality"]'
+check_private_one_shot analysis-withdraw-v0.2-security release-v0.2 '["release-v0.2", "withdraw-security"]'
 check_private_one_shot dictionary-seed dictionary '["dictionary-v0.1", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-approve dictionary '["dictionary-v0.1", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-prepare dictionary '["dictionary-v0.1", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'

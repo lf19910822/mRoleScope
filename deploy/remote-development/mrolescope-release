@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Root-owned adapter for the fixed v0.2 first-baseline release lifecycle.
+# It accepts only an allowlisted action and the GitHub workflow's authenticated
+# actor. It never accepts a configuration ID, dictionary content, SQL, image,
+# Compose file, path, source text, or free-form withdrawal explanation.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
+readonly LOCK_FILE="${RELEASE_DIR}/analysis.lock"
+readonly PROJECT_NAME='mrolescope-remote-development'
+readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
+readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
+readonly OPERATOR_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$'
+readonly FALLBACK_PUBLISHER='FAN'
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+die() {
+  printf 'mrolescope release lifecycle failed: %s\n' "$1" >&2
+  exit 1
+}
+
+log() {
+  printf 'mrolescope release lifecycle: %s\n' "$1"
+}
+
+is_root_owned_mode() {
+  local path="$1" expected_mode="$2"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:${expected_mode}" ]]
+}
+
+compose() {
+  docker compose \
+    --project-name "$PROJECT_NAME" \
+    --file "$COMPOSE_FILE" \
+    --env-file "$SECRETS_FILE" \
+    "$@"
+}
+
+load_release() {
+  local namespace api_image migrate_image worker_image api_pattern migrate_pattern worker_pattern
+  is_root_owned_mode /etc/mrolescope/remote-development.conf 644 || die 'deployment configuration must be root:root mode 0644'
+  is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
+  # shellcheck disable=SC1090
+  . /etc/mrolescope/remote-development.conf
+  # shellcheck disable=SC1090
+  . "$CURRENT_FILE"
+  namespace="${DOCKERHUB_NAMESPACE:-}"
+  api_image="${api_image:-}"
+  migrate_image="${migrate_image:-}"
+  worker_image="${worker_image:-}"
+  [[ "$namespace" =~ $NAMESPACE_PATTERN ]] || die 'invalid configured Docker Hub namespace'
+  api_pattern="^docker\\.io/${namespace}/mrolescope-api@${DIGEST_PATTERN}$"
+  migrate_pattern="^docker\\.io/${namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
+  worker_pattern="^docker\\.io/${namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  [[ "$api_image" =~ $api_pattern ]] || die 'verified release has no allowed API image digest'
+  [[ "$migrate_image" =~ $migrate_pattern ]] || die 'verified release has no allowed migration image digest'
+  [[ "$worker_image" =~ $worker_pattern ]] || die 'verified release has no allowed worker image digest'
+  export MROLESCOPE_API_IMAGE="$api_image"
+  export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
+  export MROLESCOPE_WORKER_IMAGE="$worker_image"
+}
+
+load_database_secret() {
+  is_root_owned_mode "$SECRETS_FILE" 600 || die 'runtime secrets must be root:root mode 0600'
+  set -a
+  # shellcheck disable=SC1090
+  . "$SECRETS_FILE"
+  set +a
+  [[ -n "${DATABASE_URL:-}" ]] || die 'required runtime configuration is missing: DATABASE_URL'
+}
+
+[[ "${EUID}" -eq 0 ]] || die 'must run as root'
+is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
+[[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
+command -v docker >/dev/null 2>&1 || die 'docker is required'
+command -v flock >/dev/null 2>&1 || die 'flock is required'
+load_release
+load_database_secret
+
+[[ "$#" -eq 2 ]] || die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security> <authenticated-operator>'
+operation="$1"
+publisher="${2:-$FALLBACK_PUBLISHER}"
+[[ "$publisher" =~ $OPERATOR_PATTERN ]] || die 'authenticated publisher identity is invalid'
+export MROLESCOPE_RELEASE_PUBLISHER="$publisher"
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || die 'another analysis operation is already running'
+compose up -d --wait --wait-timeout 60 postgres
+
+case "$operation" in
+  publish-v0.2)
+    compose --profile release-v0.2 run --rm --no-deps analysis-release-v0.2
+    log 'v0.2 analysis baseline publication completed'
+    ;;
+  withdraw-v0.2-quality)
+    compose --profile release-v0.2 run --rm --no-deps analysis-withdraw-v0.2-quality
+    log 'v0.2 analysis baseline material-quality withdrawal completed'
+    ;;
+  withdraw-v0.2-security)
+    compose --profile release-v0.2 run --rm --no-deps analysis-withdraw-v0.2-security
+    log 'v0.2 analysis baseline security-privacy withdrawal completed'
+    ;;
+  *)
+    die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security> <authenticated-operator>'
+    ;;
+esac

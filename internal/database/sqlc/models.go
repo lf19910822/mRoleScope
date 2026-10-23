@@ -149,6 +149,48 @@ func (ns NullTechnologyAnalysisConfigurationStatus) Value() (driver.Value, error
 	return string(ns.TechnologyAnalysisConfigurationStatus), nil
 }
 
+type TechnologyAnalysisReleaseEventType string
+
+const (
+	TechnologyAnalysisReleaseEventTypePublished TechnologyAnalysisReleaseEventType = "published"
+	TechnologyAnalysisReleaseEventTypeWithdrawn TechnologyAnalysisReleaseEventType = "withdrawn"
+)
+
+func (e *TechnologyAnalysisReleaseEventType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisReleaseEventType(s)
+	case string:
+		*e = TechnologyAnalysisReleaseEventType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisReleaseEventType: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisReleaseEventType struct {
+	TechnologyAnalysisReleaseEventType TechnologyAnalysisReleaseEventType
+	Valid                              bool // Valid is true if TechnologyAnalysisReleaseEventType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisReleaseEventType) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisReleaseEventType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisReleaseEventType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisReleaseEventType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisReleaseEventType), nil
+}
+
 type TechnologyAnalysisResultStatus string
 
 const (
@@ -277,6 +319,48 @@ func (ns NullTechnologyAnalysisTrigger) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.TechnologyAnalysisTrigger), nil
+}
+
+type TechnologyAnalysisWithdrawalCategory string
+
+const (
+	TechnologyAnalysisWithdrawalCategoryMaterialResultQualityDefect TechnologyAnalysisWithdrawalCategory = "material_result_quality_defect"
+	TechnologyAnalysisWithdrawalCategorySecurityPrivacyIncident     TechnologyAnalysisWithdrawalCategory = "security_privacy_incident"
+)
+
+func (e *TechnologyAnalysisWithdrawalCategory) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TechnologyAnalysisWithdrawalCategory(s)
+	case string:
+		*e = TechnologyAnalysisWithdrawalCategory(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TechnologyAnalysisWithdrawalCategory: %T", src)
+	}
+	return nil
+}
+
+type NullTechnologyAnalysisWithdrawalCategory struct {
+	TechnologyAnalysisWithdrawalCategory TechnologyAnalysisWithdrawalCategory
+	Valid                                bool // Valid is true if TechnologyAnalysisWithdrawalCategory is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTechnologyAnalysisWithdrawalCategory) Scan(value interface{}) error {
+	if value == nil {
+		ns.TechnologyAnalysisWithdrawalCategory, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TechnologyAnalysisWithdrawalCategory.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTechnologyAnalysisWithdrawalCategory) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TechnologyAnalysisWithdrawalCategory), nil
 }
 
 type TechnologyAnalysisWorkStatus string
@@ -778,6 +862,18 @@ type TechnologyAnalysisPublicationState struct {
 	Singleton       bool
 	ConfigurationID pgtype.UUID
 	UpdatedAt       pgtype.Timestamptz
+}
+
+type TechnologyAnalysisReleaseEvent struct {
+	ID                  pgtype.UUID
+	ConfigurationID     pgtype.UUID
+	DictionaryVersionID pgtype.UUID
+	EventType           TechnologyAnalysisReleaseEventType
+	RuleSetSha256       string
+	ReleaseGateVersion  string
+	Publisher           string
+	WithdrawalCategory  NullTechnologyAnalysisWithdrawalCategory
+	OccurredAt          pgtype.Timestamptz
 }
 
 type TechnologyAnalysisResult struct {

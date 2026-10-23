@@ -128,6 +128,9 @@ func (repository *Repository) PrepareCandidateConfiguration(ctx context.Context,
 	if err := ensurePublicationState(ctx, tx); err != nil {
 		return CandidatePreparation{}, err
 	}
+	if err := lockCandidateDictionaryVersion(ctx, tx, input.DictionaryVersionID); err != nil {
+		return CandidatePreparation{}, err
+	}
 	snapshot, err := repository.loadEnabledRuleSet(ctx, tx, input.DictionaryVersionID)
 	if err != nil {
 		return CandidatePreparation{}, err
@@ -164,6 +167,28 @@ RETURNING id::text, status::text`, input.ParserVersion, input.DictionaryVersionI
 		return CandidatePreparation{}, fmt.Errorf("commit candidate configuration preparation: %w", err)
 	}
 	return preparation, nil
+}
+
+// lockCandidateDictionaryVersion serializes approvals, preparation, and the
+// first release against one dictionary version. A frozen version never gains
+// a new executable rule or a rewritten configuration snapshot.
+func lockCandidateDictionaryVersion(ctx context.Context, tx pgx.Tx, dictionaryVersionID string) error {
+	var status string
+	err := tx.QueryRow(ctx, `
+SELECT status::text
+FROM technology_dictionary_versions
+WHERE id = $1
+FOR UPDATE`, dictionaryVersionID).Scan(&status)
+	if err == pgx.ErrNoRows {
+		return fmt.Errorf("candidate dictionary version is unavailable")
+	}
+	if err != nil {
+		return fmt.Errorf("lock candidate dictionary version: %w", err)
+	}
+	if status != "candidate" {
+		return fmt.Errorf("candidate dictionary version is immutable")
+	}
+	return nil
 }
 
 // PromoteCandidateConfiguration first catches up every body version that has
