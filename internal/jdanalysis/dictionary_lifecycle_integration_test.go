@@ -56,7 +56,10 @@ func TestCandidateDictionaryLifecycleRequiresExplicitRuleApproval(t *testing.T) 
 	if err := repository.pool.QueryRow(ctx, `
 SELECT
   (SELECT count(*) FROM technology_dictionary_rules WHERE dictionary_version_id = $1 AND state = 'enabled'),
-  (SELECT count(*) FROM technology_dictionary_rule_decisions),
+  (SELECT count(*)
+   FROM technology_dictionary_rule_decisions AS decision
+   JOIN technology_dictionary_rules AS rule ON rule.id = decision.rule_id
+   WHERE rule.dictionary_version_id = $1),
   (SELECT count(*) FROM technology_analysis_work_items WHERE configuration_id = $2)`,
 		first.DictionaryVersionID, prepared.ConfigurationID).Scan(&enabledRules, &decisions, &queued); err != nil {
 		t.Fatal(err)
