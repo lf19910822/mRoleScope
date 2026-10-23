@@ -17,8 +17,8 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 4 ]] \
-  || die 'only PostgreSQL, migration, analysis, and backfill services may use backend alone'
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 8 ]] \
+  || die 'only PostgreSQL, migration, analysis, backfill, and fixed dictionary services may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
   || die 'worker must remain an explicitly requested one-shot profile'
@@ -28,6 +28,12 @@ grep -Fqx '    profiles: [analysis]' "$compose_file" \
 
 grep -Fqx '    profiles: [backfill]' "$compose_file" \
   || die 'backfill must remain an explicitly requested one-shot profile'
+
+grep -Fqx '    profiles: [candidate-analysis]' "$compose_file" \
+  || die 'candidate analysis must remain an explicitly requested one-shot profile'
+
+[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 3 ]] \
+  || die 'the three dictionary lifecycle services must remain explicitly requested'
 
 [[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \
   || die 'only API and no-port worker may attach to the ordinary edge network'
@@ -44,26 +50,33 @@ grep -Fqx '    internal: true' "$compose_file" \
 grep -Fqx '  edge: {}' "$compose_file" \
   || die 'edge network must be an ordinary bridge network'
 
-analysis_block=$(awk '
-  /^  analysis:/ { in_block = 1 }
-  in_block { print }
-  in_block && /^networks:/ { exit }
-' "$compose_file")
-[[ -n "$analysis_block" ]] || die 'analysis service was not found'
-grep -Fqx '    command: ["analyze"]' <<<"$analysis_block" \
-  || die 'analysis must use the fixed analyze command'
-if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$analysis_block"; then
-  die 'analysis must not receive COS, edge-network, ports, or volumes'
-fi
+service_block() {
+  local service="$1"
+  awk -v service="$service" '
+    $0 == "  " service ":" { in_block = 1; next }
+    in_block && /^  [A-Za-z0-9][A-Za-z0-9-]*:$/ { exit }
+    in_block { print }
+  ' "$compose_file"
+}
 
-backfill_block=$(awk '
-  /^  backfill:/ { in_block = 1 }
-  in_block { print }
-  in_block && /^networks:/ { exit }
-' "$compose_file")
-[[ -n "$backfill_block" ]] || die 'backfill service was not found'
-grep -Fqx '    command: ["backfill-versioned-content"]' <<<"$backfill_block" \
-  || die 'backfill must use the fixed versioned-content command'
-if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$backfill_block"; then
-  die 'backfill must not receive COS, edge-network, ports, or volumes'
-fi
+check_private_one_shot() {
+  local service="$1" profile="$2" command="$3" block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx "    profiles: [${profile}]" <<<"$block" \
+    || die "${service} must use only the ${profile} profile"
+  grep -Fqx "    command: ${command}" <<<"$block" \
+    || die "${service} must use its fixed worker command"
+  grep -Fqx '    networks: [backend]' <<<"$block" \
+    || die "${service} must use only the internal backend network"
+  if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$block"; then
+    die "${service} must not receive COS, edge-network, ports, or volumes"
+  fi
+}
+
+check_private_one_shot analysis analysis '["analyze"]'
+check_private_one_shot backfill backfill '["backfill-versioned-content"]'
+check_private_one_shot candidate-analysis candidate-analysis '["analyze-candidate-v0.1"]'
+check_private_one_shot dictionary-seed dictionary '["dictionary-v0.1", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-approve dictionary '["dictionary-v0.1", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-prepare dictionary '["dictionary-v0.1", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'

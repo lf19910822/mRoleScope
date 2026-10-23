@@ -6,6 +6,34 @@ Defines a remote-only, reproducible technology-mention analysis capability whose
 
 ## ADDED Requirements
 
+### Requirement: Candidate dictionary lifecycle is explicitly approved and isolated
+The system SHALL import the fixed v0.1 dictionary only as non-executable candidate or conditional rules. It SHALL require an explicit, durable human approval for each deterministic candidate rule before that rule becomes enabled, and SHALL reject conditional rules from this approval path pending a context-aware policy. It SHALL not enable rules, create analysis work, or publish a configuration merely because a candidate dictionary has been imported.
+
+#### Scenario: The fixed v0.1 dictionary is seeded
+- **WHEN** an authorized remote operator imports the fixed v0.1 dictionary
+- **THEN** all imported rules SHALL remain candidate or conditional
+- **AND THEN** the system SHALL not create an analysis configuration or analysis work item solely from the import
+
+#### Scenario: A deterministic candidate rule is explicitly approved
+- **WHEN** an authorized remote operator approves one candidate rule key
+- **THEN** the system SHALL enable only that rule and append an immutable approval decision with the authenticated operator identity
+- **AND THEN** a repeated approval request for that enabled rule SHALL be idempotent
+
+#### Scenario: A context-dependent rule is submitted to the deterministic approval path
+- **WHEN** an operator attempts to approve a conditional rule through the fixed v0.1 approval operation
+- **THEN** the system SHALL reject the request
+- **AND THEN** it SHALL leave the rule non-executable
+
+#### Scenario: Approved rules are prepared for candidate analysis
+- **WHEN** at least one deterministic v0.1 rule has an explicit approval and an operator prepares the fixed candidate configuration
+- **THEN** the system SHALL create or reuse a candidate configuration for the fixed parser and dictionary versions and queue every historical body-content version
+- **AND THEN** it SHALL not collect from the source, change the daily synchronization timer, or advance the published analysis pointer
+
+#### Scenario: Candidate analysis is invoked
+- **WHEN** an authorized operator runs the fixed v0.1 candidate-analysis operation
+- **THEN** it SHALL process only the isolated candidate configuration through a no-port, backend-only worker service
+- **AND THEN** normal pending analysis SHALL continue to resolve only the published configuration
+
 ### Requirement: Only approved deterministic dictionary rules create mentions
 The system SHALL create technology mentions only from dictionary entries marked enabled with an approved canonical identity, explicit aliases, case treatment, and testable boundary rule. It SHALL classify every other entry as conditional or candidate and SHALL not let it create a mention or statistic.
 

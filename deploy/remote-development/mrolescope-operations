@@ -9,9 +9,11 @@ set -euo pipefail
 readonly SYNC_HELPER='/usr/local/sbin/mrolescope-sync'
 readonly ANALYSIS_HELPER='/usr/local/sbin/mrolescope-analysis'
 readonly BACKFILL_HELPER='/usr/local/sbin/mrolescope-backfill-versioned-content'
+readonly DICTIONARY_HELPER='/usr/local/sbin/mrolescope-dictionary'
 readonly SYNC_SERVICE='mrolescope-sync.service'
 readonly SYNC_TIMER='mrolescope-sync.timer'
 readonly ANALYSIS_SERVICE='mrolescope-analysis.service'
+readonly CANDIDATE_ANALYSIS_SERVICE='mrolescope-candidate-analysis.service'
 readonly BACKFILL_SERVICE='mrolescope-backfill-versioned-content.service'
 readonly RUNNER_SERVICE='actions.runner.lf19910822-mRoleScope.mrolescope-remote-development.service'
 readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
@@ -42,6 +44,7 @@ show_status() {
   print_unit_state "$SYNC_TIMER"
   print_unit_state "$BACKFILL_SERVICE"
   print_unit_state "$ANALYSIS_SERVICE"
+  print_unit_state "$CANDIDATE_ANALYSIS_SERVICE"
 
   printf '%s\n' '--- API health ---'
   if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz; then
@@ -66,13 +69,15 @@ show_status() {
 if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != 'mrolescope-deploy' ]]; then
   die 'only the mrolescope-deploy service account may invoke this through sudo'
 fi
-[[ "$#" -eq 1 ]] || die 'usage: mrolescope-operations <status|initialize-sync|enable-sync-timer|disable-sync-timer|backfill-versioned-content|run-pending-analysis|sync-logs>'
+[[ "$#" -ge 1 && "$#" -le 3 ]] || die 'invalid operation arguments'
 
 case "$1" in
   status)
+    [[ "$#" -eq 1 ]] || die 'status accepts no arguments'
     show_status
     ;;
   initialize-sync)
+    [[ "$#" -eq 1 ]] || die 'initialize-sync accepts no arguments'
     [[ -x "$SYNC_HELPER" ]] || die 'synchronization helper is not installed'
     if systemctl is-active --quiet "$SYNC_TIMER"; then
       die 'disable the daily timer before requesting initialization synchronization'
@@ -80,6 +85,7 @@ case "$1" in
     exec "$SYNC_HELPER" initialize
     ;;
   enable-sync-timer)
+    [[ "$#" -eq 1 ]] || die 'enable-sync-timer accepts no arguments'
     [[ -x "$SYNC_HELPER" ]] || die 'synchronization helper is not installed'
     [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
     systemctl enable --now "$SYNC_TIMER"
@@ -87,25 +93,50 @@ case "$1" in
     systemctl list-timers "$SYNC_TIMER" --all --no-pager
     ;;
   disable-sync-timer)
+    [[ "$#" -eq 1 ]] || die 'disable-sync-timer accepts no arguments'
     # This prevents future starts. It deliberately does not interrupt a
     # currently running one-shot synchronization, which could leave an
     # upstream request or object upload half complete.
     systemctl disable --now "$SYNC_TIMER"
     ;;
   backfill-versioned-content)
+    [[ "$#" -eq 1 ]] || die 'backfill-versioned-content accepts no arguments'
     [[ -x "$BACKFILL_HELPER" ]] || die 'versioned-content backfill helper is not installed'
     [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
     systemctl start --wait "$BACKFILL_SERVICE"
     ;;
   run-pending-analysis)
+    [[ "$#" -eq 1 ]] || die 'run-pending-analysis accepts no arguments'
     [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
     [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
     systemctl start --wait "$ANALYSIS_SERVICE"
     ;;
+  seed-v0.1-dictionary)
+    [[ "$#" -eq 2 ]] || die 'seed-v0.1-dictionary requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" seed-v0.1 "$2"
+    ;;
+  approve-v0.1-rule)
+    [[ "$#" -eq 3 ]] || die 'approve-v0.1-rule requires a rule key and the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" approve-v0.1-rule "$2" "$3"
+    ;;
+  prepare-v0.1-analysis)
+    [[ "$#" -eq 2 ]] || die 'prepare-v0.1-analysis requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" prepare-v0.1-analysis "$2"
+    ;;
+  run-v0.1-candidate-analysis)
+    [[ "$#" -eq 1 ]] || die 'run-v0.1-candidate-analysis accepts no arguments'
+    [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
+    [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
+    systemctl start --wait "$CANDIDATE_ANALYSIS_SERVICE"
+    ;;
   sync-logs)
+    [[ "$#" -eq 1 ]] || die 'sync-logs accepts no arguments'
     journalctl --unit "$SYNC_SERVICE" --since today --no-pager
     ;;
   *)
-    die 'operation must be status, initialize-sync, enable-sync-timer, disable-sync-timer, backfill-versioned-content, run-pending-analysis, or sync-logs'
+    die 'operation is not allowlisted'
     ;;
 esac

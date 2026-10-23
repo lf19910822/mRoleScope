@@ -13,10 +13,12 @@ readonly HELPER_DESTINATION='/usr/local/sbin/mrolescope-deploy'
 readonly SYNC_HELPER_DESTINATION='/usr/local/sbin/mrolescope-sync'
 readonly ANALYSIS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-analysis'
 readonly BACKFILL_HELPER_DESTINATION='/usr/local/sbin/mrolescope-backfill-versioned-content'
+readonly DICTIONARY_HELPER_DESTINATION='/usr/local/sbin/mrolescope-dictionary'
 readonly OPERATIONS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-operations'
 readonly SYNC_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-sync.service'
 readonly SYNC_TIMER_DESTINATION='/etc/systemd/system/mrolescope-sync.timer'
 readonly ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-analysis.service'
+readonly CANDIDATE_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis.service'
 readonly BACKFILL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-backfill-versioned-content.service'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
@@ -127,15 +129,18 @@ download_asset 'deploy/remote-development/mrolescope-deploy' "$staging_dir/mrole
 download_asset 'deploy/remote-development/mrolescope-sync' "$staging_dir/mrolescope-sync"
 download_asset 'deploy/remote-development/mrolescope-analysis' "$staging_dir/mrolescope-analysis"
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content' "$staging_dir/mrolescope-backfill-versioned-content"
+download_asset 'deploy/remote-development/mrolescope-dictionary' "$staging_dir/mrolescope-dictionary"
 download_asset 'deploy/remote-development/mrolescope-operations' "$staging_dir/mrolescope-operations"
 download_asset 'deploy/remote-development/mrolescope-sync.service' "$staging_dir/mrolescope-sync.service"
 download_asset 'deploy/remote-development/mrolescope-sync.timer' "$staging_dir/mrolescope-sync.timer"
 download_asset 'deploy/remote-development/mrolescope-analysis.service' "$staging_dir/mrolescope-analysis.service"
+download_asset 'deploy/remote-development/mrolescope-candidate-analysis.service' "$staging_dir/mrolescope-candidate-analysis.service"
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content.service' "$staging_dir/mrolescope-backfill-versioned-content.service"
 bash -n "$staging_dir/mrolescope-deploy"
 bash -n "$staging_dir/mrolescope-sync"
 bash -n "$staging_dir/mrolescope-analysis"
 bash -n "$staging_dir/mrolescope-backfill-versioned-content"
+bash -n "$staging_dir/mrolescope-dictionary"
 bash -n "$staging_dir/mrolescope-operations"
 printf 'DOCKERHUB_NAMESPACE=%s\n' "$DOCKERHUB_NAMESPACE" >"$staging_dir/remote-development.conf"
 
@@ -153,10 +158,12 @@ install -o root -g root -m 0750 "$staging_dir/mrolescope-deploy" "$HELPER_DESTIN
 install -o root -g root -m 0750 "$staging_dir/mrolescope-sync" "$SYNC_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-analysis" "$ANALYSIS_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-backfill-versioned-content" "$BACKFILL_HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-dictionary" "$DICTIONARY_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-operations" "$OPERATIONS_HELPER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.service" "$SYNC_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.timer" "$SYNC_TIMER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-analysis.service" "$ANALYSIS_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis.service" "$CANDIDATE_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-backfill-versioned-content.service" "$BACKFILL_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
 

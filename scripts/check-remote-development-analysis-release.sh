@@ -14,8 +14,10 @@ die() {
 
 [[ -f "$analysis_helper" ]] || die "analysis helper does not exist: $analysis_helper"
 bash -n "$analysis_helper"
-grep -Fqx '[[ "$#" -eq 1 && "$1" == '\''pending'\'' ]] || die '\''usage: mrolescope-analysis pending'\''' "$analysis_helper" \
-  || die 'analysis helper must accept only the fixed pending operation'
+grep -Fqx '[[ "$#" -eq 1 && ( "$1" == '\''pending'\'' || "$1" == '\''candidate-v0.1'\'' ) ]] \' "$analysis_helper" \
+  || die 'analysis helper must accept only the two fixed analysis operations'
+grep -Fqx '  || die '\''usage: mrolescope-analysis <pending|candidate-v0.1>'\''' "$analysis_helper" \
+  || die 'analysis helper must state the two fixed analysis operations'
 for mapping in \
   '  export MROLESCOPE_API_IMAGE="$api_image"' \
   '  export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"' \
@@ -23,8 +25,10 @@ for mapping in \
   grep -Fqx "$mapping" "$analysis_helper" \
     || die "analysis helper must export the verified image mapping: ${mapping}"
 done
-grep -Fqx 'compose --profile analysis run --rm --no-deps analysis' "$analysis_helper" \
-  || die 'analysis helper must run only the fixed analysis Compose service'
+grep -Fqx '  compose --profile analysis run --rm --no-deps analysis' "$analysis_helper" \
+  || die 'analysis helper must run the fixed published-analysis Compose service'
+grep -Fqx '  compose --profile candidate-analysis run --rm --no-deps candidate-analysis' "$analysis_helper" \
+  || die 'analysis helper must run the fixed candidate-analysis Compose service'
 [[ -f "$sync_helper" ]] || die "sync helper does not exist: $sync_helper"
 grep -Fqx '    if ! systemctl start --no-block "$ANALYSIS_SERVICE"; then' "$sync_helper" \
   || die 'sync must trigger analysis only as a best-effort non-blocking action'
