@@ -220,6 +220,23 @@ services:
       - /tmp
     networks: [backend]
 
+  dictionary-v0.2-approve-reviewed:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.2", "approve-reviewed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
   dictionary-v0.2-prepare:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [dictionary]

@@ -129,6 +129,13 @@ case "$#:$operation" in
     compose --profile dictionary run --rm --no-deps dictionary-v0.2-approve
     log 'v0.2 candidate dictionary rule approval completed'
     ;;
+  2:approve-v0.2-reviewed-rules)
+    operator="$2"
+    [[ "$operator" =~ $OPERATOR_PATTERN ]] || die 'operator identity is invalid'
+    export MROLESCOPE_DICTIONARY_OPERATOR="$operator"
+    compose --profile dictionary run --rm --no-deps dictionary-v0.2-approve-reviewed
+    log 'v0.2 reviewed candidate dictionary bulk approval completed'
+    ;;
   2:prepare-v0.2-analysis)
     operator="$2"
     [[ "$operator" =~ $OPERATOR_PATTERN ]] || die 'operator identity is invalid'
@@ -137,6 +144,6 @@ case "$#:$operation" in
     log 'v0.2 candidate analysis preparation completed'
     ;;
   *)
-    die 'usage: mrolescope-dictionary <seed-v0.1|approve-v0.1-rule|prepare-v0.1-analysis|seed-v0.2|approve-v0.2-rule|prepare-v0.2-analysis> <operator-or-rule-key> [operator]'
+    die 'usage: mrolescope-dictionary <seed-v0.1|approve-v0.1-rule|prepare-v0.1-analysis|seed-v0.2|approve-v0.2-rule|approve-v0.2-reviewed-rules|prepare-v0.2-analysis> <operator-or-rule-key> [operator]'
     ;;
 esac
