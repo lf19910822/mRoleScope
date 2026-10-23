@@ -205,6 +205,16 @@ VALUES ($1, 'approved_enabled', $2, 'approved through the fixed v0.1 remote oper
 	return summary, nil
 }
 
+// ApproveV02ReviewedRule is the only v0.2 approval path. It adds the local
+// review-policy allowlist before delegating to the durable candidate-rule
+// approval transaction; callers cannot promote a merely imported candidate.
+func (repository *Repository) ApproveV02ReviewedRule(ctx context.Context, ruleKey, reviewer string) (DictionaryApprovalSummary, error) {
+	if !V02RuleApprovalEligible(ruleKey) {
+		return DictionaryApprovalSummary{}, fmt.Errorf("dictionary rule is not approved by the v0.2 review")
+	}
+	return repository.ApproveCandidateRule(ctx, CandidateV02Seed().VersionLabel, ruleKey, reviewer)
+}
+
 // PrepareCandidateConfigurationForDictionary creates the durable reanalysis
 // queue only after at least one deterministic rule has an explicit approval.
 func (repository *Repository) PrepareCandidateConfigurationForDictionary(ctx context.Context, dictionaryVersionLabel, parserVersion, createdBy string) (CandidatePreparation, error) {

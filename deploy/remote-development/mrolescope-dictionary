@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Root-owned adapter for the fixed v0.1 dictionary lifecycle. It accepts no
-# caller-controlled image, database URL, Compose file, source text, or SQL.
+# Root-owned adapter for the fixed v0.1 and v0.2 dictionary lifecycles. It
+# accepts no caller-controlled image, database URL, Compose file, source text,
+# or SQL.
 
 set -euo pipefail
 
@@ -112,7 +113,30 @@ case "$#:$operation" in
     compose --profile dictionary run --rm --no-deps dictionary-prepare
     log 'v0.1 candidate analysis preparation completed'
     ;;
+  2:seed-v0.2)
+    operator="$2"
+    [[ "$operator" =~ $OPERATOR_PATTERN ]] || die 'operator identity is invalid'
+    export MROLESCOPE_DICTIONARY_OPERATOR="$operator"
+    compose --profile dictionary run --rm --no-deps dictionary-v0.2-seed
+    log 'v0.2 candidate dictionary seed completed'
+    ;;
+  3:approve-v0.2-rule)
+    rule_key="$2"
+    operator="$3"
+    [[ "$rule_key" =~ $RULE_KEY_PATTERN && "$operator" =~ $OPERATOR_PATTERN ]] || die 'dictionary approval input is invalid'
+    export MROLESCOPE_DICTIONARY_RULE_KEY="$rule_key"
+    export MROLESCOPE_DICTIONARY_OPERATOR="$operator"
+    compose --profile dictionary run --rm --no-deps dictionary-v0.2-approve
+    log 'v0.2 candidate dictionary rule approval completed'
+    ;;
+  2:prepare-v0.2-analysis)
+    operator="$2"
+    [[ "$operator" =~ $OPERATOR_PATTERN ]] || die 'operator identity is invalid'
+    export MROLESCOPE_DICTIONARY_OPERATOR="$operator"
+    compose --profile dictionary run --rm --no-deps dictionary-v0.2-prepare
+    log 'v0.2 candidate analysis preparation completed'
+    ;;
   *)
-    die 'usage: mrolescope-dictionary <seed-v0.1|approve-v0.1-rule|prepare-v0.1-analysis> <operator-or-rule-key> [operator]'
+    die 'usage: mrolescope-dictionary <seed-v0.1|approve-v0.1-rule|prepare-v0.1-analysis|seed-v0.2|approve-v0.2-rule|prepare-v0.2-analysis> <operator-or-rule-key> [operator]'
     ;;
 esac

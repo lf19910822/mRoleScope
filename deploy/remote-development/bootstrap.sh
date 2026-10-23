@@ -19,6 +19,7 @@ readonly SYNC_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-sync.service'
 readonly SYNC_TIMER_DESTINATION='/etc/systemd/system/mrolescope-sync.timer'
 readonly ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-analysis.service'
 readonly CANDIDATE_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis.service'
+readonly CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis-v0.2.service'
 readonly BACKFILL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-backfill-versioned-content.service'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
@@ -135,6 +136,7 @@ download_asset 'deploy/remote-development/mrolescope-sync.service' "$staging_dir
 download_asset 'deploy/remote-development/mrolescope-sync.timer' "$staging_dir/mrolescope-sync.timer"
 download_asset 'deploy/remote-development/mrolescope-analysis.service' "$staging_dir/mrolescope-analysis.service"
 download_asset 'deploy/remote-development/mrolescope-candidate-analysis.service' "$staging_dir/mrolescope-candidate-analysis.service"
+download_asset 'deploy/remote-development/mrolescope-candidate-analysis-v0.2.service' "$staging_dir/mrolescope-candidate-analysis-v0.2.service"
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content.service' "$staging_dir/mrolescope-backfill-versioned-content.service"
 bash -n "$staging_dir/mrolescope-deploy"
 bash -n "$staging_dir/mrolescope-sync"
@@ -164,6 +166,7 @@ install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.service" "$SYNC_SE
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.timer" "$SYNC_TIMER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-analysis.service" "$ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis.service" "$CANDIDATE_ANALYSIS_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis-v0.2.service" "$CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-backfill-versioned-content.service" "$BACKFILL_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
 

@@ -148,3 +148,39 @@ FROM technology_analysis_results`, first.ConfigurationID, second.ConfigurationID
 		t.Fatalf("complete results by snapshot = first:%d second:%d", firstSnapshotResults, secondSnapshotResults)
 	}
 }
+
+func TestV02DictionaryApprovalRejectsRulesOutsideCompletedReview(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	_, _, _, _ = insertSyntheticAnalysisPrerequisites(t, repository)
+
+	seed := CandidateV02Seed()
+	if _, err := repository.ImportCandidateDictionary(ctx, seed, "remote-operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ApproveV02ReviewedRule(ctx, "go.01", "remote-reviewer"); err == nil || !strings.Contains(err.Error(), "not approved by the v0.2 review") {
+		t.Fatalf("unreviewed v0.2 rule approval error = %v", err)
+	}
+	approval, err := repository.ApproveV02ReviewedRule(ctx, "kubernetes.02", "remote-reviewer")
+	if err != nil || approval.Reused || approval.RuleKey != "kubernetes.02" {
+		t.Fatalf("reviewed v0.2 rule approval = %#v err=%v", approval, err)
+	}
+
+	var enabled, decisions int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE state = 'enabled'),
+  (SELECT count(*)
+   FROM technology_dictionary_rule_decisions AS decision
+   JOIN technology_dictionary_rules AS approved_rule ON approved_rule.id = decision.rule_id
+   JOIN technology_dictionary_versions AS version ON version.id = approved_rule.dictionary_version_id
+   WHERE version.version_label = $1)
+FROM technology_dictionary_rules AS rule
+JOIN technology_dictionary_versions AS version ON version.id = rule.dictionary_version_id
+WHERE version.version_label = $1`, seed.VersionLabel).Scan(&enabled, &decisions); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 1 || decisions != 1 {
+		t.Fatalf("v0.2 approval counts = enabled:%d decisions:%d", enabled, decisions)
+	}
+}

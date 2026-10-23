@@ -233,6 +233,105 @@ func CandidateV01Seed() DictionarySeed {
 	return seed
 }
 
+// CandidateV02Seed starts a new immutable dictionary version from the v0.1
+// candidate policy. Review-driven changes are added in later, separately
+// tested slices so the deployed v0.1 seed remains byte-for-byte unchanged.
+func CandidateV02Seed() DictionarySeed {
+	seed := CandidateV01Seed()
+	seed.VersionLabel = "technology-keyword-alias-map-v0.2"
+	seed.SourceDocument = "Docs/开发指导/JD建模/technical-keyword-alias-map-v0.2.md"
+	for index := range seed.Rules {
+		if seed.Rules[index].Summary == "v0.1 exact-name candidate requires human approval" {
+			seed.Rules[index].CaseMode = CaseInsensitive
+			seed.Rules[index].Summary = "reviewed v0.2 exact name; ASCII case-insensitive with explicit identifier boundary"
+		}
+	}
+	seed.Rules = append(seed.Rules, DictionaryRule{
+		TechnologyKey: "pytorch", CanonicalName: "PyTorch", TechnologyKind: "machine-learning-framework",
+		RuleKey: "pytorch.03", Alias: "Pytouch", State: RuleCandidate,
+		CaseMode: CaseSensitive, BoundaryMode: BoundaryASCIIIdentifier,
+		OverlapPriority: len([]rune("Pytouch")),
+		Summary:         "reviewed explicit alias; does not enable fuzzy spelling correction",
+	})
+	candidates := make([]CandidateTerm, 0, len(seed.Candidates)-1)
+	for _, candidate := range seed.Candidates {
+		if candidate.Text != "Pytouch" {
+			candidates = append(candidates, candidate)
+		}
+	}
+	seed.Candidates = candidates
+	return seed
+}
+
+// V02ApprovedRuleKeys is the fixed policy allowlist derived from the local
+// human review. It is deliberately separate from candidate import: every key
+// still requires the durable, authenticated approval operation before use.
+func V02ApprovedRuleKeys() []string {
+	approved := []string{
+		"kubernetes.01",
+		"kubernetes.02",
+		"kubernetes.03",
+		"python.01",
+		"python.02",
+		"grpc.01",
+		"grpc.02",
+		"sglang.01",
+		"sglang.02",
+		"sglang.03",
+		"vllm.01",
+		"vllm.02",
+		"tensorrt-llm.01",
+		"tensorrt-llm.02",
+		"pytorch.01",
+		"pytorch.02",
+		"pytorch.03",
+		"tensorflow.01",
+		"tensorflow.02",
+		"aiops.01",
+		"aiops.02",
+		"aibrix.01",
+		"aibrix.02",
+		"kubebuilder.01",
+		"kubebuilder.02",
+		"etcd.01",
+		"etcd.02",
+		"juicefs.01",
+		"juicefs.02",
+		"blendshape.01",
+		"blendshape.02",
+	}
+	for _, name := range []string{
+		"C++", "C#", "Java", "JavaScript", "TypeScript", "Rust", "Lua",
+		"Vue", "React", "Vulkan", "Metal", "DX11", "DX12", "HLSL", "Shader",
+		"MySQL", "PostgreSQL", "Redis", "MongoDB", "ClickHouse", "StarRocks", "TiDB", "TiKV", "Milvus", "Alluxio",
+		"Kafka", "Flink", "Spark", "Hive", "Hadoop", "PySpark",
+		"Docker", "containerd", "Helm", "Kustomize", "Volcano", "Kueue", "Koordinator", "YuniKorn", "Karmada", "Karpenter", "KServe", "Knative", "Calico", "Cilium",
+		"Envoy", "Higress", "Kong", "APISIX", "Traefik", "Istio", "Linkerd", "Nginx", "OpenResty", "HAProxy",
+		"Prometheus", "Grafana", "OpenTelemetry", "Jaeger", "Loki", "Thanos", "VictoriaMetrics", "Zabbix", "Nightingale",
+		"TensorRT", "ONNX", "LMDeploy", "TGI", "DeepSpeed", "Megatron-LM", "TRL", "OpenRLHF", "LLaMA-Factory", "ComfyUI",
+		"EvalScope", "Inspect AI", "Langfuse", "Promptfoo", "OpenCompass", "lm-eval-harness", "SWE-bench", "Terminal-Bench", "GAIA",
+		"CUDA", "cuDNN", "NCCL", "ROCm", "NVLink", "RDMA", "InfiniBand", "RoCEv2",
+		"Git", "Perforce", "SVN", "Jenkins", "Teamcity", "GitLab CI", "Airflow", "ArgoCD", "Terraform", "Ansible",
+		"CodeQL", "Semgrep", "IDA", "x64dbg",
+		"RAG", "Embedding", "SFT", "RLHF", "DPO", "PPO", "GRPO", "DAPO", "LoRA", "MoE", "PagedAttention", "LLM-as-Judge",
+		"HTTP", "HTTPS", "TCP", "UDP", "WebSocket", "Protobuf", "OpenAPI", "OAuth2", "OIDC",
+	} {
+		approved = append(approved, stableTechnologyKey(name)+".01")
+	}
+	return approved
+}
+
+// V02RuleApprovalEligible reports whether the fixed v0.2 review policy
+// permits a candidate rule to reach the durable approval operation.
+func V02RuleApprovalEligible(ruleKey string) bool {
+	for _, approvedRuleKey := range V02ApprovedRuleKeys() {
+		if ruleKey == approvedRuleKey {
+			return true
+		}
+	}
+	return false
+}
+
 func stableTechnologyKey(name string) string {
 	special := map[string]string{
 		"C++": "cpp", "C#": "csharp", "gRPC": "grpc", "vLLM": "vllm",

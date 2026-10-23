@@ -30,8 +30,14 @@ func main() {
 		case "dictionary-v0.1":
 			runV01Dictionary(arguments[1:])
 			return
+		case "dictionary-v0.2":
+			runV02Dictionary(arguments[1:])
+			return
 		case "analyze-candidate-v0.1":
 			runV01CandidateAnalysis(arguments[1:])
+			return
+		case "analyze-candidate-v0.2":
+			runV02CandidateAnalysis(arguments[1:])
 			return
 		}
 	}
@@ -231,6 +237,69 @@ func runV01Dictionary(arguments []string) {
 	}
 }
 
+// runV02Dictionary exposes only the reviewed v0.2 lifecycle. The rule key is
+// still passed through the root-owned adapter, but the repository rejects any
+// key outside the completed local review allowlist before it can be enabled.
+func runV02Dictionary(arguments []string) {
+	if len(arguments) < 2 {
+		fmt.Fprintln(os.Stderr, "dictionary-v0.2 accepts seed <operator>, approve <rule-key> <operator>, or prepare-analysis <operator>")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid dictionary lifecycle configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("dictionary lifecycle database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+
+	seed := jdanalysis.CandidateV02Seed()
+	switch arguments[0] {
+	case "seed":
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.2 seed accepts exactly one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.ImportCandidateDictionary(ctx, seed, arguments[1])
+		if err != nil {
+			slog.Error("candidate dictionary import failed")
+			os.Exit(1)
+		}
+		slog.Info("candidate dictionary import completed", "rules_created", summary.RulesCreated, "candidates_created", summary.CandidatesCreated, "reused", summary.Reused)
+	case "approve":
+		if len(arguments) != 3 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.2 approve accepts exactly one rule key and one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.ApproveV02ReviewedRule(ctx, arguments[1], arguments[2])
+		if err != nil {
+			slog.Error("candidate dictionary approval failed")
+			os.Exit(1)
+		}
+		slog.Info("candidate dictionary rule approval completed", "reused", summary.Reused)
+	case "prepare-analysis":
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.2 prepare-analysis accepts exactly one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.PrepareCandidateConfigurationForDictionary(ctx, seed.VersionLabel, jdanalysis.V01ParserVersion, arguments[1])
+		if err != nil {
+			slog.Error("candidate analysis preparation failed")
+			os.Exit(1)
+		}
+		slog.Info("candidate analysis preparation completed", "queued", summary.Queued, "reused", summary.Reused)
+	default:
+		fmt.Fprintln(os.Stderr, "dictionary-v0.2 operation must be seed, approve, or prepare-analysis")
+		os.Exit(2)
+	}
+}
+
 // runV01CandidateAnalysis processes only the fixed, un-published v0.1
 // configuration. Normal `analyze` continues to resolve the published pointer
 // and therefore cannot accidentally consume this candidate.
@@ -253,6 +322,39 @@ func runV01CandidateAnalysis(arguments []string) {
 	}
 	defer repository.Close()
 	configurationID, err := repository.CandidateConfigurationID(ctx, jdanalysis.CandidateV01Seed().VersionLabel, jdanalysis.V01ParserVersion)
+	if err != nil {
+		slog.Error("candidate analysis configuration is unavailable")
+		os.Exit(1)
+	}
+	summary, err := (jdanalysis.Processor{Repository: repository}).ProcessPending(ctx, configurationID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err), "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+		os.Exit(1)
+	}
+	slog.Info("candidate analysis completed", "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+}
+
+// runV02CandidateAnalysis processes only the isolated v0.2 candidate
+// configuration. It never resolves or changes the published configuration.
+func runV02CandidateAnalysis(arguments []string) {
+	if len(arguments) != 0 {
+		fmt.Fprintln(os.Stderr, "analyze-candidate-v0.2 accepts no positional arguments")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid candidate analysis configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("candidate analysis database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	configurationID, err := repository.CandidateConfigurationID(ctx, jdanalysis.CandidateV02Seed().VersionLabel, jdanalysis.V01ParserVersion)
 	if err != nil {
 		slog.Error("candidate analysis configuration is unavailable")
 		os.Exit(1)
