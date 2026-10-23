@@ -50,6 +50,7 @@ deploy-config-check:
 	bash scripts/check-remote-development-sync-release.sh deploy/remote-development/mrolescope-sync
 	bash scripts/check-remote-development-analysis-release.sh deploy/remote-development/mrolescope-analysis
 	bash scripts/check-remote-development-backfill-release.sh deploy/remote-development/mrolescope-backfill-versioned-content
+	bash scripts/check-bootstrap-asset-mirror-fallback.sh deploy/remote-development/bootstrap.sh
 	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
 	@if [ -z "$(DEPLOY_COMPOSE)" ]; then \
 		printf '%s\n' 'Docker Compose v2 plugin is unavailable; static network-boundary checks passed, and CI/CVM will run the full Compose v2 config check.'; \

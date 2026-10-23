@@ -24,6 +24,7 @@ readonly SECRETS_DIR='/etc/mrolescope/secrets'
 readonly SUDOERS_DESTINATION='/etc/sudoers.d/mrolescope-deploy'
 readonly DEPLOY_USER='mrolescope-deploy'
 readonly ASSET_MIRROR="${MROLESCOPE_ASSET_MIRROR:-github-raw}"
+readonly ASSET_DOWNLOAD_ATTEMPTS=2
 
 die() {
   printf 'mrolescope bootstrap failed: %s\n' "$1" >&2
@@ -43,32 +44,82 @@ command -v docker >/dev/null 2>&1 || die "Docker Engine and the Compose plugin m
 docker compose version >/dev/null 2>&1 || die "the Docker Compose plugin is required"
 command -v visudo >/dev/null 2>&1 || die "sudo/visudo is required"
 
+case "$ASSET_MIRROR" in
+  github-raw|jsdelivr)
+    ;;
+  *)
+    die "MROLESCOPE_ASSET_MIRROR must be github-raw or jsdelivr"
+    ;;
+esac
+
 staging_dir=$(mktemp -d /tmp/mrolescope-bootstrap.XXXXXX)
 cleanup() {
   rm -rf -- "$staging_dir"
 }
 trap cleanup EXIT
 
+asset_url_for_mirror() {
+  local mirror="$1" source_path="$2"
+
+  case "$mirror" in
+    github-raw)
+      printf '%s\n' "https://raw.githubusercontent.com/${REPOSITORY}/${REF}/${source_path}"
+      ;;
+    jsdelivr)
+      printf '%s\n' "https://cdn.jsdelivr.net/gh/${REPOSITORY}@${REF}/${source_path}"
+      ;;
+    *)
+      die "unknown reviewed asset mirror: ${mirror}"
+      ;;
+  esac
+}
+
+download_asset_from_mirror() {
+  local mirror="$1" source_path="$2" destination="$3" asset_url partial_destination attempt
+  asset_url=$(asset_url_for_mirror "$mirror" "$source_path")
+  partial_destination="${destination}.partial"
+
+  for ((attempt = 1; attempt <= ASSET_DOWNLOAD_ATTEMPTS; attempt++)); do
+    rm -f -- "$partial_destination"
+    printf 'mRoleScope bootstrap: downloading %s via %s (attempt %d/%d)...\n' \
+      "$source_path" "$mirror" "$attempt" "$ASSET_DOWNLOAD_ATTEMPTS"
+    if curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
+      --connect-timeout 10 --max-time 60 \
+      "$asset_url" \
+      --output "$partial_destination" \
+      && [[ -s "$partial_destination" ]]; then
+      mv -- "$partial_destination" "$destination"
+      return 0
+    fi
+
+    rm -f -- "$partial_destination"
+    printf 'mRoleScope bootstrap: download of %s via %s failed (attempt %d/%d).\n' \
+      "$source_path" "$mirror" "$attempt" "$ASSET_DOWNLOAD_ATTEMPTS" >&2
+  done
+
+  return 1
+}
+
 download_asset() {
-  local source_path="$1" destination="$2" asset_url
+  local source_path="$1" destination="$2" fallback_mirror
+
+  if download_asset_from_mirror "$ASSET_MIRROR" "$source_path" "$destination"; then
+    return
+  fi
 
   case "$ASSET_MIRROR" in
     github-raw)
-      asset_url="https://raw.githubusercontent.com/${REPOSITORY}/${REF}/${source_path}"
+      fallback_mirror='jsdelivr'
       ;;
     jsdelivr)
-      asset_url="https://cdn.jsdelivr.net/gh/${REPOSITORY}@${REF}/${source_path}"
-      ;;
-    *)
-      die "MROLESCOPE_ASSET_MIRROR must be github-raw or jsdelivr"
+      fallback_mirror='github-raw'
       ;;
   esac
 
-  printf 'mRoleScope bootstrap: downloading %s via %s...\n' "$source_path" "$ASSET_MIRROR"
-  curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
-    --connect-timeout 10 --max-time 60 \
-    "$asset_url" \
-    --output "$destination"
+  printf 'mRoleScope bootstrap: retrying %s via fallback mirror %s.\n' \
+    "$source_path" "$fallback_mirror" >&2
+  download_asset_from_mirror "$fallback_mirror" "$source_path" "$destination" \
+    || die "could not download ${source_path} from either reviewed asset mirror"
 }
 
 download_asset 'deploy/remote-development/compose.yaml' "$staging_dir/compose.yaml"
@@ -122,5 +173,5 @@ systemctl daemon-reload
 
 printf '%s\n' 'mRoleScope remote-development deployment boundary is installed.'
 printf '%s\n' 'No application image was pulled and no runtime secret was created.'
-printf '%s\n' 'The daily sync timer is installed but remains disabled until a verified initialization run succeeds.'
+printf '%s\n' 'The daily sync timer is installed; bootstrap did not change its enabled or active state.'
 printf '%s\n' 'Next: ensure the labeled GitHub Actions runner and root-only runtime env file are ready.'
