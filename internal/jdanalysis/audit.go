@@ -42,6 +42,14 @@ var analysisAuditDefinitions = map[string]analysisAuditDefinition{
 		Severity: "error", Message: "candidate analysis configuration failed",
 		Fields: map[string]struct{}{},
 	},
+	"release_validation_failed": {
+		Severity: "error", Message: "analysis release evidence validation failed safely",
+		Fields: map[string]struct{}{"invalid_evidence": {}},
+	},
+	"baseline_withdrawn": {
+		Severity: "warning", Message: "published analysis baseline withdrawn",
+		Fields: map[string]struct{}{},
+	},
 }
 
 func safeAnalysisAudit(code string, diagnostics map[string]int) (severity, message string, encoded []byte, err error) {
@@ -83,6 +91,12 @@ func SafeOperationMessage(err error) string {
 	}
 	if err == ErrNoPublishedConfiguration {
 		return "no published analysis configuration is available"
+	}
+	if err == ErrCandidateNotReady || err == ErrReleaseGateFailed {
+		return "candidate analysis configuration did not pass the release gate"
+	}
+	if err == ErrBaselineWithdrawalState || err == ErrWithdrawalCategory {
+		return "analysis baseline withdrawal was rejected safely"
 	}
 	return "analysis operation failed safely"
 }

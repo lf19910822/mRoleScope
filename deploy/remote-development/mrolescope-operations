@@ -10,6 +10,7 @@ readonly SYNC_HELPER='/usr/local/sbin/mrolescope-sync'
 readonly ANALYSIS_HELPER='/usr/local/sbin/mrolescope-analysis'
 readonly BACKFILL_HELPER='/usr/local/sbin/mrolescope-backfill-versioned-content'
 readonly DICTIONARY_HELPER='/usr/local/sbin/mrolescope-dictionary'
+readonly RELEASE_HELPER='/usr/local/sbin/mrolescope-release'
 readonly SYNC_SERVICE='mrolescope-sync.service'
 readonly SYNC_TIMER='mrolescope-sync.timer'
 readonly ANALYSIS_SERVICE='mrolescope-analysis.service'
@@ -147,6 +148,21 @@ case "$1" in
     [[ "$#" -eq 2 ]] || die 'prepare-v0.2-analysis requires the authenticated operator'
     [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
     exec "$DICTIONARY_HELPER" prepare-v0.2-analysis "$2"
+    ;;
+  publish-v0.2-baseline)
+    [[ "$#" -eq 2 ]] || die 'publish-v0.2-baseline requires the authenticated publisher'
+    [[ -x "$RELEASE_HELPER" ]] || die 'release lifecycle helper is not installed'
+    exec "$RELEASE_HELPER" publish-v0.2 "${2:-FAN}"
+    ;;
+  withdraw-v0.2-material-result-quality)
+    [[ "$#" -eq 2 ]] || die 'withdraw-v0.2-material-result-quality requires the authenticated publisher'
+    [[ -x "$RELEASE_HELPER" ]] || die 'release lifecycle helper is not installed'
+    exec "$RELEASE_HELPER" withdraw-v0.2-quality "${2:-FAN}"
+    ;;
+  withdraw-v0.2-security-privacy)
+    [[ "$#" -eq 2 ]] || die 'withdraw-v0.2-security-privacy requires the authenticated publisher'
+    [[ -x "$RELEASE_HELPER" ]] || die 'release lifecycle helper is not installed'
+    exec "$RELEASE_HELPER" withdraw-v0.2-security "${2:-FAN}"
     ;;
   run-v0.1-candidate-analysis)
     [[ "$#" -eq 1 ]] || die 'run-v0.1-candidate-analysis accepts no arguments'

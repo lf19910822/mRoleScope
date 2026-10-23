@@ -135,6 +135,62 @@ services:
     # source collection, object storage, and host-mounted raw data.
     networks: [backend]
 
+  analysis-release-v0.2:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [release-v0.2]
+    restart: "no"
+    command: ["release-v0.2", "publish"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_RELEASE_PUBLISHER: ${MROLESCOPE_RELEASE_PUBLISHER:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The release gate operates only on remote PostgreSQL facts. It never has
+    # a source/COS path, raw-data mount, external network, or host port.
+    networks: [backend]
+
+  analysis-withdraw-v0.2-quality:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [release-v0.2]
+    restart: "no"
+    command: ["release-v0.2", "withdraw-quality"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_RELEASE_PUBLISHER: ${MROLESCOPE_RELEASE_PUBLISHER:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  analysis-withdraw-v0.2-security:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [release-v0.2]
+    restart: "no"
+    command: ["release-v0.2", "withdraw-security"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_RELEASE_PUBLISHER: ${MROLESCOPE_RELEASE_PUBLISHER:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
   dictionary-seed:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [dictionary]

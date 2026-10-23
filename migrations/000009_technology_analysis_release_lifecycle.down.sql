@@ -1,0 +1,24 @@
+DROP TRIGGER IF EXISTS technology_analysis_configurations_frozen_immutable ON technology_analysis_configurations;
+DROP FUNCTION IF EXISTS reject_frozen_technology_analysis_configuration_mutation();
+
+DROP TRIGGER IF EXISTS technology_dictionary_versions_frozen_immutable ON technology_dictionary_versions;
+DROP FUNCTION IF EXISTS reject_frozen_technology_dictionary_version_mutation();
+
+DROP TRIGGER IF EXISTS technology_analysis_configuration_rules_immutable ON technology_analysis_configuration_rules;
+DROP FUNCTION IF EXISTS reject_technology_analysis_configuration_rule_mutation();
+
+DROP TRIGGER IF EXISTS technology_dictionary_rule_decisions_frozen_immutable ON technology_dictionary_rule_decisions;
+DROP FUNCTION IF EXISTS reject_frozen_technology_dictionary_decision_mutation();
+
+DROP TRIGGER IF EXISTS technology_dictionary_candidates_frozen_immutable ON technology_dictionary_candidates;
+DROP FUNCTION IF EXISTS reject_frozen_technology_dictionary_candidate_mutation();
+
+DROP TRIGGER IF EXISTS technology_dictionary_rules_frozen_immutable ON technology_dictionary_rules;
+DROP FUNCTION IF EXISTS reject_frozen_technology_dictionary_rule_mutation();
+
+DROP TRIGGER IF EXISTS technology_analysis_release_events_immutable ON technology_analysis_release_events;
+DROP FUNCTION IF EXISTS reject_technology_analysis_release_event_mutation();
+
+DROP TABLE IF EXISTS technology_analysis_release_events;
+DROP TYPE IF EXISTS technology_analysis_withdrawal_category;
+DROP TYPE IF EXISTS technology_analysis_release_event_type;
