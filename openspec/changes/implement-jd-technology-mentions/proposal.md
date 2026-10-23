@@ -8,8 +8,8 @@ The daily synchronization now preserves source evidence and job history, but it 
 
 - Split the current merged JD-version meaning into independently versioned source metadata and normalized JD body content, while preserving stable job identity, presence history, COS evidence, and every successful run observation.
 - Add a versioned, remote-only technology-mention analysis task. It processes only `description`, `jobRequire`, and `addition`; unchanged body content reuses results, while source-metadata-only changes do not trigger body parsing.
-- Persist parser and dictionary versions, a reusable analysis-result identity, deduplicated job-level mentions, and every separate source-field evidence location needed to verify a mention remotely.
-- Define an approved-dictionary lifecycle: only human-approved, deterministic mappings can run; conditional and candidate entries remain non-statistical review inputs. Dictionary or parser changes create a full historical reanalysis and atomically publish only a complete, verified result version.
+- Persist parser and dictionary versions, an immutable effective-approved-rule snapshot, a reusable analysis-result identity, deduplicated job-level mentions, and every separate source-field evidence location needed to verify a mention remotely.
+- Define an approved-dictionary lifecycle: only human-approved, deterministic mappings can run; conditional and candidate entries remain non-statistical review inputs. A parser, dictionary, or effective-approved-rule-set change creates a full historical reanalysis and atomically publishes only a complete, verified result version.
 - Add minimal remote-only review records, downstream-task audit/publication state, redaction safeguards, synthetic tests, and operational documentation for the first analysis task.
 - Keep daily collection as an independent upstream producer: analysis failure cannot roll back, block, or re-run a completed source synchronization.
 

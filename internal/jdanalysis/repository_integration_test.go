@@ -15,7 +15,8 @@ func TestRepositoryPublishesReusableResultsAndRejectsInvalidEvidence(t *testing.
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
-	identity := ResultIdentity{BodyContentVersionID: bodyID, ParserVersion: "synthetic-parser-v1", DictionaryVersionID: dictionaryID}
+	configurationID := prepareSyntheticAnalysisConfiguration(t, repository, dictionaryID, "synthetic-parser-v1")
+	identity := ResultIdentity{BodyContentVersionID: bodyID, ConfigurationID: configurationID}
 	mentions := []MentionInput{{
 		TechnologyIdentityID: technologyID,
 		Evidence: []EvidenceInput{
@@ -51,8 +52,10 @@ SELECT
 		t.Fatalf("published result counts = results:%d mentions:%d evidence:%d status:%s", results, mentionsCount, evidenceCount, status)
 	}
 
-	badIdentity := identity
-	badIdentity.ParserVersion = "synthetic-parser-invalid"
+	badIdentity := ResultIdentity{
+		BodyContentVersionID: bodyID,
+		ConfigurationID:      prepareSyntheticAnalysisConfiguration(t, repository, dictionaryID, "synthetic-parser-invalid"),
+	}
 	_, err = repository.PublishCompleteResult(ctx, badIdentity, []MentionInput{{
 		TechnologyIdentityID: technologyID,
 		Evidence:             []EvidenceInput{{SourceField: SourceFieldDescription, RuleID: ruleID, Start: 2, End: 3}},
@@ -86,6 +89,7 @@ func newIntegrationRepository(t *testing.T) *Repository {
 	acquireIntegrationTestLock(t, repository.pool)
 	if _, err := repository.pool.Exec(context.Background(), `
 TRUNCATE technology_mention_evidence, technology_mentions, technology_analysis_results,
+         technology_analysis_configuration_rules,
          technology_dictionary_candidates, technology_dictionary_rule_decisions,
          technology_dictionary_rules, technology_dictionary_versions,
          technology_identities, job_body_content_periods, run_job_version_references,
@@ -94,6 +98,39 @@ TRUNCATE technology_mention_evidence, technology_mentions, technology_analysis_r
 		t.Fatalf("clear disposable test database: %v", err)
 	}
 	return repository
+}
+
+func prepareSyntheticAnalysisConfiguration(t *testing.T, repository *Repository, dictionaryID, parserVersion string) string {
+	t.Helper()
+	preparation, err := repository.PrepareCandidateConfiguration(context.Background(), CandidateConfigurationInput{
+		ParserVersion: parserVersion, DictionaryVersionID: dictionaryID, CreatedBy: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return preparation.ConfigurationID
+}
+
+func insertSyntheticAnalysisConfiguration(t *testing.T, repository *Repository, configurationID, parserVersion, dictionaryID string) {
+	t.Helper()
+	ctx := context.Background()
+	snapshot, err := repository.loadEnabledRuleSet(ctx, repository.pool, dictionaryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_analysis_configurations (
+    id, parser_version, dictionary_version_id, rule_set_sha256, created_by
+) VALUES ($1, $2, $3, $4, 'test')`, configurationID, parserVersion, dictionaryID, snapshot.SHA256); err != nil {
+		t.Fatal(err)
+	}
+	for _, ruleID := range snapshot.RuleIDs {
+		if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_analysis_configuration_rules (configuration_id, dictionary_rule_id)
+VALUES ($1, $2)`, configurationID, ruleID); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func acquireIntegrationTestLock(t *testing.T, pool *pgxpool.Pool) {

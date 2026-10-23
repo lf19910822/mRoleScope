@@ -33,8 +33,7 @@ func (repository *Repository) Close() {
 
 type ResultIdentity struct {
 	BodyContentVersionID string
-	ParserVersion        string
-	DictionaryVersionID  string
+	ConfigurationID      string
 }
 
 type MentionInput struct {
@@ -57,7 +56,7 @@ type PublishResult struct {
 }
 
 func (repository *Repository) PublishCompleteResult(ctx context.Context, identity ResultIdentity, mentions []MentionInput) (PublishResult, error) {
-	if identity.BodyContentVersionID == "" || identity.ParserVersion == "" || identity.DictionaryVersionID == "" {
+	if identity.BodyContentVersionID == "" || identity.ConfigurationID == "" {
 		return PublishResult{}, fmt.Errorf("analysis result identity is incomplete")
 	}
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -91,14 +90,14 @@ func publishCompleteResult(ctx context.Context, tx pgx.Tx, identity ResultIdenti
 	if err != nil {
 		return PublishResult{}, err
 	}
-	resultID, status, err := lockOrCreateResult(ctx, tx, identity)
+	result, err := lockOrCreateResult(ctx, tx, identity)
 	if err != nil {
 		return PublishResult{}, err
 	}
-	if status == "complete" {
-		return PublishResult{ResultID: resultID, Reused: true}, nil
+	if result.Status == "complete" {
+		return PublishResult{ResultID: result.ID, Reused: true}, nil
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM technology_mentions WHERE analysis_result_id = $1`, resultID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM technology_mentions WHERE analysis_result_id = $1`, result.ID); err != nil {
 		return PublishResult{}, fmt.Errorf("clear incomplete analysis result: %w", err)
 	}
 
@@ -111,12 +110,12 @@ func publishCompleteResult(ctx context.Context, tx pgx.Tx, identity ResultIdenti
 			return PublishResult{}, fmt.Errorf("analysis result repeats a technology identity")
 		}
 		seenTechnologies[mention.TechnologyIdentityID] = struct{}{}
-		mentionID, err := insertMention(ctx, tx, resultID, mention.TechnologyIdentityID)
+		mentionID, err := insertMention(ctx, tx, result.ID, mention.TechnologyIdentityID)
 		if err != nil {
 			return PublishResult{}, err
 		}
 		for _, evidence := range mention.Evidence {
-			if err := insertValidatedEvidence(ctx, tx, identity.DictionaryVersionID, body, mentionID, mention.TechnologyIdentityID, evidence); err != nil {
+			if err := insertValidatedEvidence(ctx, tx, identity.ConfigurationID, result.DictionaryVersionID, body, mentionID, mention.TechnologyIdentityID, evidence); err != nil {
 				return PublishResult{}, err
 			}
 		}
@@ -124,10 +123,10 @@ func publishCompleteResult(ctx context.Context, tx pgx.Tx, identity ResultIdenti
 	if _, err := tx.Exec(ctx, `
 UPDATE technology_analysis_results
 SET status = 'complete', completed_at = now(), safe_failure_code = NULL
-WHERE id = $1`, resultID); err != nil {
+WHERE id = $1`, result.ID); err != nil {
 		return PublishResult{}, fmt.Errorf("complete analysis result: %w", err)
 	}
-	return PublishResult{ResultID: resultID}, nil
+	return PublishResult{ResultID: result.ID}, nil
 }
 
 func loadBodyContent(ctx context.Context, tx pgx.Tx, bodyContentVersionID string) (bodyContent, error) {
@@ -145,27 +144,37 @@ WHERE id = $1`, bodyContentVersionID).Scan(
 	return body, nil
 }
 
-func lockOrCreateResult(ctx context.Context, tx pgx.Tx, identity ResultIdentity) (string, string, error) {
-	var resultID, status string
+type storedResultIdentity struct {
+	ID                  string
+	Status              string
+	DictionaryVersionID string
+}
+
+func lockOrCreateResult(ctx context.Context, tx pgx.Tx, identity ResultIdentity) (storedResultIdentity, error) {
+	var result storedResultIdentity
 	err := tx.QueryRow(ctx, `
-SELECT id::text, status::text
+SELECT id::text, status::text, dictionary_version_id::text
 FROM technology_analysis_results
-WHERE body_content_version_id = $1 AND parser_version = $2 AND dictionary_version_id = $3
-FOR UPDATE`, identity.BodyContentVersionID, identity.ParserVersion, identity.DictionaryVersionID).Scan(&resultID, &status)
+WHERE body_content_version_id = $1 AND configuration_id = $2
+FOR UPDATE`, identity.BodyContentVersionID, identity.ConfigurationID).Scan(&result.ID, &result.Status, &result.DictionaryVersionID)
 	if err == nil {
-		return resultID, status, nil
+		return result, nil
 	}
 	if err != pgx.ErrNoRows {
-		return "", "", fmt.Errorf("lock analysis result: %w", err)
+		return storedResultIdentity{}, fmt.Errorf("lock analysis result: %w", err)
 	}
 	err = tx.QueryRow(ctx, `
-INSERT INTO technology_analysis_results (body_content_version_id, parser_version, dictionary_version_id, status)
-VALUES ($1, $2, $3, 'running')
-RETURNING id::text, status::text`, identity.BodyContentVersionID, identity.ParserVersion, identity.DictionaryVersionID).Scan(&resultID, &status)
+INSERT INTO technology_analysis_results (
+    body_content_version_id, configuration_id, parser_version, dictionary_version_id, status
+)
+SELECT $1, configuration.id, configuration.parser_version, configuration.dictionary_version_id, 'running'
+FROM technology_analysis_configurations AS configuration
+WHERE configuration.id = $2
+RETURNING id::text, status::text, dictionary_version_id::text`, identity.BodyContentVersionID, identity.ConfigurationID).Scan(&result.ID, &result.Status, &result.DictionaryVersionID)
 	if err != nil {
-		return "", "", fmt.Errorf("create analysis result: %w", err)
+		return storedResultIdentity{}, fmt.Errorf("create analysis result: %w", err)
 	}
-	return resultID, status, nil
+	return result, nil
 }
 
 func insertMention(ctx context.Context, tx pgx.Tx, resultID, technologyIdentityID string) (string, error) {
@@ -180,12 +189,12 @@ RETURNING id::text`, resultID, technologyIdentityID).Scan(&mentionID)
 	return mentionID, nil
 }
 
-func insertValidatedEvidence(ctx context.Context, tx pgx.Tx, dictionaryVersionID string, body bodyContent, mentionID, technologyIdentityID string, evidence EvidenceInput) error {
+func insertValidatedEvidence(ctx context.Context, tx pgx.Tx, configurationID, dictionaryVersionID string, body bodyContent, mentionID, technologyIdentityID string, evidence EvidenceInput) error {
 	text, fieldSHA, ok := body.field(evidence.SourceField)
 	if !ok {
 		return fmt.Errorf("evidence source field is outside the approved JD body scope")
 	}
-	rule, err := loadExecutableRule(ctx, tx, dictionaryVersionID, technologyIdentityID, evidence.RuleID)
+	rule, err := loadExecutableRule(ctx, tx, configurationID, dictionaryVersionID, technologyIdentityID, evidence.RuleID)
 	if err != nil {
 		return err
 	}
@@ -218,7 +227,7 @@ func (body bodyContent) field(sourceField string) (string, string, bool) {
 	}
 }
 
-func loadExecutableRule(ctx context.Context, tx pgx.Tx, dictionaryVersionID, technologyIdentityID, ruleID string) (DictionaryRule, error) {
+func loadExecutableRule(ctx context.Context, tx pgx.Tx, configurationID, dictionaryVersionID, technologyIdentityID, ruleID string) (DictionaryRule, error) {
 	var rule DictionaryRule
 	var reviewer string
 	var decidedAt time.Time
@@ -227,12 +236,13 @@ func loadExecutableRule(ctx context.Context, tx pgx.Tx, dictionaryVersionID, tec
 SELECT identity.technology_key, identity.canonical_name, identity.technology_kind,
        rule.rule_key, rule.alias, rule.case_mode, rule.boundary_mode, rule.overlap_priority,
        rule.rule_summary, rule.approved_by, rule.approved_at
-FROM technology_dictionary_rules AS rule
+FROM technology_analysis_configuration_rules AS snapshot
+JOIN technology_dictionary_rules AS rule ON rule.id = snapshot.dictionary_rule_id
 JOIN technology_identities AS identity ON identity.id = rule.technology_identity_id
-WHERE rule.id = $1
-  AND rule.dictionary_version_id = $2
-  AND rule.technology_identity_id = $3
-  AND rule.state = 'enabled'`, ruleID, dictionaryVersionID, technologyIdentityID).Scan(
+WHERE snapshot.configuration_id = $1
+  AND rule.id = $2
+  AND rule.dictionary_version_id = $3
+  AND rule.technology_identity_id = $4`, configurationID, ruleID, dictionaryVersionID, technologyIdentityID).Scan(
 		&rule.TechnologyKey, &rule.CanonicalName, &rule.TechnologyKind,
 		&rule.RuleKey, &rule.Alias, &rule.CaseMode, &rule.BoundaryMode, &rule.OverlapPriority,
 		&rule.Summary, &reviewer, &decidedAt)

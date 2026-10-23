@@ -475,8 +475,8 @@ INSERT INTO technology_dictionary_versions (
 	}
 	if _, err := repository.pool.Exec(ctx, `
 INSERT INTO technology_analysis_configurations (
-    id, parser_version, dictionary_version_id, status, created_by, published_at
-) VALUES ($1, 'synthetic-parser', $2, 'published', 'test', now())`, configurationID, dictionaryID); err != nil {
+    id, parser_version, dictionary_version_id, rule_set_sha256, status, created_by, published_at
+) VALUES ($1, 'synthetic-parser', $2, $3, 'published', 'test', now())`, configurationID, dictionaryID, strings.Repeat("b", 64)); err != nil {
 		t.Fatal(err)
 	}
 	command, err := repository.pool.Exec(ctx, `

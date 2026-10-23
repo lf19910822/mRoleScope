@@ -226,8 +226,7 @@ func (processor Processor) processWork(ctx context.Context, configuration analys
 	}
 	identity := ResultIdentity{
 		BodyContentVersionID: work.BodyContentVersionID,
-		ParserVersion:        configuration.ParserVersion,
-		DictionaryVersionID:  configuration.DictionaryVersionID,
+		ConfigurationID:      configuration.ID,
 	}
 	publisher := processor.Publish
 	if publisher == nil {
@@ -273,10 +272,11 @@ SELECT rule.id::text, identity.id::text, identity.technology_key, identity.canon
        identity.technology_kind, rule.rule_key, rule.alias, rule.case_mode,
        rule.boundary_mode, rule.overlap_priority, rule.rule_summary,
        rule.approved_by, rule.approved_at
-FROM technology_dictionary_rules AS rule
+FROM technology_analysis_configuration_rules AS snapshot
+JOIN technology_dictionary_rules AS rule ON rule.id = snapshot.dictionary_rule_id
 JOIN technology_identities AS identity ON identity.id = rule.technology_identity_id
-WHERE rule.dictionary_version_id = $1 AND rule.state = 'enabled'
-ORDER BY rule.rule_key`, configuration.DictionaryVersionID)
+WHERE snapshot.configuration_id = $1
+ORDER BY rule.rule_key`, configuration.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load enabled dictionary rules: %w", err)
 	}

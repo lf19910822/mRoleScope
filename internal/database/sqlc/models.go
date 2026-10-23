@@ -766,6 +766,12 @@ type TechnologyAnalysisConfiguration struct {
 	PublishedAt         pgtype.Timestamptz
 	FailedAt            pgtype.Timestamptz
 	SafeFailureCode     pgtype.Text
+	RuleSetSha256       string
+}
+
+type TechnologyAnalysisConfigurationRule struct {
+	ConfigurationID  pgtype.UUID
+	DictionaryRuleID pgtype.UUID
 }
 
 type TechnologyAnalysisPublicationState struct {
@@ -783,6 +789,7 @@ type TechnologyAnalysisResult struct {
 	SafeFailureCode      pgtype.Text
 	CreatedAt            pgtype.Timestamptz
 	CompletedAt          pgtype.Timestamptz
+	ConfigurationID      pgtype.UUID
 }
 
 type TechnologyAnalysisRun struct {

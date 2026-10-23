@@ -26,8 +26,13 @@ The system SHALL import the fixed v0.1 dictionary only as non-executable candida
 
 #### Scenario: Approved rules are prepared for candidate analysis
 - **WHEN** at least one deterministic v0.1 rule has an explicit approval and an operator prepares the fixed candidate configuration
-- **THEN** the system SHALL create or reuse a candidate configuration for the fixed parser and dictionary versions and queue every historical body-content version
+- **THEN** the system SHALL create or reuse a candidate configuration for the fixed parser, dictionary version, and immutable snapshot of the currently approved deterministic rules, and queue every historical body-content version
 - **AND THEN** it SHALL not collect from the source, change the daily synchronization timer, or advance the published analysis pointer
+
+#### Scenario: A rule approval changes the effective candidate rule set
+- **WHEN** an operator approves an additional deterministic rule after a candidate configuration has been prepared or analyzed
+- **THEN** the system SHALL treat the new enabled-rule set as a distinct immutable analysis input
+- **AND THEN** the next preparation SHALL create a distinct candidate configuration and queue every historical body-content version without overwriting or reusing results from the prior rule-set snapshot
 
 #### Scenario: Candidate analysis is invoked
 - **WHEN** an authorized operator runs the fixed v0.1 candidate-analysis operation
@@ -77,7 +82,7 @@ The system SHALL retain a separate evidence record for every technology match, i
 - **AND THEN** it SHALL not publish a partial replacement result
 
 ### Requirement: Analysis results are reusable and separate from source collection
-The system SHALL identify a technology-mention result by body-content version, parser version, and dictionary version, rather than by source collection run. It SHALL reuse an existing complete result for that identity and process newly available or changed body content independently of the daily source synchronization outcome.
+The system SHALL identify a technology-mention result by body-content version and an immutable analysis configuration that includes parser version, dictionary version, and its frozen approved-rule set, rather than by source collection run. It SHALL reuse an existing complete result only for that exact identity and process newly available or changed body content independently of the daily source synchronization outcome.
 
 #### Scenario: An unchanged body is seen in later daily runs
 - **WHEN** a body-content version already has a complete result for the active parser and dictionary versions
@@ -96,6 +101,11 @@ The system SHALL treat each dictionary or parser version as a distinct analysis 
 - **WHEN** a new dictionary version adds or changes an enabled alias or matching boundary
 - **THEN** the system SHALL reanalyze historical body-content versions with the new version
 - **AND THEN** it SHALL identify resulting differences as analysis-rule coverage changes rather than source-demand changes
+
+#### Scenario: A new approval changes an existing candidate dictionary's executable rules
+- **WHEN** an additional deterministic rule in an existing candidate dictionary becomes enabled
+- **THEN** the system SHALL create a distinct approved-rule-set snapshot and reanalyze every historical body-content version for that snapshot
+- **AND THEN** it SHALL retain the prior candidate configuration, results, evidence, and reviews for audit
 
 #### Scenario: Reanalysis is incomplete or fails
 - **WHEN** a reanalysis version fails, is cancelled, or has not completed validation
