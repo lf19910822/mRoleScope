@@ -27,14 +27,14 @@ grep -Fqx "readonly RULE_KEY_PATTERN='^[a-z0-9][a-z0-9.-]{0,127}\$'" "$dictionar
   || die 'dictionary helper must restrict rule keys to the reviewed format'
 grep -Fqx "readonly OPERATOR_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,255}\$'" "$dictionary_helper" \
   || die 'dictionary helper must restrict operator identities'
-for fixed_service in dictionary-seed dictionary-approve dictionary-prepare dictionary-v0.2-seed dictionary-v0.2-approve dictionary-v0.2-prepare; do
+for fixed_service in dictionary-seed dictionary-approve dictionary-prepare dictionary-v0.2-seed dictionary-v0.2-approve dictionary-v0.2-approve-reviewed dictionary-v0.2-prepare; do
   grep -Fqx "    compose --profile dictionary run --rm --no-deps ${fixed_service}" "$dictionary_helper" \
     || die "dictionary helper must invoke only the fixed ${fixed_service} service"
 done
-grep -Fqx "    die 'usage: mrolescope-dictionary <seed-v0.1|approve-v0.1-rule|prepare-v0.1-analysis|seed-v0.2|approve-v0.2-rule|prepare-v0.2-analysis> <operator-or-rule-key> [operator]'" "$dictionary_helper" \
+grep -Fqx "    die 'usage: mrolescope-dictionary <seed-v0.1|approve-v0.1-rule|prepare-v0.1-analysis|seed-v0.2|approve-v0.2-rule|approve-v0.2-reviewed-rules|prepare-v0.2-analysis> <operator-or-rule-key> [operator]'" "$dictionary_helper" \
   || die 'dictionary helper must expose only fixed lifecycle actions'
 
-for operation in seed-v0.1-dictionary approve-v0.1-rule prepare-v0.1-analysis seed-v0.2-dictionary approve-v0.2-rule prepare-v0.2-analysis; do
+for operation in seed-v0.1-dictionary approve-v0.1-rule prepare-v0.1-analysis seed-v0.2-dictionary approve-v0.2-rule approve-v0.2-reviewed-rules prepare-v0.2-analysis; do
   grep -Fqx "  ${operation})" "$operations_helper" \
     || die "operations helper must allowlist ${operation}"
 done
@@ -47,7 +47,7 @@ grep -Fqx '  run-v0.2-candidate-analysis)' "$operations_helper" \
 grep -Fqx '    systemctl start --wait "$CANDIDATE_V02_ANALYSIS_SERVICE"' "$operations_helper" \
   || die 'v0.2 candidate analysis must use its dedicated systemd unit'
 
-for operation in seed-v0.1-dictionary approve-v0.1-rule prepare-v0.1-analysis run-v0.1-candidate-analysis seed-v0.2-dictionary approve-v0.2-rule prepare-v0.2-analysis run-v0.2-candidate-analysis; do
+for operation in seed-v0.1-dictionary approve-v0.1-rule prepare-v0.1-analysis run-v0.1-candidate-analysis seed-v0.2-dictionary approve-v0.2-rule approve-v0.2-reviewed-rules prepare-v0.2-analysis run-v0.2-candidate-analysis; do
   grep -Fqx "          - ${operation}" "$workflow" \
     || die "workflow must expose the reviewed ${operation} choice"
 done
@@ -63,6 +63,8 @@ grep -Fqx "              expected='SEED_V02_DICTIONARY'" "$workflow" \
   || die 'workflow must require v0.2 seed confirmation'
 grep -Fqx "              expected='APPROVE_V02_RULE'" "$workflow" \
   || die 'workflow must require v0.2 per-rule approval confirmation'
+grep -Fqx "              expected='APPROVE_V02_REVIEWED_RULES'" "$workflow" \
+  || die 'workflow must require v0.2 reviewed-bulk approval confirmation'
 grep -Fqx "              expected='PREPARE_V02_ANALYSIS'" "$workflow" \
   || die 'workflow must require v0.2 candidate preparation confirmation'
 grep -Fqx "              expected='RUN_V02_CANDIDATE_ANALYSIS'" "$workflow" \

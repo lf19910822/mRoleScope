@@ -30,6 +30,14 @@ type DictionaryApprovalSummary struct {
 	Reused  bool
 }
 
+// DictionaryBulkApprovalSummary records only aggregate counts. It deliberately
+// omits aliases and other source-derived text so the fixed remote operation can
+// safely log its result.
+type DictionaryBulkApprovalSummary struct {
+	Approved int
+	Reused   int
+}
+
 // ImportCandidateDictionary persists a reviewed dictionary document exactly as
 // proposed: candidate and conditional rules remain non-executable. The seed's
 // serialized hash prevents a version label from being silently reused for a
@@ -213,6 +221,64 @@ func (repository *Repository) ApproveV02ReviewedRule(ctx context.Context, ruleKe
 		return DictionaryApprovalSummary{}, fmt.Errorf("dictionary rule is not approved by the v0.2 review")
 	}
 	return repository.ApproveCandidateRule(ctx, CandidateV02Seed().VersionLabel, ruleKey, reviewer)
+}
+
+// ApproveAllV02ReviewedRules atomically enables every rule in the fixed local
+// review allowlist and records one durable decision per newly enabled rule. It
+// accepts no caller-provided rule keys, so contextual and unreviewed terms
+// cannot be promoted through the bulk path.
+func (repository *Repository) ApproveAllV02ReviewedRules(ctx context.Context, reviewer string) (DictionaryBulkApprovalSummary, error) {
+	if !validOperator(reviewer) {
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("candidate dictionary reviewer is invalid")
+	}
+
+	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("begin v0.2 bulk dictionary approval: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	summary := DictionaryBulkApprovalSummary{}
+	for _, ruleKey := range V02ApprovedRuleKeys() {
+		var ruleID, state string
+		err := tx.QueryRow(ctx, `
+SELECT rule.id::text, rule.state::text
+FROM technology_dictionary_rules AS rule
+JOIN technology_dictionary_versions AS version ON version.id = rule.dictionary_version_id
+WHERE version.version_label = $1 AND rule.rule_key = $2
+FOR UPDATE`, CandidateV02Seed().VersionLabel, ruleKey).Scan(&ruleID, &state)
+		if err == pgx.ErrNoRows {
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed v0.2 dictionary rule is unavailable for approval")
+		}
+		if err != nil {
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock reviewed v0.2 dictionary rule for approval: %w", err)
+		}
+
+		switch state {
+		case string(RuleEnabled):
+			summary.Reused++
+		case string(RuleCandidate):
+			if _, err := tx.Exec(ctx, `
+UPDATE technology_dictionary_rules
+SET state = 'enabled', approved_by = $2, approved_at = now()
+WHERE id = $1`, ruleID, reviewer); err != nil {
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("enable reviewed v0.2 dictionary rule: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `
+INSERT INTO technology_dictionary_rule_decisions (rule_id, decision, reviewer, rationale)
+VALUES ($1, 'approved_enabled', $2, 'approved through the fixed v0.2 reviewed bulk remote operation')`, ruleID, reviewer); err != nil {
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("record reviewed v0.2 dictionary approval: %w", err)
+			}
+			summary.Approved++
+		default:
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed v0.2 dictionary rule requires a context-aware policy")
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("commit v0.2 bulk dictionary approval: %w", err)
+	}
+	return summary, nil
 }
 
 // PrepareCandidateConfigurationForDictionary creates the durable reanalysis

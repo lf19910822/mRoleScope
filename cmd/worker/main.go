@@ -242,7 +242,7 @@ func runV01Dictionary(arguments []string) {
 // key outside the completed local review allowlist before it can be enabled.
 func runV02Dictionary(arguments []string) {
 	if len(arguments) < 2 {
-		fmt.Fprintln(os.Stderr, "dictionary-v0.2 accepts seed <operator>, approve <rule-key> <operator>, or prepare-analysis <operator>")
+		fmt.Fprintln(os.Stderr, "dictionary-v0.2 accepts seed <operator>, approve <rule-key> <operator>, approve-reviewed <operator>, or prepare-analysis <operator>")
 		os.Exit(2)
 	}
 	cfg, err := config.Load()
@@ -283,6 +283,17 @@ func runV02Dictionary(arguments []string) {
 			os.Exit(1)
 		}
 		slog.Info("candidate dictionary rule approval completed", "reused", summary.Reused)
+	case "approve-reviewed":
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.2 approve-reviewed accepts exactly one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.ApproveAllV02ReviewedRules(ctx, arguments[1])
+		if err != nil {
+			slog.Error("reviewed candidate dictionary bulk approval failed")
+			os.Exit(1)
+		}
+		slog.Info("reviewed candidate dictionary bulk approval completed", "approved", summary.Approved, "reused", summary.Reused)
 	case "prepare-analysis":
 		if len(arguments) != 2 {
 			fmt.Fprintln(os.Stderr, "dictionary-v0.2 prepare-analysis accepts exactly one operator")
@@ -295,7 +306,7 @@ func runV02Dictionary(arguments []string) {
 		}
 		slog.Info("candidate analysis preparation completed", "queued", summary.Queued, "reused", summary.Reused)
 	default:
-		fmt.Fprintln(os.Stderr, "dictionary-v0.2 operation must be seed, approve, or prepare-analysis")
+		fmt.Fprintln(os.Stderr, "dictionary-v0.2 operation must be seed, approve, approve-reviewed, or prepare-analysis")
 		os.Exit(2)
 	}
 }

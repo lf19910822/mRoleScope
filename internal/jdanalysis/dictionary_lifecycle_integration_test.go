@@ -184,3 +184,46 @@ WHERE version.version_label = $1`, seed.VersionLabel).Scan(&enabled, &decisions)
 		t.Fatalf("v0.2 approval counts = enabled:%d decisions:%d", enabled, decisions)
 	}
 }
+
+func TestV02BulkApprovalEnablesOnlyTheCompletedReviewAndIsIdempotent(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	_, _, _, _ = insertSyntheticAnalysisPrerequisites(t, repository)
+
+	seed := CandidateV02Seed()
+	if _, err := repository.ImportCandidateDictionary(ctx, seed, "remote-operator"); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := repository.ApproveAllV02ReviewedRules(ctx, "remote-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Approved != 157 || first.Reused != 0 {
+		t.Fatalf("first v0.2 bulk approval = %#v", first)
+	}
+
+	var enabled, decisions, contextualEnabled int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE rule.state = 'enabled'),
+  count(decision.id),
+  count(*) FILTER (WHERE rule.rule_key = 'go.01' AND rule.state = 'enabled')
+FROM technology_dictionary_rules AS rule
+JOIN technology_dictionary_versions AS version ON version.id = rule.dictionary_version_id
+LEFT JOIN technology_dictionary_rule_decisions AS decision ON decision.rule_id = rule.id
+WHERE version.version_label = $1`, seed.VersionLabel).Scan(&enabled, &decisions, &contextualEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 157 || decisions != 157 || contextualEnabled != 0 {
+		t.Fatalf("v0.2 bulk approval state = enabled:%d decisions:%d contextual_enabled:%d", enabled, decisions, contextualEnabled)
+	}
+
+	second, err := repository.ApproveAllV02ReviewedRules(ctx, "other-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Approved != 0 || second.Reused != 157 {
+		t.Fatalf("repeated v0.2 bulk approval = %#v", second)
+	}
+}

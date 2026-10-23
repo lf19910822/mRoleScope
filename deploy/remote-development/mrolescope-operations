@@ -138,6 +138,11 @@ case "$1" in
     [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
     exec "$DICTIONARY_HELPER" approve-v0.2-rule "$2" "$3"
     ;;
+  approve-v0.2-reviewed-rules)
+    [[ "$#" -eq 2 ]] || die 'approve-v0.2-reviewed-rules requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" approve-v0.2-reviewed-rules "$2"
+    ;;
   prepare-v0.2-analysis)
     [[ "$#" -eq 2 ]] || die 'prepare-v0.2-analysis requires the authenticated operator'
     [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
