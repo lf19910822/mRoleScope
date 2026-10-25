@@ -17,8 +17,8 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 22 ]] \
-  || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal reviews may use backend alone'
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 26 ]] \
+  || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal audits may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
   || die 'worker must remain an explicitly requested one-shot profile'
@@ -31,6 +31,12 @@ grep -Fqx '    profiles: [ai-analysis]' "$compose_file" \
 
 [[ "$(grep -Fxc '    profiles: [ai-review]' "$compose_file")" -eq 2 ]] \
   || die 'the two terminal review services must remain explicitly requested'
+
+[[ "$(grep -Fxc '    profiles: [ai-output-audit]' "$compose_file")" -eq 3 ]] \
+  || die 'the two terminal output-audit services and safe status reader must remain explicitly requested'
+
+[[ "$(grep -Fxc '    profiles: [ai-output-audit-diagnostic]' "$compose_file")" -eq 2 ]] \
+  || die 'the two fixed output-audit diagnostic services must remain explicitly requested'
 
 grep -Fqx '    profiles: [backfill]' "$compose_file" \
   || die 'backfill must remain an explicitly requested one-shot profile'
@@ -103,6 +109,7 @@ check_private_one_shot dictionary-v0.2-seed dictionary '["dictionary-v0.2", "see
 check_private_one_shot dictionary-v0.2-approve dictionary '["dictionary-v0.2", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-v0.2-approve-reviewed dictionary '["dictionary-v0.2", "approve-reviewed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-v0.2-prepare dictionary '["dictionary-v0.2", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot ai-output-audit-diagnostic-prepare ai-output-audit-diagnostic '["analyze-ai", "prepare-output-audit-diagnostic"]'
 
 check_terminal_review() {
   local service="$1" model="$2" block
@@ -126,6 +133,93 @@ check_terminal_review() {
 check_terminal_review ai-plus-review plus
 check_terminal_review ai-flash-review flash
 
+check_output_audit_mount() {
+  local service="$1" mode="$2" block volume_block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  volume_block=$(awk '
+    /^    volumes:$/ { in_volumes = 1; next }
+    in_volumes && /^    [A-Za-z][A-Za-z0-9_-]*:/ { exit }
+    in_volumes { print }
+  ' <<<"$block")
+  [[ -n "$volume_block" ]] || die "${service} must receive its fixed audit-directory mount"
+  [[ "$(grep -Ec '^      - ' <<<"$volume_block")" -eq 1 ]] \
+    || die "${service} must receive exactly one fixed audit-directory mount"
+  grep -Fqx '      - type: bind' <<<"$volume_block" \
+    || die "${service} audit mount must be a bind mount"
+  grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$volume_block" \
+    || die "${service} must mount only the fixed audit directory"
+  grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$volume_block" \
+    || die "${service} audit directory target is not fixed"
+  if [[ "$mode" == 'reader' ]]; then
+    grep -Fqx '        read_only: true' <<<"$volume_block" \
+      || die "${service} audit directory must be read-only"
+  elif grep -Fqx '        read_only: true' <<<"$volume_block"; then
+    die "${service} must retain its required writable audit directory"
+  fi
+}
+
+check_terminal_output_audit() {
+  local service="$1" model="$2" block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
+    || die "${service} must use only the ai-output-audit profile"
+  grep -Fqx "    command: [\"audit-ai\", \"${model}\"]" <<<"$block" \
+    || die "${service} must use its fixed output-audit command"
+  grep -Fqx '    networks: [backend]' <<<"$block" \
+    || die "${service} must use only the internal backend network"
+  grep -Fqx '    stdin_open: true' <<<"$block" \
+    || die "${service} must keep standard input open for its direct-terminal session"
+  grep -Fqx '    tty: true' <<<"$block" \
+    || die "${service} must allocate a TTY for its direct-terminal session"
+  check_output_audit_mount "$service" reader
+  if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:)|^[[:space:]]+networks:.*edge' <<<"$block"; then
+    die "${service} must not receive the provider key, COS, an external network, or a host port"
+  fi
+}
+
+check_terminal_output_audit ai-plus-contract-audit plus
+check_terminal_output_audit ai-flash-contract-audit flash
+
+check_output_audit_status_reader() {
+  local service='ai-output-audit-status' block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
+    || die "${service} must use only the ai-output-audit profile"
+  grep -Fqx '    command: ["audit-ai", "status"]' <<<"$block" \
+    || die "${service} must use its fixed safe status command"
+  grep -Fqx '    networks: [backend]' <<<"$block" \
+    || die "${service} must use only the internal backend network"
+  check_output_audit_mount "$service" reader
+  if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:)|^[[:space:]]+networks:.*edge' <<<"$block"; then
+    die "${service} must not receive the provider key, COS, an external network, or a host port"
+  fi
+}
+
+check_output_audit_status_reader
+
+check_output_audit_diagnostic_runner() {
+  local service='ai-plus-output-audit-diagnostic' block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx '    profiles: [ai-output-audit-diagnostic]' <<<"$block" \
+    || die "${service} must use only the ai-output-audit-diagnostic profile"
+  grep -Fqx '    command: ["analyze-ai", "run-plus-output-audit-diagnostic"]' <<<"$block" \
+    || die "${service} must use its fixed five-body Plus command"
+  grep -Fqx '    networks: [backend, ai-edge]' <<<"$block" \
+    || die "${service} must use only backend and the dedicated provider egress network"
+  grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$block" \
+    || die "${service} must receive its key only through the root-owned env-file variable"
+  check_output_audit_mount "$service" writer
+  if grep -Eq '^[[:space:]]+(COS_|ports:)' <<<"$block"; then
+    die "${service} must not receive COS or a host port"
+  fi
+}
+
+check_output_audit_diagnostic_runner
+
 for service in ai-plus-trial ai-flash-trial; do
   ai_block=$(service_block "$service")
   [[ -n "$ai_block" ]] || die "${service} service was not found"
@@ -135,9 +229,10 @@ for service in ai-plus-trial ai-flash-trial; do
     || die "${service} must use only backend and its dedicated egress network"
   grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$ai_block" \
     || die "${service} must receive its key only through the root-owned env-file variable"
-  if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)' <<<"$ai_block"; then
+  check_output_audit_mount "$service" writer
+  if grep -Eq '^[[:space:]]+(COS_|ports:)' <<<"$ai_block"; then
     die "${service} must not receive COS, a host port, raw-data volumes, or the ordinary edge network"
   fi
 done
-[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 2 ]] \
-  || die 'the Qwen key variable must appear only in the two fixed AI trial callers'
+[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 3 ]] \
+  || die 'the Qwen key variable must appear only in the two fixed trials and five-body diagnostic caller'

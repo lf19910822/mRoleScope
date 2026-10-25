@@ -1,6 +1,9 @@
 package jdanalysis
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestSelectAITrialSampleV1FreezesThirtyNonTextBodyIDs(t *testing.T) {
 	candidates := make([]AIBodySamplingMetric, 0, 35)
@@ -36,6 +39,33 @@ func TestSelectAITrialSampleV1FreezesThirtyNonTextBodyIDs(t *testing.T) {
 
 	if _, err := SelectAITrialSampleV1(candidates[:29]); err == nil {
 		t.Fatal("a trial sample expanded a sub-30 candidate set")
+	}
+}
+
+func TestSelectAIOutputAuditDiagnosticSampleV1FreezesFiveNonTextBodyIDs(t *testing.T) {
+	candidates := make([]AIBodySamplingMetric, 0, 6)
+	for index := 1; index <= 6; index++ {
+		candidates = append(candidates, AIBodySamplingMetric{
+			BodyContentVersionID: fmt.Sprintf("body-%02d", index),
+			BodyLengthCodePoints: 100 + index*75,
+			CompleteFieldCount:   index % 4,
+			VerifiedMentionCount: index % 7,
+		})
+	}
+
+	first, err := SelectAIOutputAuditDiagnosticSampleV1(candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := SelectAIOutputAuditDiagnosticSampleV1(candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != aiOutputAuditDiagnosticSampleSize || !equalStrings(first, second) {
+		t.Fatalf("diagnostic sample = %#v, want deterministic %d IDs", first, aiOutputAuditDiagnosticSampleSize)
+	}
+	if _, err := SelectAIOutputAuditDiagnosticSampleV1(candidates[:aiOutputAuditDiagnosticSampleSize-1]); err == nil {
+		t.Fatal("a diagnostic sample expanded a sub-five candidate set")
 	}
 }
 

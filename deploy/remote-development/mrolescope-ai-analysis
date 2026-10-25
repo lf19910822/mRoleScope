@@ -8,12 +8,14 @@ set -euo pipefail
 readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
 readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'
 readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
 readonly LOCK_FILE="${RELEASE_DIR}/ai-analysis.lock"
 readonly PROJECT_NAME='mrolescope-remote-development'
 readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
 readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
 readonly QWEN_WORKSPACE_ID_PATTERN='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+readonly AUDIT_OPERATOR='ubuntu'
 
 PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 export PATH
@@ -84,11 +86,19 @@ require_model_workspace() {
   [[ "$workspace_id" =~ $QWEN_WORKSPACE_ID_PATTERN ]] || die 'AI model workspace is not configured'
 }
 
+# FAN's approved direct CVM login is the ubuntu account. Requiring sudo's
+# immutable invoking-user marker prevents another root-capable principal from
+# viewing raw output or recording a verdict as FAN.
+require_audit_operator() {
+  [[ "${SUDO_USER:-}" == "$AUDIT_OPERATOR" ]] || die 'AI output audit is restricted to FAN direct terminal'
+}
+
 [[ "${EUID}" -eq 0 ]] || die 'must run as root'
-[[ "$#" -eq 1 && ( "$1" == 'prepare-trial' || "$1" == 'run-plus-trial' || "$1" == 'run-flash-trial' || "$1" == 'expand-plus' || "$1" == 'publish-plus' || "$1" == 'review-plus' || "$1" == 'review-flash' || "$1" == 'status' || "$1" == 'logs' ) ]] \
-  || die 'usage: mrolescope-ai-analysis <prepare-trial|run-plus-trial|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|status|logs>'
+[[ "$#" -eq 1 && ( "$1" == 'prepare-trial' || "$1" == 'prepare-output-audit-diagnostic' || "$1" == 'run-plus-trial' || "$1" == 'run-plus-output-audit-diagnostic' || "$1" == 'run-flash-trial' || "$1" == 'expand-plus' || "$1" == 'publish-plus' || "$1" == 'review-plus' || "$1" == 'review-flash' || "$1" == 'audit-plus-contract' || "$1" == 'audit-flash-contract' || "$1" == 'audit-status' || "$1" == 'status' || "$1" == 'logs' ) ]] \
+  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|status|logs>'
 is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
 [[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
+[[ -d "$OUTPUT_AUDIT_DIR" && "$(stat -c '%U:%G:%a' "$OUTPUT_AUDIT_DIR")" == 'root:root:700' ]] || die 'AI output audit directory must be root:root mode 0700'
 command -v docker >/dev/null 2>&1 || die 'docker is required'
 command -v flock >/dev/null 2>&1 || die 'flock is required'
 
@@ -107,7 +117,7 @@ load_release
 load_database_secret
 require_model_workspace
 case "$1" in
-  run-plus-trial|run-flash-trial)
+  run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial)
     require_model_credential
     ;;
 esac
@@ -120,9 +130,17 @@ case "$1" in
     compose --profile ai-analysis run --rm --no-deps ai-trial-prepare
     log 'controlled trial preparation completed'
     ;;
+  prepare-output-audit-diagnostic)
+    compose --profile ai-output-audit-diagnostic run --rm --no-deps ai-output-audit-diagnostic-prepare
+    log 'controlled AI output-audit diagnostic preparation completed'
+    ;;
   run-plus-trial)
     compose --profile ai-analysis run --rm --no-deps ai-plus-trial
     log 'controlled Plus trial completed'
+    ;;
+  run-plus-output-audit-diagnostic)
+    compose --profile ai-output-audit-diagnostic run --rm --no-deps ai-plus-output-audit-diagnostic
+    log 'controlled AI output-audit diagnostic completed'
     ;;
   run-flash-trial)
     compose --profile ai-analysis run --rm --no-deps ai-flash-trial
@@ -141,6 +159,19 @@ case "$1" in
     ;;
   review-flash)
     exec compose --profile ai-review run --rm --no-deps ai-flash-review
+    ;;
+  audit-plus-contract)
+    [[ -t 0 && -t 1 ]] || die 'AI output audit requires a direct terminal'
+    require_audit_operator
+    exec compose --profile ai-output-audit run --rm --no-deps ai-plus-contract-audit
+    ;;
+  audit-flash-contract)
+    [[ -t 0 && -t 1 ]] || die 'AI output audit requires a direct terminal'
+    require_audit_operator
+    exec compose --profile ai-output-audit run --rm --no-deps ai-flash-contract-audit
+    ;;
+  audit-status)
+    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status
     ;;
   status)
     compose --profile ai-analysis run --rm --no-deps ai-status

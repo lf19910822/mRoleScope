@@ -6,7 +6,10 @@ import (
 	"sort"
 )
 
-const aiTrialSampleSize = 30
+const (
+	aiOutputAuditDiagnosticSampleSize = 5
+	aiTrialSampleSize                 = 30
+)
 
 // AIBodySamplingMetric is a non-text body metric used to freeze a trial
 // sample. It deliberately has no source field, snippet, title, or metadata.
@@ -21,7 +24,18 @@ type AIBodySamplingMetric struct {
 // using non-text length, completeness, and mention-density strata. It never
 // silently expands a small candidate set or returns source content.
 func SelectAITrialSampleV1(candidates []AIBodySamplingMetric) ([]string, error) {
-	if len(candidates) < aiTrialSampleSize {
+	return selectAIBodySampleV1(candidates, aiTrialSampleSize, "ai-trial-sample-v1")
+}
+
+// SelectAIOutputAuditDiagnosticSampleV1 freezes exactly five non-text body
+// IDs for the one fixed Plus-only contract diagnostic. It is deliberately a
+// separate sample identity from the 30-body release trial.
+func SelectAIOutputAuditDiagnosticSampleV1(candidates []AIBodySamplingMetric) ([]string, error) {
+	return selectAIBodySampleV1(candidates, aiOutputAuditDiagnosticSampleSize, "ai-output-audit-diagnostic-sample-v1")
+}
+
+func selectAIBodySampleV1(candidates []AIBodySamplingMetric, sampleSize int, samplingVersion string) ([]string, error) {
+	if len(candidates) < sampleSize || sampleSize < 1 {
 		return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	strata := make(map[string][]AIBodySamplingMetric)
@@ -41,14 +55,14 @@ func SelectAITrialSampleV1(candidates []AIBodySamplingMetric) ([]string, error) 
 	for key := range strata {
 		keys = append(keys, key)
 		sort.Slice(strata[key], func(left, right int) bool {
-			return aiSamplingRank(strata[key][left].BodyContentVersionID) < aiSamplingRank(strata[key][right].BodyContentVersionID)
+			return aiSamplingRankForVersion(samplingVersion, strata[key][left].BodyContentVersionID) < aiSamplingRankForVersion(samplingVersion, strata[key][right].BodyContentVersionID)
 		})
 	}
 	sort.Strings(keys)
 
-	selected := make([]string, 0, aiTrialSampleSize)
+	selected := make([]string, 0, sampleSize)
 	nextByStratum := make(map[string]int, len(keys))
-	for len(selected) < aiTrialSampleSize {
+	for len(selected) < sampleSize {
 		selectedThisPass := false
 		for _, key := range keys {
 			next := nextByStratum[key]
@@ -58,7 +72,7 @@ func SelectAITrialSampleV1(candidates []AIBodySamplingMetric) ([]string, error) 
 			selected = append(selected, strata[key][next].BodyContentVersionID)
 			nextByStratum[key] = next + 1
 			selectedThisPass = true
-			if len(selected) == aiTrialSampleSize {
+			if len(selected) == sampleSize {
 				break
 			}
 		}
@@ -70,7 +84,11 @@ func SelectAITrialSampleV1(candidates []AIBodySamplingMetric) ([]string, error) 
 }
 
 func aiSamplingRank(bodyContentVersionID string) string {
-	digest := sha256.Sum256([]byte("ai-trial-sample-v1|" + bodyContentVersionID))
+	return aiSamplingRankForVersion("ai-trial-sample-v1", bodyContentVersionID)
+}
+
+func aiSamplingRankForVersion(samplingVersion, bodyContentVersionID string) string {
+	digest := sha256.Sum256([]byte(samplingVersion + "|" + bodyContentVersionID))
 	return hex.EncodeToString(digest[:])
 }
 

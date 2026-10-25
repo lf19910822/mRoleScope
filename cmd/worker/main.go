@@ -33,6 +33,9 @@ func main() {
 		case "review-ai":
 			runAIReview(arguments[1:])
 			return
+		case "audit-ai":
+			runAIOutputAudit(arguments[1:])
+			return
 		case "backfill-versioned-content":
 			runVersionedContentBackfill(arguments[1:])
 			return
@@ -60,13 +63,17 @@ func main() {
 
 type aiAnalysisOperation string
 
+const aiOutputAuditRoot = "/var/lib/mrolescope/ai-output-audit"
+
 const (
-	aiAnalysisOperationExpandPlus    aiAnalysisOperation = "expand-plus"
-	aiAnalysisOperationPrepareTrial  aiAnalysisOperation = "prepare-trial"
-	aiAnalysisOperationPublishPlus   aiAnalysisOperation = "publish-plus"
-	aiAnalysisOperationRunFlashTrial aiAnalysisOperation = "run-flash-trial"
-	aiAnalysisOperationRunPlusTrial  aiAnalysisOperation = "run-plus-trial"
-	aiAnalysisOperationStatus        aiAnalysisOperation = "status"
+	aiAnalysisOperationExpandPlus                   aiAnalysisOperation = "expand-plus"
+	aiAnalysisOperationPrepareOutputAuditDiagnostic aiAnalysisOperation = "prepare-output-audit-diagnostic"
+	aiAnalysisOperationPrepareTrial                 aiAnalysisOperation = "prepare-trial"
+	aiAnalysisOperationPublishPlus                  aiAnalysisOperation = "publish-plus"
+	aiAnalysisOperationRunFlashTrial                aiAnalysisOperation = "run-flash-trial"
+	aiAnalysisOperationRunPlusOutputAuditDiagnostic aiAnalysisOperation = "run-plus-output-audit-diagnostic"
+	aiAnalysisOperationRunPlusTrial                 aiAnalysisOperation = "run-plus-trial"
+	aiAnalysisOperationStatus                       aiAnalysisOperation = "status"
 )
 
 // parseAIAnalysisOperation deliberately provides no escape hatch for a model,
@@ -77,7 +84,9 @@ func parseAIAnalysisOperation(arguments []string) (aiAnalysisOperation, error) {
 		return "", fmt.Errorf("analyze-ai accepts exactly one fixed operation")
 	}
 	switch aiAnalysisOperation(arguments[0]) {
-	case aiAnalysisOperationPrepareTrial,
+	case aiAnalysisOperationPrepareOutputAuditDiagnostic,
+		aiAnalysisOperationPrepareTrial,
+		aiAnalysisOperationRunPlusOutputAuditDiagnostic,
 		aiAnalysisOperationRunPlusTrial,
 		aiAnalysisOperationRunFlashTrial,
 		aiAnalysisOperationExpandPlus,
@@ -122,6 +131,17 @@ func runAIAnalysis(arguments []string) {
 	defer repository.Close()
 
 	switch operation {
+	case aiAnalysisOperationPrepareOutputAuditDiagnostic:
+		prepared, err := repository.PrepareControlledAIOutputAuditDiagnostic(ctx, workspaceID)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+			os.Exit(1)
+		}
+		slog.Info("controlled AI output-audit diagnostic prepared",
+			"plus_configuration_id", prepared.Plus.ID,
+			"plus_queued", prepared.PlusQueued,
+			"reused", prepared.Reused,
+		)
 	case aiAnalysisOperationPrepareTrial:
 		prepared, err := repository.PrepareControlledAITrial(ctx, workspaceID)
 		if err != nil {
@@ -138,6 +158,8 @@ func runAIAnalysis(arguments []string) {
 		)
 	case aiAnalysisOperationRunPlusTrial:
 		runControlledAITrialModel(ctx, repository, "qwen-plus", workspaceID)
+	case aiAnalysisOperationRunPlusOutputAuditDiagnostic:
+		runControlledAIOutputAuditDiagnostic(ctx, repository, workspaceID)
 	case aiAnalysisOperationRunFlashTrial:
 		runControlledAITrialModel(ctx, repository, "qwen-flash", workspaceID)
 	case aiAnalysisOperationExpandPlus:
@@ -235,22 +257,36 @@ func runAIReview(arguments []string) {
 }
 
 func aiAnalysisOperationRequiresCredential(operation aiAnalysisOperation) bool {
-	return operation == aiAnalysisOperationRunPlusTrial || operation == aiAnalysisOperationRunFlashTrial
+	return operation == aiAnalysisOperationRunPlusTrial || operation == aiAnalysisOperationRunFlashTrial || operation == aiAnalysisOperationRunPlusOutputAuditDiagnostic
 }
 
 func runControlledAITrialModel(ctx context.Context, repository *jdanalysis.Repository, model, workspaceID string) {
-	apiKey := strings.TrimSpace(os.Getenv("MROLESCOPE_QWEN_API_KEY"))
-	if apiKey == "" {
-		slog.Error("AI model credential is not configured")
-		os.Exit(1)
-	}
 	configurationID, err := repository.ControlledAITrialConfigurationID(ctx, model, workspaceID)
 	if err != nil {
 		slog.Error(jdanalysis.SafeOperationMessage(err))
 		os.Exit(1)
 	}
+	runControlledAIConfiguration(ctx, repository, configurationID, model, workspaceID, "controlled AI trial model")
+}
+
+func runControlledAIOutputAuditDiagnostic(ctx context.Context, repository *jdanalysis.Repository, workspaceID string) {
+	configurationID, err := repository.ControlledAIOutputAuditDiagnosticConfigurationID(ctx, workspaceID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	runControlledAIConfiguration(ctx, repository, configurationID, "qwen-plus", workspaceID, "controlled AI output-audit diagnostic")
+}
+
+func runControlledAIConfiguration(ctx context.Context, repository *jdanalysis.Repository, configurationID, model, workspaceID, operation string) {
+	apiKey := strings.TrimSpace(os.Getenv("MROLESCOPE_QWEN_API_KEY"))
+	if apiKey == "" {
+		slog.Error("AI model credential is not configured")
+		os.Exit(1)
+	}
 	httpClient := &http.Client{Timeout: 90 * time.Second}
 	var client jdanalysis.ControlledAIModelClient
+	var err error
 	switch model {
 	case "qwen-plus":
 		client, err = jdanalysis.NewQwenPlusClient(apiKey, httpClient, workspaceID)
@@ -266,16 +302,131 @@ func runControlledAITrialModel(ctx context.Context, repository *jdanalysis.Repos
 	summary, err := (jdanalysis.AISemanticProcessor{
 		Repository:                   repository,
 		RequirePersistentTrialBudget: true,
+		OutputAudit:                  jdanalysis.NewAIOutputAuditStore(aiOutputAuditRoot),
+		RequireOutputAudit:           true,
 		Runner: jdanalysis.AIModelAttemptRunner{
 			Client:    client,
 			Estimator: jdanalysis.ConservativeAIInputTokenEstimator{},
 		},
 	}).ProcessPending(ctx, configurationID)
 	if err != nil {
-		slog.Error(jdanalysis.SafeOperationMessage(err), "configuration_id", configurationID, "run_id", summary.RunID, "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+		slog.Error(jdanalysis.SafeOperationMessage(err), "operation", operation, "configuration_id", configurationID, "run_id", summary.RunID, "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
 		os.Exit(1)
 	}
-	slog.Info("controlled AI trial model completed", "model", model, "configuration_id", configurationID, "run_id", summary.RunID, "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+	slog.Info(operation+" completed", "model", model, "configuration_id", configurationID, "run_id", summary.RunID, "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+}
+
+// runAIOutputAudit is intentionally separate from analysis and semantic
+// review. It can display raw model output only to a directly attached CVM TTY.
+func runAIOutputAudit(arguments []string) {
+	if len(arguments) == 1 && arguments[0] == "status" {
+		runAIOutputAuditStatus()
+		return
+	}
+	model, err := parseAIOutputAuditModel(arguments)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI output audit operation is not allowlisted")
+		os.Exit(2)
+	}
+	if !isDirectTerminal(os.Stdin) || !isDirectTerminal(os.Stdout) {
+		fmt.Fprintln(os.Stderr, "AI output audit requires a direct terminal")
+		os.Exit(2)
+	}
+	workspaceID := os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID")
+	if _, err := jdanalysis.QwenBeijingWorkspaceCompatibleBaseURL(workspaceID); err != nil {
+		fmt.Fprintln(os.Stderr, "AI output audit workspace is not configured")
+		os.Exit(1)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI output audit configuration is unavailable")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI output audit database is unavailable")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	configurationIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, model, workspaceID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI output audit candidate is unavailable")
+		os.Exit(1)
+	}
+	if _, err := jdanalysis.RunControlledAIOutputAuditSession(ctx, repository, jdanalysis.NewAIOutputAuditStore(aiOutputAuditRoot), configurationIDs, model, true, os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "AI output audit was not recorded")
+		os.Exit(1)
+	}
+}
+
+// runAIOutputAuditStatus is the non-interactive, text-free status seam for
+// CVM artifact capacity and pending contract-audit counts. Unlike the review
+// session, it never opens a response and therefore does not require a TTY.
+func runAIOutputAuditStatus() {
+	workspaceID := os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID")
+	if _, err := jdanalysis.QwenBeijingWorkspaceCompatibleBaseURL(workspaceID); err != nil {
+		slog.Error("AI output audit workspace is not configured")
+		os.Exit(1)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("AI output audit configuration is unavailable")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("AI output audit database is unavailable")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	plusConfigurationIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-plus", workspaceID)
+	if err != nil {
+		slog.Error("AI output audit candidate is unavailable")
+		os.Exit(1)
+	}
+	flashConfigurationIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-flash", workspaceID)
+	if err != nil {
+		slog.Error("AI output audit candidate is unavailable")
+		os.Exit(1)
+	}
+	store := jdanalysis.NewAIOutputAuditStore(aiOutputAuditRoot)
+	storage, err := store.Status()
+	if err != nil {
+		slog.Error("AI output audit storage is unavailable")
+		os.Exit(1)
+	}
+	pending, err := repository.ReadAIOutputAuditPendingStatus(ctx, append(plusConfigurationIDs, flashConfigurationIDs...), store)
+	if err != nil {
+		slog.Error("AI output audit pending status is unavailable")
+		os.Exit(1)
+	}
+	attributes := []any{
+		"captured_artifacts", storage.CapturedArtifactCount,
+		"pending_contract_audits", pending.PendingReviewCount,
+		"storage_capacity_bytes", storage.CapacityBytes,
+		"storage_used_bytes", storage.UsedBytes,
+		"storage_available_bytes", storage.AvailableBytes,
+	}
+	for _, failureCount := range pending.FailureCounts {
+		attributes = append(attributes, "pending_"+failureCount.SafeErrorCode, failureCount.Count)
+	}
+	slog.Info("AI output audit status", attributes...)
+}
+
+func parseAIOutputAuditModel(arguments []string) (string, error) {
+	return parseAIReviewModel(arguments)
+}
+
+func isDirectTerminal(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func runControlledAITrialStatus(ctx context.Context, repository *jdanalysis.Repository, workspaceID string) {

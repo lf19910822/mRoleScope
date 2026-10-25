@@ -139,3 +139,43 @@ GitHub 日志或本地文件。终端会提示输入且只接受 `accepted`、`n
 - 当前首期没有 `withdraw-ai-plus` 这一受控操作。发布后的撤回策略必须在投入生产
   批次前另行设计、测试并作为新的固定 operation 部署；不得通过直接 SQL、删除记录或
   改写发布证明实施“回退”。部署资产本身若需回退，沿用既有受控部署工作流与已验证提交。
+
+### CVM 候选输出契约诊断（仅辅助开发）
+
+当 Plus 已实际返回模型结果、却被 `invalid_response_schema`、
+`invalid_evidence_reference` 或 `policy_rejected` 拒绝时，不能从 journal、GitHub
+Actions、数据库或聊天中寻找原文。已部署审计能力后，只有下列 CVM root-owned 固定操作可
+用于定位契约问题：
+
+1. `prepare-output-audit-diagnostic`：创建或复用一个**独立的**五条冻结样本 Plus 候选；不
+   调用模型，不创建 Flash 工作项，不改变原有 30 条 Plus/Flash 试跑及其历史。
+2. `run-plus-output-audit-diagnostic`：只执行上述五条 Plus 工作；外呼前仍受既有请求、token、
+   金额与尝试限制，并在模型成功返回、严格校验前捕获输出。它没有 Flash、扩展或发布能力。
+3. `audit-status`：仅输出当前固定审计候选/对照集合中、仍有工件的待审契约失败数，连同
+   捕获工件数、按固定安全错误码的计数和 `64 MiB` 容量的已用/可用汇总；不显示路径、哈希值、
+   JD、重建输入、模型输出、WorkspaceId 或凭据。它不会调用模型，也不会重新排队工作。
+4. `audit-plus-contract`：只能由 `FAN` 在**直接连接 CVM 的 TTY**运行；本环境将 `FAN` 固定
+   映射为从 `ubuntu` 登录并经 `sudo` 发起的会话，root 直登或其他 sudo 发起者会被拒绝。程序自行选择一个
+   已捕获、尚未审计的契约失败（优先五条诊断候选；若另行受控准备了常规试跑，再检查其
+   Plus 候选），显示净化后的模型输出和从冻结正文/配置重建的输入；只接受
+   `prompt_noncompliance`、`schema_contract_mismatch`、
+   `evidence_contract_mismatch`、`policy_contract_mismatch`、`unable_to_classify` 五种结论。
+
+`audit-flash-contract` 保持为同样受限、同样要求该 `ubuntu`→`sudo` 操作人链的 TTY 读取器，但只会读取已经由常规 Flash 对照试跑捕获
+的工件；本次五条诊断既不创建 Flash 工作也不得运行该操作。任何已过期或不完整的工件均不会
+阻塞后续仍完整、可审计的工件；下一次受控清理会移除不成对的响应/sidecar。
+
+这些操作不出现在 GitHub Actions 或普通 operations 助手中。诊断 Plus 容器是唯一额外的固定
+外呼写入者：它只获得百炼 Key、北京 WorkspaceId、`backend` 与 `ai-edge`，以及
+`/var/lib/mrolescope/ai-output-audit` 的固定写挂载；诊断准备没有 Key 或外网；审计会话和
+`audit-status` 只有只读审计挂载且没有 Key、COS、端口或外网。
+
+审计目录必须保持 `root:root:0700`，工件为 `0600`；成功返回的原始输出最多保留 7 天，未到期
+工件绝不为腾空间而删除，64 MiB 无法预留时工作安全失败为
+`output_audit_capture_failed`，不会重发模型。原始输出、重建输入和正文不得进入 PostgreSQL、
+Git、CI、GitHub Actions、journal、普通日志、COS 或本地工作区。此前旧规则下已经丢弃的输出
+不能恢复，不能直接重跑旧失败队列。
+
+五条诊断样本只用于定位响应/校验契约，**绝不构成**30 条双模型试跑、人工复核、扩展或发布的
+替代门槛。回退时停止使用这四个固定诊断操作并回退已验证部署修订；数据库历史和未到期的
+root-only 工件不被普通服务读取，仍按 7 天规则自动清理。

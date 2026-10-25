@@ -31,13 +31,19 @@ fi
 grep -Fq 'qwenBeijingWorkspaceCompatibleSuffix = ".cn-beijing.maas.aliyuncs.com"' "$qwen_client" \
   || die 'Qwen client must use the fixed Beijing Workspace endpoint suffix'
 
-grep -Fqx "  || die 'usage: mrolescope-ai-analysis <prepare-trial|run-plus-trial|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|status|logs>'" "$helper" \
+grep -Fqx "  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|status|logs>'" "$helper" \
   || die 'AI helper must expose only fixed AI lifecycle operations'
 grep -Fqx "readonly QWEN_WORKSPACE_ID_PATTERN='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'" "$helper" \
   || die 'AI helper must define the reviewed Workspace ID format'
+grep -Fqx "readonly AUDIT_OPERATOR='ubuntu'" "$helper" \
+  || die 'AI helper must bind FAN audit access to the approved CVM operator'
 grep -Fqx '  [[ "$workspace_id" =~ $QWEN_WORKSPACE_ID_PATTERN ]] || die '\''AI model workspace is not configured'\''' "$helper" \
   || die 'AI helper must reject malformed Workspace IDs before Compose starts'
-for action in prepare-trial run-plus-trial run-flash-trial expand-plus publish-plus review-plus review-flash status; do
+grep -Fqx '  [[ "${SUDO_USER:-}" == "$AUDIT_OPERATOR" ]] || die '\''AI output audit is restricted to FAN direct terminal'\''' "$helper" \
+  || die 'AI helper must require the approved FAN operator for raw-output audit'
+[[ "$(grep -Fc '    require_audit_operator' "$helper")" -eq 2 ]] \
+  || die 'both terminal audit operations must require the approved FAN operator'
+for action in prepare-trial prepare-output-audit-diagnostic run-plus-trial run-plus-output-audit-diagnostic run-flash-trial expand-plus publish-plus review-plus review-flash audit-plus-contract audit-flash-contract audit-status status; do
   grep -Fqx "  ${action})" "$helper" \
     || die "AI helper must allowlist ${action}"
 done
@@ -48,13 +54,20 @@ for service in ai-trial-prepare ai-plus-trial ai-flash-trial ai-plus-expand ai-p
     || die "AI helper must invoke only fixed ${service} Compose service"
 done
 
+grep -Fqx '    compose --profile ai-output-audit-diagnostic run --rm --no-deps ai-output-audit-diagnostic-prepare' "$helper" \
+  || die 'AI helper must invoke only the fixed diagnostic preparation service'
+grep -Fqx '    compose --profile ai-output-audit-diagnostic run --rm --no-deps ai-plus-output-audit-diagnostic' "$helper" \
+  || die 'AI helper must invoke only the fixed five-body diagnostic caller'
+grep -Fqx '    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status' "$helper" \
+  || die 'AI helper must invoke only the fixed text-free output-audit status reader'
+
 for operation in prepare-ai-trial run-ai-plus-trial run-ai-flash-trial expand-ai-plus publish-ai-plus ai-status ai-logs; do
   grep -Fqx "  ${operation})" "$operations" \
     || die "operations helper must allowlist ${operation}"
   grep -Fqx "          - ${operation}" "$workflow" \
     || die "workflow must expose fixed ${operation} choice"
 done
-for review_action in review-plus review-flash; do
+for review_action in review-plus review-flash audit-plus-contract audit-flash-contract audit-status prepare-output-audit-diagnostic run-plus-output-audit-diagnostic; do
   if grep -Fq "$review_action" "$operations" || grep -Fq "$review_action" "$workflow"; then
     die "terminal-only ${review_action} must not be exposed through operations or GitHub Actions"
   fi
@@ -70,7 +83,7 @@ grep -Fqx "download_asset 'deploy/remote-development/mrolescope-ai-analysis' \"\
   || die 'bootstrap must stage the AI helper before installation'
 
 check_ai_systemd_unit() {
-  local unit_name="$1" helper_operation="$2" destination_variable="$3" unit_path
+  local unit_name="$1" helper_operation="$2" destination_variable="$3" expected_write_paths="$4" unit_path
   unit_path="${unit_directory}/${unit_name}.service"
   [[ -f "$unit_path" ]] || die "required AI systemd unit does not exist: ${unit_path}"
   grep -Fqx 'Type=oneshot' "$unit_path" \
@@ -82,7 +95,7 @@ check_ai_systemd_unit() {
     'PrivateTmp=true' \
     'ProtectHome=true' \
     'ProtectSystem=strict' \
-    'ReadWritePaths=/var/lib/mrolescope/releases'; do
+    "$expected_write_paths"; do
     grep -Fqx "$directive" "$unit_path" \
       || die "${unit_name} must retain systemd hardening: ${directive}"
   done
@@ -95,11 +108,16 @@ check_ai_systemd_unit() {
     || die "bootstrap must install ${unit_name} root-owned with mode 0644"
 }
 
-check_ai_systemd_unit mrolescope-ai-trial-prepare prepare-trial AI_TRIAL_PREPARE_SERVICE_DESTINATION
-check_ai_systemd_unit mrolescope-ai-plus-trial run-plus-trial AI_PLUS_TRIAL_SERVICE_DESTINATION
-check_ai_systemd_unit mrolescope-ai-flash-trial run-flash-trial AI_FLASH_TRIAL_SERVICE_DESTINATION
-check_ai_systemd_unit mrolescope-ai-plus-expand expand-plus AI_PLUS_EXPAND_SERVICE_DESTINATION
-check_ai_systemd_unit mrolescope-ai-plus-publish publish-plus AI_PLUS_PUBLISH_SERVICE_DESTINATION
+check_ai_systemd_unit mrolescope-ai-trial-prepare prepare-trial AI_TRIAL_PREPARE_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases'
+check_ai_systemd_unit mrolescope-ai-plus-trial run-plus-trial AI_PLUS_TRIAL_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases /var/lib/mrolescope/ai-output-audit'
+check_ai_systemd_unit mrolescope-ai-flash-trial run-flash-trial AI_FLASH_TRIAL_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases /var/lib/mrolescope/ai-output-audit'
+check_ai_systemd_unit mrolescope-ai-plus-expand expand-plus AI_PLUS_EXPAND_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases'
+check_ai_systemd_unit mrolescope-ai-plus-publish publish-plus AI_PLUS_PUBLISH_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases'
+
+grep -Fqx "readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'" "$bootstrap" \
+  || die 'bootstrap must define the root-only AI output audit directory'
+grep -Fqx 'install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR"' "$bootstrap" \
+  || die 'bootstrap must create the root-only AI output audit directory'
 
 service_block() {
   local service="$1"
@@ -132,6 +150,20 @@ for service in ai-trial-prepare ai-plus-expand ai-plus-publish ai-status; do
   fi
 done
 
+block=$(service_block ai-output-audit-diagnostic-prepare)
+[[ -n "$block" ]] || die 'ai-output-audit-diagnostic-prepare Compose service was not found'
+grep -Fqx '    profiles: [ai-output-audit-diagnostic]' <<<"$block" \
+  || die 'diagnostic preparation must use only the dedicated profile'
+grep -Fqx '    command: ["analyze-ai", "prepare-output-audit-diagnostic"]' <<<"$block" \
+  || die 'diagnostic preparation must use only its fixed worker command'
+grep -Fqx '    networks: [backend]' <<<"$block" \
+  || die 'diagnostic preparation must use only the internal backend network'
+grep -Fqx '      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}' <<<"$block" \
+  || die 'diagnostic preparation must receive the Workspace ID through the root-owned env-file variable'
+if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge|MROLESCOPE_QWEN_API_KEY' <<<"$block"; then
+  die 'diagnostic preparation must not receive a provider key, COS, edge-network, ports, or volumes'
+fi
+
 for service in ai-plus-trial ai-flash-trial; do
   block=$(service_block "$service")
   [[ -n "$block" ]] || die "${service} Compose service was not found"
@@ -143,10 +175,36 @@ for service in ai-plus-trial ai-flash-trial; do
     || die "${service} must receive the key only through the root-owned env-file variable"
   grep -Fqx '      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}' <<<"$block" \
     || die "${service} must receive the Workspace ID through the root-owned env-file variable"
-  if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)' <<<"$block"; then
-    die "${service} must not receive COS, a host port, or raw-data volumes"
+  grep -Fqx '    volumes:' <<<"$block" \
+    || die "${service} must receive only its fixed AI-output audit mount"
+  grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+    || die "${service} must mount only the fixed root-only AI-output audit directory"
+  grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+    || die "${service} must mount the fixed audit target"
+  if grep -Eq '^[[:space:]]+(COS_|ports:)' <<<"$block"; then
+    die "${service} must not receive COS or a host port"
   fi
 done
+
+block=$(service_block ai-plus-output-audit-diagnostic)
+[[ -n "$block" ]] || die 'ai-plus-output-audit-diagnostic Compose service was not found'
+grep -Fqx '    profiles: [ai-output-audit-diagnostic]' <<<"$block" \
+  || die 'five-body diagnostic caller must use only the dedicated profile'
+grep -Fqx '    command: ["analyze-ai", "run-plus-output-audit-diagnostic"]' <<<"$block" \
+  || die 'five-body diagnostic caller must use only its fixed worker command'
+grep -Fqx '    networks: [backend, ai-edge]' <<<"$block" \
+  || die 'five-body diagnostic caller must use only backend and the dedicated provider egress network'
+grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$block" \
+  || die 'five-body diagnostic caller must receive the key only through the root-owned env-file variable'
+grep -Fqx '      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}' <<<"$block" \
+  || die 'five-body diagnostic caller must receive the Workspace ID through the root-owned env-file variable'
+grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+  || die 'five-body diagnostic caller must mount only the fixed root-only AI-output audit directory'
+grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+  || die 'five-body diagnostic caller must mount the fixed audit target'
+if grep -Eq '^[[:space:]]+(COS_|ports:)' <<<"$block"; then
+  die 'five-body diagnostic caller must not receive COS or a host port'
+fi
 
 for service in ai-plus-review ai-flash-review; do
   block=$(service_block "$service")
@@ -165,5 +223,51 @@ for service in ai-plus-review ai-flash-review; do
     die "${service} must not receive a provider key, COS, edge-network, ports, or volumes"
   fi
 done
+
+check_output_audit_terminal() {
+  local service="$1" model="$2" block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
+    || die "${service} must use the AI-output-audit profile"
+  grep -Fqx "    command: [\"audit-ai\", \"${model}\"]" <<<"$block" \
+    || die "${service} must run only its fixed audit worker command"
+  grep -Fqx '    networks: [backend]' <<<"$block" \
+    || die "${service} must use only the internal backend network"
+  grep -Fqx '    stdin_open: true' <<<"$block" \
+    || die "${service} must retain direct-terminal input"
+  grep -Fqx '    tty: true' <<<"$block" \
+    || die "${service} must retain direct-terminal output"
+  grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+    || die "${service} must mount the fixed output-audit directory"
+  grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+    || die "${service} must use the fixed output-audit target"
+  grep -Fqx '        read_only: true' <<<"$block" \
+    || die "${service} must mount output-audit data read-only"
+  if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:)|^[[:space:]]+networks:.*edge' <<<"$block"; then
+    die "${service} must not receive a provider key, COS, an external network, or a host port"
+  fi
+}
+
+check_output_audit_terminal ai-plus-contract-audit plus
+check_output_audit_terminal ai-flash-contract-audit flash
+
+block=$(service_block ai-output-audit-status)
+[[ -n "$block" ]] || die 'ai-output-audit-status Compose service was not found'
+grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
+  || die 'output-audit status must use the AI-output-audit profile'
+grep -Fqx '    command: ["audit-ai", "status"]' <<<"$block" \
+  || die 'output-audit status must run only its fixed worker command'
+grep -Fqx '    networks: [backend]' <<<"$block" \
+  || die 'output-audit status must use only the internal backend network'
+grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+  || die 'output-audit status must mount the fixed output-audit directory'
+grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+  || die 'output-audit status must use the fixed output-audit target'
+grep -Fqx '        read_only: true' <<<"$block" \
+  || die 'output-audit status must mount output-audit data read-only'
+if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:)|^[[:space:]]+networks:.*edge|^[[:space:]]+(stdin_open:|tty:)' <<<"$block"; then
+  die 'output-audit status must not receive a provider key, COS, external network, port, or terminal session'
+fi
 
 printf '%s\n' 'remote-development AI analysis check passed'

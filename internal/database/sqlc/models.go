@@ -446,6 +446,51 @@ func (ns NullAiEducationLevel) Value() (driver.Value, error) {
 	return string(ns.AiEducationLevel), nil
 }
 
+type AiOutputAuditVerdict string
+
+const (
+	AiOutputAuditVerdictPromptNoncompliance      AiOutputAuditVerdict = "prompt_noncompliance"
+	AiOutputAuditVerdictSchemaContractMismatch   AiOutputAuditVerdict = "schema_contract_mismatch"
+	AiOutputAuditVerdictEvidenceContractMismatch AiOutputAuditVerdict = "evidence_contract_mismatch"
+	AiOutputAuditVerdictPolicyContractMismatch   AiOutputAuditVerdict = "policy_contract_mismatch"
+	AiOutputAuditVerdictUnableToClassify         AiOutputAuditVerdict = "unable_to_classify"
+)
+
+func (e *AiOutputAuditVerdict) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiOutputAuditVerdict(s)
+	case string:
+		*e = AiOutputAuditVerdict(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiOutputAuditVerdict: %T", src)
+	}
+	return nil
+}
+
+type NullAiOutputAuditVerdict struct {
+	AiOutputAuditVerdict AiOutputAuditVerdict
+	Valid                bool // Valid is true if AiOutputAuditVerdict is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiOutputAuditVerdict) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiOutputAuditVerdict, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiOutputAuditVerdict.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiOutputAuditVerdict) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiOutputAuditVerdict), nil
+}
+
 type AiProficiencyLevel string
 
 const (
@@ -631,6 +676,7 @@ const (
 	AiSafeErrorCodeInvalidEvidenceReference     AiSafeErrorCode = "invalid_evidence_reference"
 	AiSafeErrorCodePolicyRejected               AiSafeErrorCode = "policy_rejected"
 	AiSafeErrorCodeConfigurationInvalid         AiSafeErrorCode = "configuration_invalid"
+	AiSafeErrorCodeOutputAuditCaptureFailed     AiSafeErrorCode = "output_audit_capture_failed"
 )
 
 func (e *AiSafeErrorCode) Scan(src interface{}) error {
@@ -1677,6 +1723,18 @@ type AiMinimumEducationRequirement struct {
 	ID           pgtype.UUID
 	Status       AiSemanticValueStatus
 	MinimumLevel NullAiEducationLevel
+}
+
+type AiOutputAuditReview struct {
+	ID                        pgtype.UUID
+	AiAnalysisConfigurationID pgtype.UUID
+	WorkItemID                pgtype.UUID
+	BodyContentVersionID      pgtype.UUID
+	AttemptNumber             int32
+	Reviewer                  string
+	OutputSha256              string
+	Verdict                   AiOutputAuditVerdict
+	ReviewedAt                pgtype.Timestamptz
 }
 
 type AiSemanticArtifact struct {

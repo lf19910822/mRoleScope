@@ -172,6 +172,73 @@ func TestPrepareControlledAITrialUsesOnlyFixedProfilesAndPublishedBaseline(t *te
 	}
 }
 
+func TestPrepareControlledAIOutputAuditDiagnosticFreezesFivePlusWorkItems(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-audit-diagnostic-reference")
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+	if _, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope"); err != nil {
+		t.Fatal(err)
+	}
+
+	prepared, err := repository.PrepareControlledAIOutputAuditDiagnostic(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Plus.ID == "" || prepared.Plus.Status != "candidate" || prepared.PlusQueued != aiOutputAuditDiagnosticSampleSize || len(prepared.BodyContentVersionIDs) != aiOutputAuditDiagnosticSampleSize {
+		t.Fatalf("output-audit diagnostic preparation = %#v", prepared)
+	}
+	assertAIWorkMatchesSample(t, repository, prepared.Plus.ID, prepared.BodyContentVersionIDs)
+
+	var flashWorkCount int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM ai_analysis_trial_budget_group_members AS diagnostic_member
+JOIN ai_analysis_trial_budget_group_members AS flash_member
+  ON flash_member.ai_analysis_trial_budget_group_id = diagnostic_member.ai_analysis_trial_budget_group_id
+JOIN ai_analysis_configurations AS flash
+  ON flash.id = flash_member.ai_analysis_configuration_id
+JOIN ai_analysis_work_items AS work
+  ON work.ai_analysis_configuration_id = flash_member.ai_analysis_configuration_id
+WHERE diagnostic_member.ai_analysis_configuration_id = $1
+  AND flash.model = 'qwen-flash'`, prepared.Plus.ID).Scan(&flashWorkCount); err != nil {
+		t.Fatal(err)
+	}
+	if flashWorkCount != 0 {
+		t.Fatalf("output-audit diagnostic queued %d Flash work items, want 0", flashWorkCount)
+	}
+
+	standardID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-plus", "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnosticID, err := repository.ControlledAIOutputAuditDiagnosticConfigurationID(ctx, "llm-mrolescope")
+	if err != nil || diagnosticID != prepared.Plus.ID || diagnosticID == standardID {
+		t.Fatalf("output-audit diagnostic configuration = %q, %v; standard = %q; want frozen distinct Plus candidate", diagnosticID, err, standardID)
+	}
+	auditPlusIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-plus", "llm-mrolescope")
+	if err != nil || !equalStrings(auditPlusIDs, []string{diagnosticID, standardID}) {
+		t.Fatalf("fixed Plus output-audit configuration IDs = %q, %v; want diagnostic then standard candidate", auditPlusIDs, err)
+	}
+	standardFlashID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-flash", "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditFlashIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-flash", "llm-mrolescope")
+	if err != nil || !equalStrings(auditFlashIDs, []string{standardFlashID}) {
+		t.Fatalf("fixed Flash output-audit configuration IDs = %q, %v; want standard comparison candidate", auditFlashIDs, err)
+	}
+
+	reused, err := repository.PrepareControlledAIOutputAuditDiagnostic(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reused.Reused || reused.Plus.ID != prepared.Plus.ID || reused.PlusQueued != 0 || !equalStrings(reused.BodyContentVersionIDs, prepared.BodyContentVersionIDs) {
+		t.Fatalf("reused output-audit diagnostic = %#v, first = %#v", reused, prepared)
+	}
+}
+
 func TestPrepareControlledAITrialCreatesNewCandidatesAfterLegacyByteEstimatorContract(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -230,6 +297,36 @@ func TestPrepareControlledAITrialCreatesNewCandidatesAfterLegacyByteEstimatorCon
 	}
 }
 
+func TestPrepareControlledAITrialCreatesNewCandidatesAfterPreAuditCaptureContract(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-pre-audit-contract")
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preAudit, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
+		Plus:  preAuditCaptureConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		Flash: preAuditCaptureConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Reused || current.Plus.ID == preAudit.Plus.ID || current.Flash.ID == preAudit.Flash.ID {
+		t.Fatalf("current/pre-audit candidates = current:%#v pre-audit:%#v; want distinct candidates", current, preAudit)
+	}
+}
+
 func legacyByteEstimatorConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
 	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
 	input.InputContractSHA256 = sha256Hex(AIInputContractVersionV1 + "|" + AISpanContractVersionV1)
@@ -244,7 +341,21 @@ func preFixQwenBPEConfigurationInput(technologyConfigurationID string, requestPr
 	return input
 }
 
+func preAuditCaptureConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
+	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
+	input.InputContractSHA256 = aiInputContractSHA256(AIInputTokenEstimatorVersionV2, AIInputTokenEstimatorSHA256())
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
 func assertTrialWorkExactlyMatchesSample(t *testing.T, repository *Repository, configurationID string, sample []string) {
+	assertAIWorkMatchesSample(t, repository, configurationID, sample)
+	if len(sample) != aiTrialSampleSize {
+		t.Fatalf("trial sample size = %d, want %d", len(sample), aiTrialSampleSize)
+	}
+}
+
+func assertAIWorkMatchesSample(t *testing.T, repository *Repository, configurationID string, sample []string) {
 	t.Helper()
 	ctx := context.Background()
 	var workCount int
@@ -254,8 +365,8 @@ FROM ai_analysis_work_items
 WHERE ai_analysis_configuration_id = $1`, configurationID).Scan(&workCount); err != nil {
 		t.Fatal(err)
 	}
-	if workCount != aiTrialSampleSize {
-		t.Fatalf("trial work count for %s = %d, want %d", configurationID, workCount, aiTrialSampleSize)
+	if workCount != len(sample) {
+		t.Fatalf("work count for configuration %s = %d, want %d", configurationID, workCount, len(sample))
 	}
 	for _, bodyContentVersionID := range sample {
 		var matchingWork int
