@@ -18,6 +18,7 @@ const (
 	// new immutable candidate identity rather than retrying prior safe failures.
 	AIOutputAuditDiagnosticExecutionContractV1 = "diagnostic_output_audit_execution=ai-output-audit-root-mount-v1"
 	AIValidatorVersionV1                       = "ai-semantic-validator-v1"
+	AIValidatorVersionV2                       = "ai-semantic-validator-v2"
 	AISpanContractVersionV1                    = "ai-span-contract-v1"
 )
 
@@ -209,13 +210,13 @@ func controlledAIConfigurationInput(technologyConfigurationID string, requestPro
 		Provider:                  "bailian",
 		Model:                     requestProfile.Model(),
 		RequestProfileSHA256:      requestProfile.SHA256(),
-		PromptSHA256:              AISystemPromptV2SHA256(),
+		PromptSHA256:              AISystemPromptV3SHA256(),
 		ResponseSchemaVersion:     AIResponseSchemaVersionV1,
 		ResponseSchemaSHA256:      AIResponseSchemaV1SHA256(),
 		InputContractVersion:      AIInputContractVersionV1,
 		InputContractSHA256:       inputContractSHA256,
-		ValidatorVersion:          AIValidatorVersionV1,
-		ValidatorSHA256:           sha256Hex(AIValidatorVersionV1),
+		ValidatorVersion:          AIValidatorVersionV2,
+		ValidatorSHA256:           sha256Hex(AIValidatorVersionV2),
 		PricingProfileVersion:     pricingProfile.Version,
 		PricingProfileSHA256:      pricingProfile.SHA256(),
 		CreatedBy:                 createdBy,

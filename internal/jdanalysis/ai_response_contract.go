@@ -23,6 +23,9 @@ var aiSystemPromptV1 string
 //go:embed assets/ai_system_prompt_v2.txt
 var aiSystemPromptV2 string
 
+//go:embed assets/ai_system_prompt_v3.txt
+var aiSystemPromptV3 string
+
 //go:embed assets/ai_response_schema_v1.json
 var aiResponseSchemaV1 string
 
@@ -170,6 +173,17 @@ func AISystemPromptV2() string {
 // configurations that use the active prompt.
 func AISystemPromptV2SHA256() string {
 	return sha256Hex(aiSystemPromptV2)
+}
+
+// AISystemPromptV3 returns the active reviewed prompt. V1 and V2 remain
+// available to verify immutable historic configurations and CVM-only audits.
+func AISystemPromptV3() string {
+	return aiSystemPromptV3
+}
+
+// AISystemPromptV3SHA256 identifies the prompt frozen into new candidates.
+func AISystemPromptV3SHA256() string {
+	return sha256Hex(aiSystemPromptV3)
 }
 
 // Validate accepts only one strict v0.1 JSON response whose opaque references
@@ -366,6 +380,12 @@ func validateExperienceShape(raw json.RawMessage) error {
 	if err := strictReviewRecommendation(object["review_recommendation"]); err != nil {
 		return err
 	}
+	// Cross-field business contradictions are deliberately not a transport
+	// failure. A provider can return valid JSON and valid opaque references but
+	// omit an item, mix a status with a value, or express an unsupported
+	// relationship. V2 maps those defects per field to an uncertain,
+	// required-review projection; rejecting the entire JD would discard other
+	// independently verifiable conclusions.
 	return strictEnum(object["status"], "configured", "not_configured", "uncertain")
 }
 
@@ -419,31 +439,6 @@ func validateTechnologyRequirementGroupShape(raw json.RawMessage) error {
 		return err
 	}
 
-	var options []json.RawMessage
-	if err := json.Unmarshal(object["options"], &options); err != nil {
-		return err
-	}
-	var operator *string
-	if err := json.Unmarshal(object["operator"], &operator); err != nil {
-		return err
-	}
-	var minSatisfied *int
-	if err := json.Unmarshal(object["min_satisfied"], &minSatisfied); err != nil {
-		return err
-	}
-	var role string
-	if err := json.Unmarshal(object["role"], &role); err != nil {
-		return err
-	}
-	if (operator == nil) != (minSatisfied == nil) {
-		return fmt.Errorf("requirement operator and minimum satisfaction must be paired")
-	}
-	if operator != nil && (*minSatisfied > len(options) || len(options) == 0) {
-		return fmt.Errorf("requirement minimum satisfaction exceeds its options")
-	}
-	if role == "qualification" && (operator == nil || minSatisfied == nil || len(options) == 0) {
-		return fmt.Errorf("qualification group is incomplete")
-	}
 	return nil
 }
 

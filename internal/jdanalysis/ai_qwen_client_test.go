@@ -45,7 +45,7 @@ func TestQwenClientSendsFrozenStrictProfileAndReadsUsage(t *testing.T) {
 		if payload.EnableThinking {
 			t.Fatal("Qwen request did not explicitly disable thinking")
 		}
-		if len(payload.Messages) != 2 || payload.Messages[0].Role != "system" || payload.Messages[1].Role != "user" || payload.Messages[0].Content != AISystemPromptV2() || !json.Valid(payload.ResponseFormat.JSONSchema.Schema) {
+		if len(payload.Messages) != 2 || payload.Messages[0].Role != "system" || payload.Messages[1].Role != "user" || payload.Messages[0].Content != AISystemPromptV3() || !json.Valid(payload.ResponseFormat.JSONSchema.Schema) {
 			t.Fatal("Qwen request did not carry the canonical prompt/schema pair")
 		}
 		writer.Header().Set("Content-Type", "application/json")

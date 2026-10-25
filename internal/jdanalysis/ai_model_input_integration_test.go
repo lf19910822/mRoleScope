@@ -29,7 +29,11 @@ func TestRepositoryBuildsAIModelInputFromPublishedDeterministicEvidenceOnly(t *t
 	if _, err := repository.PromoteCandidateConfiguration(ctx, technologyConfigurationID); err != nil {
 		t.Fatal(err)
 	}
-	aiConfiguration, err := repository.PrepareCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-model-input"))
+	configurationInput := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-model-input")
+	configurationInput.PromptSHA256 = AISystemPromptV3SHA256()
+	configurationInput.ValidatorVersion = AIValidatorVersionV2
+	configurationInput.ValidatorSHA256 = sha256Hex(AIValidatorVersionV2)
+	aiConfiguration, err := repository.PrepareCandidateAIConfiguration(ctx, configurationInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,5 +47,8 @@ func TestRepositoryBuildsAIModelInputFromPublishedDeterministicEvidenceOnly(t *t
 	}
 	if len(input.Fields) != 1 || input.Fields[0].SourceField != SourceFieldDescription || len(input.Fields[0].Spans) != 2 {
 		t.Fatalf("model fields = %#v, want only non-empty approved description spans", input.Fields)
+	}
+	if input.validatorVersion != AIValidatorVersionV2 || input.reviewedSystemPrompt() != AISystemPromptV3() {
+		t.Fatalf("model input execution contract = validator:%q prompt:%q, want frozen V2/V3", input.validatorVersion, input.reviewedSystemPrompt())
 	}
 }

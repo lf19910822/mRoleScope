@@ -351,5 +351,5 @@ func validControlledAIOutputAuditInputContractSHA256(inputContractSHA256 string)
 }
 
 func validControlledAIOutputAuditPromptSHA256(promptSHA256 string) bool {
-	return promptSHA256 == AISystemPromptV1SHA256() || promptSHA256 == AISystemPromptV2SHA256()
+	return promptSHA256 == AISystemPromptV1SHA256() || promptSHA256 == AISystemPromptV2SHA256() || promptSHA256 == AISystemPromptV3SHA256()
 }

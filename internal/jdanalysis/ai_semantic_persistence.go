@@ -12,7 +12,6 @@ import (
 // projection rather than a provider response, so raw model output never
 // reaches PostgreSQL.
 func (repository *Repository) persistAndCompleteAIWork(ctx context.Context, configurationID, workID, bodyContentVersionID string, input AIModelInput, projection AISemanticProjection) error {
-	semanticStatus := semanticStatusForProjection(projection)
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin AI semantic persistence: %w", err)
@@ -67,13 +66,21 @@ VALUES ($1, $2::ai_semantic_value_status, $3::ai_education_level)`, educationArt
 		return fmt.Errorf("insert AI minimum education summary: %w", err)
 	}
 
-	if err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, projection.CandidateMentions); err != nil {
+	persistedCandidateCount, err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, input, projection.CandidateMentions)
+	if err != nil {
 		return err
+	}
+	if persistedCandidateCount == 0 {
+		// The V2 mapper can intentionally skip a local candidate defect during
+		// dictionary governance. The result status must describe durable facts,
+		// not a transient claim that was safely omitted.
+		projection.CandidateMentions = nil
 	}
 	if err := repository.persistAIRequirementGroups(ctx, tx, configurationID, bodyContentVersionID, resultID, input, projection.RequirementGroups); err != nil {
 		return err
 	}
 
+	semanticStatus := semanticStatusForProjection(projection)
 	command, err := tx.Exec(ctx, `
 UPDATE ai_semantic_results
 SET execution_status = 'complete', semantic_status = $3::ai_semantic_value_status,
@@ -204,9 +211,9 @@ INSERT INTO ai_semantic_condition_branches (
 	return nil
 }
 
-func (repository *Repository) persistAICandidateMentions(ctx context.Context, tx pgx.Tx, configurationID, resultID string, candidates []AICandidateMentionProjection) error {
+func (repository *Repository) persistAICandidateMentions(ctx context.Context, tx pgx.Tx, configurationID, resultID string, input AIModelInput, candidates []AICandidateMentionProjection) (int, error) {
 	if len(candidates) == 0 {
-		return nil
+		return 0, nil
 	}
 	var dictionaryVersionID string
 	if err := tx.QueryRow(ctx, `
@@ -214,9 +221,10 @@ SELECT technology_configuration.dictionary_version_id::text
 FROM ai_analysis_configurations AS ai_configuration
 JOIN technology_analysis_configurations AS technology_configuration
   ON technology_configuration.id = ai_configuration.technology_analysis_configuration_id
-WHERE ai_configuration.id = $1`, configurationID).Scan(&dictionaryVersionID); err != nil {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+	WHERE ai_configuration.id = $1`, configurationID).Scan(&dictionaryVersionID); err != nil {
+		return 0, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
+	persistedCount := 0
 	for _, candidate := range candidates {
 		var activeAlias bool
 		if err := tx.QueryRow(ctx, `
@@ -227,10 +235,16 @@ SELECT EXISTS (
       AND state = 'enabled'
       AND lower(alias) = lower($2)
 )`, dictionaryVersionID, candidate.CandidateText).Scan(&activeAlias); err != nil {
-			return fmt.Errorf("check AI candidate against active dictionary aliases: %w", err)
+			return 0, fmt.Errorf("check AI candidate against active dictionary aliases: %w", err)
 		}
 		if activeAlias {
-			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			// A current dictionary alias is not a dictionary candidate. Under the
+			// tolerant validator it is a local model mistake that can be safely
+			// omitted; it must not roll back unrelated, verified JD semantics.
+			if input.validatorVersion == AIValidatorVersionV2 {
+				continue
+			}
+			return 0, NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
 		var dictionaryCandidateID string
 		err := tx.QueryRow(ctx, `
@@ -241,22 +255,23 @@ ON CONFLICT (dictionary_version_id, candidate_text)
 DO UPDATE SET candidate_text = EXCLUDED.candidate_text
 RETURNING id::text`, dictionaryVersionID, candidate.CandidateText).Scan(&dictionaryCandidateID)
 		if err != nil {
-			return NewSafeAIError(AISafeErrorPolicyRejected, err)
+			return 0, NewSafeAIError(AISafeErrorPolicyRejected, err)
 		}
 		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "candidate_technology", "configured", "required_review")
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if err := insertAISemanticEvidence(ctx, tx, artifactID, []AISemanticEvidence{candidate.Evidence}); err != nil {
-			return err
+			return 0, err
 		}
 		if _, err := tx.Exec(ctx, `
 INSERT INTO ai_candidate_technology_mentions (id, dictionary_candidate_id)
 VALUES ($1, $2)`, artifactID, dictionaryCandidateID); err != nil {
-			return fmt.Errorf("link AI dictionary candidate artifact: %w", err)
+			return 0, fmt.Errorf("link AI dictionary candidate artifact: %w", err)
 		}
+		persistedCount++
 	}
-	return nil
+	return persistedCount, nil
 }
 
 func (repository *Repository) persistAIRequirementGroups(ctx context.Context, tx pgx.Tx, configurationID, bodyContentVersionID, resultID string, input AIModelInput, groups []AIRequirementGroupProjection) error {

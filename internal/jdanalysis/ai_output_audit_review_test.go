@@ -51,7 +51,10 @@ func TestControlledAIOutputAuditAcceptsOnlyHistoricV1OrActiveV2PromptIdentity(t 
 		t.Fatal("historic V1 audit artifact prompt was rejected")
 	}
 	if !validControlledAIOutputAuditPromptSHA256(AISystemPromptV2SHA256()) {
-		t.Fatal("active V2 audit artifact prompt was rejected")
+		t.Fatal("historic V2 audit artifact prompt was rejected")
+	}
+	if !validControlledAIOutputAuditPromptSHA256(AISystemPromptV3SHA256()) {
+		t.Fatal("active V3 audit artifact prompt was rejected")
 	}
 	if validControlledAIOutputAuditPromptSHA256(sha256Hex("unreviewed-prompt")) {
 		t.Fatal("unreviewed audit artifact prompt was accepted")
