@@ -12,7 +12,6 @@ import (
 // projection rather than a provider response, so raw model output never
 // reaches PostgreSQL.
 func (repository *Repository) persistAndCompleteAIWork(ctx context.Context, configurationID, workID, bodyContentVersionID string, input AIModelInput, projection AISemanticProjection) error {
-	semanticStatus := semanticStatusForProjection(projection)
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin AI semantic persistence: %w", err)
@@ -82,13 +81,22 @@ WHERE ai_analysis_configuration_id = $1
 	if err := repository.persistAIPendingUnresolvedSourceTerms(ctx, tx, resultID, projection.PendingUnresolvedSourceTerms); err != nil {
 		return newAIPersistenceStageError(aiPersistenceStageCandidateMention, err)
 	}
-	if err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, projection.CandidateMentions); err != nil {
+	candidateOutcome, err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, input, projection.CandidateMentions)
+	if err != nil {
 		return newAIPersistenceStageError(aiPersistenceStageCandidateMention, err)
 	}
+	if candidateOutcome.PersistedCount == 0 {
+		// The V2 mapper can intentionally skip a local candidate defect during
+		// dictionary governance. The result status must describe durable facts,
+		// not a transient claim that was safely omitted.
+		projection.CandidateMentions = nil
+	}
+	projection.CandidateMentionsUncertain = projection.CandidateMentionsUncertain || candidateOutcome.HasUnresolvedCandidate || len(projection.PendingUnresolvedSourceTerms) != 0
 	if err := repository.persistAIRequirementGroups(ctx, tx, configurationID, bodyContentVersionID, resultID, input, projection.RequirementGroups); err != nil {
 		return newAIPersistenceStageError(aiPersistenceStageRequirementGroup, err)
 	}
 
+	semanticStatus := semanticStatusForProjection(projection)
 	command, err := tx.Exec(ctx, `
 UPDATE ai_semantic_results
 SET execution_status = 'complete', semantic_status = $3::ai_semantic_value_status,
@@ -111,16 +119,15 @@ WHERE id = $1
 	return nil
 }
 
-// persistAIExperienceItems stores overall, verified-technology, and exact
-// single-domain experience. Composite or alternative domains have already been
-// omitted by the semantic mapper because this schema has no domain operator.
+// persistAIExperienceItems stores overall, deterministically bound technology,
+// and evidence-bound domain experience.
 func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx pgx.Tx, resultID, experienceSummaryID, configurationID, bodyContentVersionID string, input AIModelInput, items []AIExperienceItemProjection) error {
 	for _, item := range items {
 		if item.MinimumYears < 1 {
 			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
-		var domainKey *string
 		var technologyIdentityID *string
+		var domainKey *string
 		switch item.SubjectKind {
 		case "overall":
 			if item.SubjectKey != "" {
@@ -217,24 +224,37 @@ INSERT INTO ai_semantic_condition_branches (
 	return nil
 }
 
-func (repository *Repository) persistAICandidateMentions(ctx context.Context, tx pgx.Tx, configurationID, resultID string, candidates []AICandidateMentionProjection) error {
+type aiCandidateMentionPersistenceOutcome struct {
+	HasUnresolvedCandidate bool
+	PersistedCount         int
+}
+
+func (repository *Repository) persistAICandidateMentions(ctx context.Context, tx pgx.Tx, configurationID, resultID string, input AIModelInput, candidates []AICandidateMentionProjection) (aiCandidateMentionPersistenceOutcome, error) {
 	if len(candidates) == 0 {
-		return nil
+		return aiCandidateMentionPersistenceOutcome{}, nil
 	}
-	var dictionaryVersionID string
+	var dictionaryVersionID, dictionaryStatus string
 	if err := tx.QueryRow(ctx, `
-SELECT technology_configuration.dictionary_version_id::text
+SELECT technology_configuration.dictionary_version_id::text,
+       dictionary_version.status::text
 FROM ai_analysis_configurations AS ai_configuration
 JOIN technology_analysis_configurations AS technology_configuration
   ON technology_configuration.id = ai_configuration.technology_analysis_configuration_id
-WHERE ai_configuration.id = $1`, configurationID).Scan(&dictionaryVersionID); err != nil {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+
+JOIN technology_dictionary_versions AS dictionary_version
+  ON dictionary_version.id = technology_configuration.dictionary_version_id
+WHERE ai_configuration.id = $1
+FOR SHARE OF dictionary_version`, configurationID).Scan(&dictionaryVersionID, &dictionaryStatus); err != nil {
+		return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
+	frozenDictionary := dictionaryStatus == "published" || dictionaryStatus == "retired"
+	if !frozenDictionary && dictionaryStatus != "draft" && dictionaryStatus != "candidate" {
+		return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	outcome := aiCandidateMentionPersistenceOutcome{}
 	for _, candidate := range candidates {
 		if utf8RuneCount(candidate.CandidateText) > 256 {
-			// The dictionary candidate table deliberately bounds candidate text.
-			// This is advisory model output, so an overlong value is ignored
-			// locally instead of failing unrelated semantic conclusions.
+			outcome.HasUnresolvedCandidate = true
 			continue
 		}
 		var activeAlias bool
@@ -246,11 +266,29 @@ SELECT EXISTS (
       AND state = 'enabled'
       AND lower(alias) = lower($2)
 )`, dictionaryVersionID, candidate.CandidateText).Scan(&activeAlias); err != nil {
-			return fmt.Errorf("check AI candidate against active dictionary aliases: %w", err)
+			return aiCandidateMentionPersistenceOutcome{}, fmt.Errorf("check AI candidate against active dictionary aliases: %w", err)
 		}
 		if activeAlias {
-			// An already governed alias is not a new dictionary candidate. Ignore
-			// it locally so this advisory field cannot fail the complete JD.
+			// A current dictionary alias is not a dictionary candidate. Under the
+			// tolerant validator it is a local model mistake that can be safely
+			// omitted; it must not roll back unrelated, verified JD semantics.
+			if input.validatorVersion == AIValidatorVersionV2 || input.validatorVersion == AIValidatorVersionV3 {
+				continue
+			}
+			return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorPolicyRejected, nil)
+		}
+		if frozenDictionary {
+			// A published dictionary is intentionally immutable, so a verified
+			// external candidate cannot join its governance queue. This is local
+			// candidate uncertainty, not evidence that the other JD conclusions are
+			// unsafe. Enabled aliases above remain ordinary model misclassification.
+			if input.validatorVersion != AIValidatorVersionV2 && input.validatorVersion != AIValidatorVersionV3 {
+				return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			}
+			if err := repository.persistUnresolvedAICandidateMention(ctx, tx, resultID, candidate); err != nil {
+				return aiCandidateMentionPersistenceOutcome{}, err
+			}
+			outcome.HasUnresolvedCandidate = true
 			continue
 		}
 		var dictionaryCandidateID string
@@ -262,29 +300,39 @@ ON CONFLICT (dictionary_version_id, candidate_text)
 DO UPDATE SET candidate_text = EXCLUDED.candidate_text
 RETURNING id::text`, dictionaryVersionID, candidate.CandidateText).Scan(&dictionaryCandidateID)
 		if err != nil {
-			return NewSafeAIError(AISafeErrorPolicyRejected, err)
+			return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorPolicyRejected, err)
 		}
 		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "candidate_technology", "configured", "required_review")
 		if err != nil {
-			return err
+			return aiCandidateMentionPersistenceOutcome{}, err
 		}
 		if err := insertAISemanticEvidence(ctx, tx, artifactID, []AISemanticEvidence{candidate.Evidence}); err != nil {
-			return err
+			return aiCandidateMentionPersistenceOutcome{}, err
 		}
 		if _, err := tx.Exec(ctx, `
 INSERT INTO ai_candidate_technology_mentions (id, dictionary_candidate_id)
 VALUES ($1, $2)`, artifactID, dictionaryCandidateID); err != nil {
-			return fmt.Errorf("link AI dictionary candidate artifact: %w", err)
+			return aiCandidateMentionPersistenceOutcome{}, fmt.Errorf("link AI dictionary candidate artifact: %w", err)
 		}
+		outcome.PersistedCount++
 	}
-	return nil
+	return outcome, nil
+}
+
+// persistUnresolvedAICandidateMention stores the reviewer-visible fact that a
+// text-bound candidate needs attention without inserting the model's string
+// into an immutable dictionary version or creating an active technology.
+func (repository *Repository) persistUnresolvedAICandidateMention(ctx context.Context, tx pgx.Tx, resultID string, candidate AICandidateMentionProjection) error {
+	artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "candidate_technology", "uncertain", forcedRequiredReviewTier())
+	if err != nil {
+		return err
+	}
+	return insertAISemanticEvidence(ctx, tx, artifactID, []AISemanticEvidence{candidate.Evidence})
 }
 
 func (repository *Repository) persistAIPendingUnresolvedSourceTerms(ctx context.Context, tx pgx.Tx, resultID string, sourceTerms []AIPendingUnresolvedSourceTermProjection) error {
 	for _, sourceTerm := range sourceTerms {
 		if utf8RuneCount(sourceTerm.SourceTerm) > 128 {
-			// The artifact is a bounded advisory review queue. A malformed model
-			// value cannot invalidate the JD's independently validated results.
 			continue
 		}
 		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "unresolved_source_term", "uncertain", "required_review")

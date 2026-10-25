@@ -365,6 +365,9 @@ func TestAIModelInputV2RecoversLocallyMalformedFieldsWithoutDiscardingJD(t *test
 	if len(projection.CandidateMentions) != 0 {
 		t.Fatalf("unlocatable candidate was persisted in projection: %#v", projection.CandidateMentions)
 	}
+	if !projection.CandidateMentionsUncertain {
+		t.Fatal("unlocatable candidate did not make the candidate field uncertain")
+	}
 }
 
 func syntheticConfiguredSemanticResponse() AISemanticResponse {

@@ -11,6 +11,7 @@ import (
 // no raw model response and must not cross a logging or status-output seam.
 type AISemanticProjection struct {
 	CandidateMentions            []AICandidateMentionProjection
+	CandidateMentionsUncertain   bool
 	Experience                   AIExperienceProjection
 	MinimumEducation             AIMinimumEducationProjection
 	PendingUnresolvedSourceTerms []AIPendingUnresolvedSourceTermProjection
@@ -195,11 +196,13 @@ func (input AIModelInput) mapCandidateMentions(candidates []AICandidateMentionRe
 // and opaque-reference checks. Consequently a malformed business conclusion
 // must not discard independently verified conclusions from the same JD.
 func (input AIModelInput) mapValidatedResponseV2(response AISemanticResponse) AISemanticProjection {
+	candidateMentions, candidateMentionsUncertain := input.mapCandidateMentionsV2(response.CandidateMentions)
 	return AISemanticProjection{
-		CandidateMentions: input.mapCandidateMentionsV2(response.CandidateMentions),
-		Experience:        input.mapExperienceV2(response.Experience),
-		MinimumEducation:  input.mapMinimumEducationV2(response.MinimumEducation),
-		RequirementGroups: input.mapRequirementGroupsV2(response.TechnologyRequirementGroups),
+		CandidateMentions:          candidateMentions,
+		CandidateMentionsUncertain: candidateMentionsUncertain,
+		Experience:                 input.mapExperienceV2(response.Experience),
+		MinimumEducation:           input.mapMinimumEducationV2(response.MinimumEducation),
+		RequirementGroups:          input.mapRequirementGroupsV2(response.TechnologyRequirementGroups),
 	}
 }
 
@@ -220,6 +223,7 @@ func (input AIModelInput) mapValidatedResponseV3(response AISemanticResponse) AI
 		projection.RequirementGroups = groups
 	}
 	projection.CandidateMentions, projection.PendingUnresolvedSourceTerms = input.mapCandidateMentions(response.CandidateMentions)
+	projection.CandidateMentionsUncertain = projection.CandidateMentionsUncertain || len(projection.PendingUnresolvedSourceTerms) != 0
 	return projection
 }
 
@@ -241,14 +245,17 @@ func isCandidateTechnicalNameOrAbbreviation(candidate string) bool {
 // mapCandidateMentionsV2 treats a non-locatable candidate as a defect in that
 // one model claim. Its supplied span ID has already been checked globally;
 // an exact-text mismatch is not a reason to fail the rest of a JD.
-func (input AIModelInput) mapCandidateMentionsV2(candidates []AICandidateMentionResponse) []AICandidateMentionProjection {
+func (input AIModelInput) mapCandidateMentionsV2(candidates []AICandidateMentionResponse) ([]AICandidateMentionProjection, bool) {
 	projections := make([]AICandidateMentionProjection, 0, len(candidates))
+	uncertain := false
 	for _, candidate := range candidates {
 		if utf8.RuneCountInString(candidate.CandidateText) > 256 {
+			uncertain = true
 			continue
 		}
 		evidence, err := input.LocateCandidate(candidate.CandidateText, candidate.SpanID)
 		if err != nil {
+			uncertain = true
 			continue
 		}
 		projections = append(projections, AICandidateMentionProjection{
@@ -259,7 +266,7 @@ func (input AIModelInput) mapCandidateMentionsV2(candidates []AICandidateMention
 			Role:          candidate.Role,
 		})
 	}
-	return projections
+	return projections, uncertain
 }
 
 func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperienceProjection, error) {
