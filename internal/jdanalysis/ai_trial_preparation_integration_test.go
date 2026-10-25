@@ -72,9 +72,32 @@ SELECT
 	if report.Plus.AIConfigurationID != prepared.Plus.ID || report.Flash.AIConfigurationID != prepared.Flash.ID ||
 		report.Plus.LogicalTaskCount != aiTrialSampleSize || report.Flash.LogicalTaskCount != aiTrialSampleSize ||
 		report.Plus.PendingTaskCount != aiTrialSampleSize || report.Flash.PendingTaskCount != aiTrialSampleSize ||
-		report.Plus.CompleteTaskCount != 0 || report.Flash.CompleteTaskCount != 0 ||
+		report.Plus.CompleteTaskCount != 0 || report.Plus.FailedTaskCount != 0 ||
+		len(report.Plus.SafeFailureCounts) != 0 || report.Flash.CompleteTaskCount != 0 ||
+		report.Flash.FailedTaskCount != 0 || len(report.Flash.SafeFailureCounts) != 0 ||
 		report.Plus.InputTokenCount != 0 || report.Flash.OutputTokenCount != 0 {
 		t.Fatalf("text-free AI comparison report = %#v", report)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE ai_analysis_work_items
+SET status = 'failed_safely', last_safe_error_code = 'invalid_response_schema', completed_at = now()
+WHERE id = (
+  SELECT id
+  FROM ai_analysis_work_items
+  WHERE ai_analysis_configuration_id = $1
+  ORDER BY id
+  LIMIT 1
+)`, prepared.Plus.ID); err != nil {
+		t.Fatal(err)
+	}
+	report, err = repository.ReadAITrialComparisonReport(ctx, prepared.Plus.ID, prepared.Flash.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Plus.PendingTaskCount != aiTrialSampleSize-1 || report.Plus.FailedTaskCount != 1 ||
+		len(report.Plus.SafeFailureCounts) != 1 ||
+		report.Plus.SafeFailureCounts[0] != (AISafeFailureCount{Code: AISafeErrorInvalidResponseSchema, Count: 1}) {
+		t.Fatalf("safe failure report = %#v", report.Plus)
 	}
 	if _, err := repository.pool.Exec(ctx, `
 INSERT INTO ai_analysis_publication_state (singleton)
