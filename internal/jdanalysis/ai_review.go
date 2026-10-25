@@ -45,6 +45,15 @@ type AITrialComparisonConfigurationSummary struct {
 	LogicalTaskCount  int
 	OutputTokenCount  int64
 	PendingTaskCount  int
+	SafeFailureCounts []AISafeFailureCount
+}
+
+// AISafeFailureCount is an aggregate over the fixed allowlist of safe error
+// codes. It deliberately has no work identifier, source text, prompt, model
+// output, provider request ID, or provider diagnostic.
+type AISafeFailureCount struct {
+	Code  AISafeErrorCode
+	Count int
 }
 
 // AITrialComparisonReport compares only the two pre-bound trial arms through
@@ -244,7 +253,46 @@ WHERE ai_analysis_configuration_id = $1`, configurationID).Scan(
 	if err != nil {
 		return AITrialComparisonConfigurationSummary{}, fmt.Errorf("read AI comparison summary: %w", err)
 	}
+	safeFailureCounts, err := readAISafeFailureCounts(ctx, repository, configurationID)
+	if err != nil {
+		return AITrialComparisonConfigurationSummary{}, err
+	}
+	summary.SafeFailureCounts = safeFailureCounts
 	return summary, nil
+}
+
+// readAISafeFailureCounts returns only countable, allowlisted diagnostic codes
+// for the fixed trial configuration. It is safe to emit through the status
+// operation because it cannot read or return model or JD content.
+func readAISafeFailureCounts(ctx context.Context, repository *Repository, configurationID string) ([]AISafeFailureCount, error) {
+	rows, err := repository.pool.Query(ctx, `
+SELECT last_safe_error_code, count(*)
+FROM ai_analysis_work_items
+WHERE ai_analysis_configuration_id = $1
+  AND status = 'failed_safely'
+  AND last_safe_error_code IS NOT NULL
+GROUP BY last_safe_error_code
+ORDER BY last_safe_error_code`, configurationID)
+	if err != nil {
+		return nil, fmt.Errorf("read AI safe failure counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make([]AISafeFailureCount, 0)
+	for rows.Next() {
+		var count AISafeFailureCount
+		if err := rows.Scan(&count.Code, &count.Count); err != nil {
+			return nil, fmt.Errorf("scan AI safe failure count: %w", err)
+		}
+		if !count.Code.valid() || count.Count <= 0 {
+			return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+		}
+		counts = append(counts, count)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate AI safe failure counts: %w", err)
+	}
+	return counts, nil
 }
 
 func validAISemanticReviewInput(input AISemanticReviewInput) bool {
