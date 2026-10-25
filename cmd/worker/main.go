@@ -323,6 +323,10 @@ func runAIOutputAudit(arguments []string) {
 		runAIOutputAuditStatus()
 		return
 	}
+	if len(arguments) == 1 && arguments[0] == "policy-diagnostic" {
+		runAIOutputAuditPolicyDiagnostic()
+		return
+	}
 	model, err := parseAIOutputAuditModel(arguments)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "AI output audit operation is not allowlisted")
@@ -415,6 +419,46 @@ func runAIOutputAuditStatus() {
 		attributes = append(attributes, "pending_"+failureCount.SafeErrorCode, failureCount.Count)
 	}
 	slog.Info("AI output audit status", attributes...)
+}
+
+// runAIOutputAuditPolicyDiagnostic is an offline, non-interactive replay for
+// captured Plus policy failures. The repository rolls each replay back and
+// this command emits only fixed category counts; it never sends a model
+// request, writes a review, or prints an input/output value.
+func runAIOutputAuditPolicyDiagnostic() {
+	workspaceID := os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID")
+	if _, err := jdanalysis.QwenBeijingWorkspaceCompatibleBaseURL(workspaceID); err != nil {
+		slog.Error("AI output audit workspace is not configured")
+		os.Exit(1)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("AI output audit configuration is unavailable")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("AI output audit database is unavailable")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	configurationIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-plus", workspaceID)
+	if err != nil {
+		slog.Error("AI output audit candidate is unavailable")
+		os.Exit(1)
+	}
+	diagnostic, err := repository.DiagnoseCapturedAIOutputPolicyFailures(ctx, jdanalysis.NewAIOutputAuditStore(aiOutputAuditRoot), configurationIDs, "qwen-plus")
+	if err != nil {
+		slog.Error("AI output audit policy diagnostic is unavailable")
+		os.Exit(1)
+	}
+	attributes := []any{"processed_policy_failures", diagnostic.ProcessedCount}
+	for _, count := range diagnostic.Counts {
+		attributes = append(attributes, "policy_diagnostic_"+string(count.Category), count.Count)
+	}
+	slog.Info("AI output audit policy diagnostic", attributes...)
 }
 
 func parseAIOutputAuditModel(arguments []string) (string, error) {

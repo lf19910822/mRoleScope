@@ -17,7 +17,7 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 26 ]] \
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 27 ]] \
   || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal audits may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
@@ -32,8 +32,8 @@ grep -Fqx '    profiles: [ai-analysis]' "$compose_file" \
 [[ "$(grep -Fxc '    profiles: [ai-review]' "$compose_file")" -eq 2 ]] \
   || die 'the two terminal review services must remain explicitly requested'
 
-[[ "$(grep -Fxc '    profiles: [ai-output-audit]' "$compose_file")" -eq 3 ]] \
-  || die 'the two terminal output-audit services and safe status reader must remain explicitly requested'
+[[ "$(grep -Fxc '    profiles: [ai-output-audit]' "$compose_file")" -eq 4 ]] \
+  || die 'the two terminal output-audit services and two safe readers must remain explicitly requested'
 
 [[ "$(grep -Fxc '    profiles: [ai-output-audit-diagnostic]' "$compose_file")" -eq 2 ]] \
   || die 'the two fixed output-audit diagnostic services must remain explicitly requested'
@@ -194,14 +194,14 @@ check_terminal_output_audit() {
 check_terminal_output_audit ai-plus-contract-audit plus
 check_terminal_output_audit ai-flash-contract-audit flash
 
-check_output_audit_status_reader() {
-  local service='ai-output-audit-status' block
+check_output_audit_safe_reader() {
+  local service="$1" command="$2" block
   block=$(service_block "$service")
   [[ -n "$block" ]] || die "${service} service was not found"
   grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
     || die "${service} must use only the ai-output-audit profile"
-  grep -Fqx '    command: ["audit-ai", "status"]' <<<"$block" \
-    || die "${service} must use its fixed safe status command"
+  grep -Fqx "    command: [\"audit-ai\", \"${command}\"]" <<<"$block" \
+    || die "${service} must use its fixed safe reader command"
   grep -Fqx '    networks: [backend]' <<<"$block" \
     || die "${service} must use only the internal backend network"
   check_output_audit_mount "$service" reader
@@ -210,7 +210,8 @@ check_output_audit_status_reader() {
   fi
 }
 
-check_output_audit_status_reader
+check_output_audit_safe_reader ai-output-audit-status status
+check_output_audit_safe_reader ai-output-audit-policy-diagnostic policy-diagnostic
 
 check_output_audit_diagnostic_runner() {
   local service='ai-plus-output-audit-diagnostic' block
@@ -255,8 +256,9 @@ for service in \
   ai-flash-trial \
   ai-plus-contract-audit \
   ai-flash-contract-audit \
-  ai-output-audit-status; do
+  ai-output-audit-status \
+  ai-output-audit-policy-diagnostic; do
   check_output_audit_root_identity "$service"
 done
-[[ "$(grep -Fxc '        source: /var/lib/mrolescope/ai-output-audit' "$compose_file")" -eq 6 ]] \
+[[ "$(grep -Fxc '        source: /var/lib/mrolescope/ai-output-audit' "$compose_file")" -eq 7 ]] \
   || die 'only the fixed audit readers and writers may mount the root-only audit directory'

@@ -403,6 +403,32 @@ services:
     # or external network.
     networks: [backend]
 
+  ai-output-audit-policy-diagnostic:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-output-audit]
+    restart: "no"
+    user: "0:0"
+    command: ["audit-ai", "policy-diagnostic"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
+        read_only: true
+    # This fixed offline replay returns only category counts. It has no model
+    # key, provider route, COS mount, port, or terminal text output.
+    networks: [backend]
+
   candidate-analysis:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [candidate-analysis]

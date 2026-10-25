@@ -31,7 +31,7 @@ fi
 grep -Fq 'qwenBeijingWorkspaceCompatibleSuffix = ".cn-beijing.maas.aliyuncs.com"' "$qwen_client" \
   || die 'Qwen client must use the fixed Beijing Workspace endpoint suffix'
 
-grep -Fqx "  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|status|logs>'" "$helper" \
+grep -Fqx "  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|audit-policy-diagnostic|status|logs>'" "$helper" \
   || die 'AI helper must expose only fixed AI lifecycle operations'
 grep -Fqx "readonly QWEN_WORKSPACE_ID_PATTERN='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'" "$helper" \
   || die 'AI helper must define the reviewed Workspace ID format'
@@ -41,9 +41,9 @@ grep -Fqx '  [[ "$workspace_id" =~ $QWEN_WORKSPACE_ID_PATTERN ]] || die '\''AI m
   || die 'AI helper must reject malformed Workspace IDs before Compose starts'
 grep -Fqx '  [[ "${SUDO_USER:-}" == "$AUDIT_OPERATOR" ]] || die '\''AI output audit is restricted to FAN direct terminal'\''' "$helper" \
   || die 'AI helper must require the approved FAN operator for raw-output audit'
-[[ "$(grep -Fc '    require_audit_operator' "$helper")" -eq 2 ]] \
-  || die 'both terminal audit operations must require the approved FAN operator'
-for action in prepare-trial prepare-output-audit-diagnostic run-plus-trial run-plus-output-audit-diagnostic run-flash-trial expand-plus publish-plus review-plus review-flash audit-plus-contract audit-flash-contract audit-status status; do
+[[ "$(grep -Fc '    require_audit_operator' "$helper")" -eq 3 ]] \
+  || die 'all raw-output access operations must require the approved FAN operator'
+for action in prepare-trial prepare-output-audit-diagnostic run-plus-trial run-plus-output-audit-diagnostic run-flash-trial expand-plus publish-plus review-plus review-flash audit-plus-contract audit-flash-contract audit-status audit-policy-diagnostic status; do
   grep -Fqx "  ${action})" "$helper" \
     || die "AI helper must allowlist ${action}"
 done
@@ -60,6 +60,8 @@ grep -Fqx '    compose --profile ai-output-audit-diagnostic run --rm --no-deps a
   || die 'AI helper must invoke only the fixed five-body diagnostic caller'
 grep -Fqx '    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status' "$helper" \
   || die 'AI helper must invoke only the fixed text-free output-audit status reader'
+grep -Fqx '    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-policy-diagnostic' "$helper" \
+  || die 'AI helper must invoke only the fixed rollback-only policy diagnostic'
 if grep -Fq 'exec compose ' "$helper"; then
   die 'AI helper must not exec the compose shell function'
 fi
@@ -78,7 +80,7 @@ for operation in prepare-ai-trial run-ai-plus-trial run-ai-flash-trial expand-ai
   grep -Fqx "          - ${operation}" "$workflow" \
     || die "workflow must expose fixed ${operation} choice"
 done
-for review_action in review-plus review-flash audit-plus-contract audit-flash-contract audit-status prepare-output-audit-diagnostic run-plus-output-audit-diagnostic; do
+for review_action in review-plus review-flash audit-plus-contract audit-flash-contract audit-status audit-policy-diagnostic prepare-output-audit-diagnostic run-plus-output-audit-diagnostic; do
   if grep -Fq "$review_action" "$operations" || grep -Fq "$review_action" "$workflow"; then
     die "terminal-only ${review_action} must not be exposed through operations or GitHub Actions"
   fi
@@ -263,22 +265,28 @@ check_output_audit_terminal() {
 check_output_audit_terminal ai-plus-contract-audit plus
 check_output_audit_terminal ai-flash-contract-audit flash
 
-block=$(service_block ai-output-audit-status)
-[[ -n "$block" ]] || die 'ai-output-audit-status Compose service was not found'
-grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
-  || die 'output-audit status must use the AI-output-audit profile'
-grep -Fqx '    command: ["audit-ai", "status"]' <<<"$block" \
-  || die 'output-audit status must run only its fixed worker command'
-grep -Fqx '    networks: [backend]' <<<"$block" \
-  || die 'output-audit status must use only the internal backend network'
-grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
-  || die 'output-audit status must mount the fixed output-audit directory'
-grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
-  || die 'output-audit status must use the fixed output-audit target'
-grep -Fqx '        read_only: true' <<<"$block" \
-  || die 'output-audit status must mount output-audit data read-only'
-if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:)|^[[:space:]]+networks:.*edge|^[[:space:]]+(stdin_open:|tty:)' <<<"$block"; then
-  die 'output-audit status must not receive a provider key, COS, external network, port, or terminal session'
-fi
+check_output_audit_safe_reader() {
+  local service="$1" command="$2" block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} Compose service was not found"
+  grep -Fqx '    profiles: [ai-output-audit]' <<<"$block" \
+    || die "${service} must use the AI-output-audit profile"
+  grep -Fqx "    command: [\"audit-ai\", \"${command}\"]" <<<"$block" \
+    || die "${service} must run only its fixed worker command"
+  grep -Fqx '    networks: [backend]' <<<"$block" \
+    || die "${service} must use only the internal backend network"
+  grep -Fqx '        source: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+    || die "${service} must mount the fixed output-audit directory"
+  grep -Fqx '        target: /var/lib/mrolescope/ai-output-audit' <<<"$block" \
+    || die "${service} must use the fixed output-audit target"
+  grep -Fqx '        read_only: true' <<<"$block" \
+    || die "${service} must mount output-audit data read-only"
+  if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:)|^[[:space:]]+networks:.*edge|^[[:space:]]+(stdin_open:|tty:)' <<<"$block"; then
+    die "${service} must not receive a provider key, COS, external network, port, or terminal session"
+  fi
+}
+
+check_output_audit_safe_reader ai-output-audit-status status
+check_output_audit_safe_reader ai-output-audit-policy-diagnostic policy-diagnostic
 
 printf '%s\n' 'remote-development AI analysis check passed'
