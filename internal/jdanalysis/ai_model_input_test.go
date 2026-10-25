@@ -100,8 +100,8 @@ func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *test
 		t.Fatal(err)
 	}
 	_, err = input.ValidateResponse([]byte(validAIModelResponseWithGoOption(2)))
-	if err == nil || !strings.Contains(err.Error(), string(AISafeErrorInvalidResponseSchema)) {
-		t.Fatalf("invalid min_satisfied error = %v, want redacted schema error", err)
+	if err != nil {
+		t.Fatalf("structurally valid but locally inconsistent min_satisfied error = %v, want field-level recovery eligibility", err)
 	}
 }
 

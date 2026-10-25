@@ -87,6 +87,48 @@ SELECT
 	}
 }
 
+func TestAISemanticProcessorV2SkipsEnabledAliasCandidateAndCompletesOtherSemantics(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-v2-enabled-alias-reference")
+	configurationInput := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-v2-enabled-alias-candidate")
+	configurationInput.PromptSHA256 = AISystemPromptV3SHA256()
+	configurationInput.ValidatorVersion = AIValidatorVersionV2
+	configurationInput.ValidatorSHA256 = sha256Hex(AIValidatorVersionV2)
+	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, configurationInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.EnsureAISemanticResult(ctx, bodyID, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_version_id, trigger)
+VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: enabledAliasCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
+		t.Fatalf("V2 alias candidate processing error = %v; want local skip", err)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "not_configured")
+
+	var dictionaryCandidates, candidateArtifacts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM technology_dictionary_candidates WHERE dictionary_version_id = $1),
+  (SELECT count(*) FROM ai_candidate_technology_mentions AS candidate
+   JOIN ai_semantic_artifacts AS artifact ON artifact.id = candidate.id
+   JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
+   WHERE result.ai_analysis_configuration_id = $2 AND result.body_content_version_id = $3)
+`, dictionaryID, aiConfiguration.ID, bodyID).Scan(&dictionaryCandidates, &candidateArtifacts); err != nil {
+		t.Fatal(err)
+	}
+	if dictionaryCandidates != 0 || candidateArtifacts != 0 {
+		t.Fatalf("V2 enabled alias created candidate records: candidates:%d artifacts:%d", dictionaryCandidates, candidateArtifacts)
+	}
+}
+
 func insertSyntheticExternalCandidateBody(t *testing.T, repository *Repository, technologyConfigurationID, dictionaryID, technologyID, ruleID string) string {
 	t.Helper()
 	ctx := context.Background()

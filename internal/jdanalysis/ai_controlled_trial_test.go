@@ -45,7 +45,7 @@ func TestControlledAIOutputAuditDiagnosticContractBindsPersistableExecution(t *t
 	}
 }
 
-func TestControlledAIConfigurationInputsFreezeActiveV2PromptIdentity(t *testing.T) {
+func TestControlledAIConfigurationInputsFreezeActiveV3PromptAndValidatorIdentity(t *testing.T) {
 	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
@@ -59,11 +59,14 @@ func TestControlledAIConfigurationInputsFreezeActiveV2PromptIdentity(t *testing.
 		controlledAIOutputAuditDiagnosticConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", plusProfile, QwenPlusTrialPricingProfile()),
 		controlledAITrialConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", flashProfile, QwenFlashComparisonPricingProfile()),
 	} {
-		if input.PromptSHA256 != AISystemPromptV2SHA256() {
-			t.Fatalf("controlled configuration prompt SHA-256 = %q, want active V2 %q", input.PromptSHA256, AISystemPromptV2SHA256())
+		if input.PromptSHA256 != AISystemPromptV3SHA256() {
+			t.Fatalf("controlled configuration prompt SHA-256 = %q, want active V3 %q", input.PromptSHA256, AISystemPromptV3SHA256())
 		}
-		if input.PromptSHA256 == AISystemPromptV1SHA256() {
-			t.Fatal("controlled configuration reused the historic V1 prompt identity")
+		if input.PromptSHA256 == AISystemPromptV1SHA256() || input.PromptSHA256 == AISystemPromptV2SHA256() {
+			t.Fatal("controlled configuration reused a historic prompt identity")
+		}
+		if input.ValidatorVersion != AIValidatorVersionV2 || input.ValidatorSHA256 != sha256Hex(AIValidatorVersionV2) {
+			t.Fatalf("controlled configuration validator = %s/%s, want active V2 validator", input.ValidatorVersion, input.ValidatorSHA256)
 		}
 	}
 }
