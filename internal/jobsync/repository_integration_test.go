@@ -435,11 +435,7 @@ func newIntegrationRepository(t *testing.T) *Repository {
 	t.Cleanup(repository.Close)
 	acquireJobsyncIntegrationTestLock(t, repository)
 	if _, err := repository.pool.Exec(context.Background(), `
-TRUNCATE collection_run_audit_events, job_body_content_periods,
-         run_job_version_references, job_body_content_versions,
-         job_source_metadata_versions, job_content_periods, job_presence_periods,
-         run_jobs, jd_versions, jobs, observation_scope_publication_state,
-         collection_runs, observation_scopes CASCADE`); err != nil {
+TRUNCATE observation_scopes, technology_dictionary_versions RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear disposable test database: %v", err)
 	}
 	if _, err := repository.pool.Exec(context.Background(), `
@@ -447,6 +443,12 @@ INSERT INTO technology_analysis_publication_state (singleton)
 VALUES (true)
 ON CONFLICT (singleton) DO NOTHING`); err != nil {
 		t.Fatalf("restore disposable analysis publication state: %v", err)
+	}
+	if _, err := repository.pool.Exec(context.Background(), `
+INSERT INTO ai_analysis_publication_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING`); err != nil {
+		t.Fatalf("restore disposable AI analysis publication state: %v", err)
 	}
 	return repository
 }
