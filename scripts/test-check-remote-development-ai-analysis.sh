@@ -160,4 +160,22 @@ if bash "$checker" \
   exit 1
 fi
 
+# compose is a shell function in the root-owned helper. `exec compose ...`
+# therefore looks for an external executable named compose and breaks the
+# direct-TTY audit path before it can display a captured response.
+cp "$source_dir/mrolescope-ai-analysis" "$copied_dir/exec-compose-audit-helper"
+sed -i 's|^    compose --profile ai-output-audit run --rm --no-deps ai-plus-contract-audit$|    exec compose --profile ai-output-audit run --rm --no-deps ai-plus-contract-audit|' \
+  "$copied_dir/exec-compose-audit-helper"
+
+if bash "$checker" \
+  "$copied_dir/exec-compose-audit-helper" \
+  "$source_dir/mrolescope-operations" \
+  "$repository_root/.github/workflows/remote-development-operations.yml" \
+  "$source_dir/bootstrap.sh" \
+  "$source_dir/compose.yaml" >"$temporary_dir/exec-compose-audit-helper.log" 2>&1; then
+  cat "$temporary_dir/exec-compose-audit-helper.log" >&2
+  printf '%s\n' 'AI deployment checker accepted an audit helper that execs the compose shell function.' >&2
+  exit 1
+fi
+
 printf '%s\n' 'AI deployment checker regression test passed'
