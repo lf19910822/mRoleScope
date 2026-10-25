@@ -18,63 +18,75 @@ func (repository *Repository) persistAndCompleteAIWork(ctx context.Context, conf
 		return fmt.Errorf("begin AI semantic persistence: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := repository.persistAndCompleteAIWorkInTransaction(ctx, tx, configurationID, workID, bodyContentVersionID, input, projection); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return newAIPersistenceStageError(aiPersistenceStageFinalization, fmt.Errorf("commit AI semantic persistence: %w", err))
+	}
+	return nil
+}
 
+// persistAndCompleteAIWorkInTransaction is the one semantic persistence path
+// shared by production execution and the CVM-only rollback diagnostic. The
+// caller owns the transaction lifecycle; this function never commits.
+func (repository *Repository) persistAndCompleteAIWorkInTransaction(ctx context.Context, tx pgx.Tx, configurationID, workID, bodyContentVersionID string, input AIModelInput, projection AISemanticProjection) error {
 	var resultID string
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 SELECT id::text
 FROM ai_semantic_results
 WHERE ai_analysis_configuration_id = $1
   AND body_content_version_id = $2
-  AND execution_status = 'running'
-FOR UPDATE`, configurationID, bodyContentVersionID).Scan(&resultID)
+	  AND execution_status = 'running'
+	FOR UPDATE`, configurationID, bodyContentVersionID).Scan(&resultID)
 	if err != nil {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+		return newAIPersistenceStageError(aiPersistenceStageFinalization, NewSafeAIError(AISafeErrorConfigurationInvalid, err))
 	}
 
 	experienceArtifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "experience_summary", projection.Experience.Status, projection.Experience.ReviewTier)
 	if err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageExperience, err)
 	}
 	if err := insertAISemanticEvidence(ctx, tx, experienceArtifactID, projection.Experience.Evidence); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageExperience, err)
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO ai_experience_summaries (id, status, base_year)
-VALUES ($1, $2::ai_semantic_value_status, $3)`, experienceArtifactID, projection.Experience.Status, projection.Experience.BaseYear); err != nil {
-		return fmt.Errorf("insert AI experience summary: %w", err)
+	INSERT INTO ai_experience_summaries (id, status, base_year)
+	VALUES ($1, $2::ai_semantic_value_status, $3)`, experienceArtifactID, projection.Experience.Status, projection.Experience.BaseYear); err != nil {
+		return newAIPersistenceStageError(aiPersistenceStageExperience, fmt.Errorf("insert AI experience summary: %w", err))
 	}
 	if err := repository.persistAIExperienceItems(ctx, tx, resultID, experienceArtifactID, configurationID, bodyContentVersionID, input, projection.Experience.Items); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageExperience, err)
 	}
 	if err := repository.persistAIConditionalQualifications(ctx, tx, resultID, experienceArtifactID, projection.Experience.ConditionalQualifications); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageExperience, err)
 	}
 
 	educationArtifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "education_summary", projection.MinimumEducation.Status, projection.MinimumEducation.ReviewTier)
 	if err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageEducation, err)
 	}
 	if err := insertAISemanticEvidence(ctx, tx, educationArtifactID, projection.MinimumEducation.Evidence); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageEducation, err)
 	}
 	var educationLevel *string
 	if projection.MinimumEducation.Level != "" {
 		educationLevel = &projection.MinimumEducation.Level
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO ai_minimum_education_requirements (id, status, minimum_level)
-VALUES ($1, $2::ai_semantic_value_status, $3::ai_education_level)`, educationArtifactID, projection.MinimumEducation.Status, educationLevel); err != nil {
-		return fmt.Errorf("insert AI minimum education summary: %w", err)
+	INSERT INTO ai_minimum_education_requirements (id, status, minimum_level)
+	VALUES ($1, $2::ai_semantic_value_status, $3::ai_education_level)`, educationArtifactID, projection.MinimumEducation.Status, educationLevel); err != nil {
+		return newAIPersistenceStageError(aiPersistenceStageEducation, fmt.Errorf("insert AI minimum education summary: %w", err))
 	}
 
 	if err := repository.persistAIPendingUnresolvedSourceTerms(ctx, tx, resultID, projection.PendingUnresolvedSourceTerms); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageCandidateMention, err)
 	}
 	if err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, projection.CandidateMentions); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageCandidateMention, err)
 	}
 	if err := repository.persistAIRequirementGroups(ctx, tx, configurationID, bodyContentVersionID, resultID, input, projection.RequirementGroups); err != nil {
-		return err
+		return newAIPersistenceStageError(aiPersistenceStageRequirementGroup, err)
 	}
 
 	command, err := tx.Exec(ctx, `
@@ -82,22 +94,19 @@ UPDATE ai_semantic_results
 SET execution_status = 'complete', semantic_status = $3::ai_semantic_value_status,
     safe_error_code = NULL, completed_at = now()
 WHERE ai_analysis_configuration_id = $1
-  AND body_content_version_id = $2
-  AND execution_status = 'running'`, configurationID, bodyContentVersionID, semanticStatus)
+	  AND body_content_version_id = $2
+	  AND execution_status = 'running'`, configurationID, bodyContentVersionID, semanticStatus)
 	if err != nil || command.RowsAffected() != 1 {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+		return newAIPersistenceStageError(aiPersistenceStageFinalization, NewSafeAIError(AISafeErrorConfigurationInvalid, err))
 	}
 	command, err = tx.Exec(ctx, `
 UPDATE ai_analysis_work_items
 SET status = 'complete', completed_at = now(), last_safe_error_code = NULL, updated_at = now()
 WHERE id = $1
-  AND ai_analysis_configuration_id = $2
-  AND status = 'running'`, workID, configurationID)
+	  AND ai_analysis_configuration_id = $2
+	  AND status = 'running'`, workID, configurationID)
 	if err != nil || command.RowsAffected() != 1 {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit AI semantic persistence: %w", err)
+		return newAIPersistenceStageError(aiPersistenceStageFinalization, NewSafeAIError(AISafeErrorConfigurationInvalid, err))
 	}
 	return nil
 }
