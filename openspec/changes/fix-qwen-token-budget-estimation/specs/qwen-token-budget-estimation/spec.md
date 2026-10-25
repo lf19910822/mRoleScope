@@ -4,7 +4,7 @@
 
 确保受控 Qwen AI 试跑按照可复现的 Token 计数而非 UTF-8 字节数执行本地预算预检，并使计数契约变化产生新的不可变候选配置。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Pinned conservative Qwen input-token preflight
 

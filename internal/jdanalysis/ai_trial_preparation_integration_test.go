@@ -195,22 +195,7 @@ func TestPrepareControlledAITrialCreatesNewCandidatesAfterLegacyByteEstimatorCon
 func legacyByteEstimatorConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
 	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
 	input.InputContractSHA256 = sha256Hex(AIInputContractVersionV1 + "|" + AISpanContractVersionV1)
-	input.ConfigurationSHA256 = sha256Hex(strings.Join([]string{
-		input.TechnologyConfigurationID,
-		input.Provider,
-		input.Model,
-		input.RequestProfileSHA256,
-		input.PromptSHA256,
-		input.ResponseSchemaVersion,
-		input.ResponseSchemaSHA256,
-		input.InputContractVersion,
-		input.InputContractSHA256,
-		input.ValidatorVersion,
-		input.ValidatorSHA256,
-		input.PricingProfileVersion,
-		input.PricingProfileSHA256,
-		input.CreatedBy,
-	}, "\n"))
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
 	return input
 }
 

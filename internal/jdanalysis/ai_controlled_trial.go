@@ -92,7 +92,12 @@ func controlledAITrialConfigurationInput(technologyConfigurationID string, reque
 		PricingProfileSHA256:      pricingProfile.SHA256(),
 		CreatedBy:                 AIControlledConfigurationCreator,
 	}
-	input.ConfigurationSHA256 = sha256Hex(strings.Join([]string{
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
+func candidateAIConfigurationSHA256(input CandidateAIConfigurationInput) string {
+	return sha256Hex(strings.Join([]string{
 		input.TechnologyConfigurationID,
 		input.Provider,
 		input.Model,
@@ -108,7 +113,6 @@ func controlledAITrialConfigurationInput(technologyConfigurationID string, reque
 		input.PricingProfileSHA256,
 		input.CreatedBy,
 	}, "\n"))
-	return input
 }
 
 // controlledAIInputContractSHA256 records every non-secret rule that affects

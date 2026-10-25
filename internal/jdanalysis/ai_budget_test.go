@@ -114,6 +114,16 @@ func TestAIInputTokenEstimatorContractIncludesFixedChatEnvelope(t *testing.T) {
 	}
 }
 
+func TestConservativeQwenTokenCountCountsEveryUTF8ByteBeforeMerging(t *testing.T) {
+	count, err := conservativeQwenTokenCount("\ue000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Fatalf("private-use Unicode code point token count = %d, want 3", count)
+	}
+}
+
 func normalChineseAIModelInput() AIModelInput {
 	spans := make([]AIModelInputSpan, 0, 32)
 	mentions := make([]VerifiedTechnologyMention, 0, 32)

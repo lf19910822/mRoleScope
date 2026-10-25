@@ -94,7 +94,7 @@ func isASCIILetter(value byte) bool {
 
 func qwenBPECountSegment(segment string, ranks map[string]int) (int, error) {
 	tokens := make([]string, len(segment))
-	for index := range segment {
+	for index := 0; index < len(segment); index++ {
 		token := segment[index : index+1]
 		if _, found := ranks[token]; !found {
 			return 0, fmt.Errorf("Qwen BPE vocabulary does not contain an input byte")
