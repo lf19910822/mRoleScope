@@ -58,6 +58,24 @@
 - **WHEN** CVM root helper invokes the fixed non-interactive `audit-status` operation
 - **THEN** 系统 SHALL 仅报告捕获数、待审计数、容量和固定失败类别，且不得输出路径、摘要、正文、重建输入或模型输出
 
+### Requirement: Rollback-only policy failure diagnosis
+
+系统 SHALL 提供一个仅限 CVM root helper 的固定离线诊断，用于检查尚未审阅、已捕获的
+`policy_rejected` 候选回复。诊断 SHALL 使用其不可变配置和正文版本重建输入，并经同一
+校验与持久化路径在必定回滚的事务内重放。它不得调用模型、不得带 API Key 或外网、不得持久化
+工作项/语义结果/复核/工件变更，且不得输出模型回复、输入、正文、路径、ID、摘要或数据库错误。
+输出只能包含已处理总数和固定的持久化阶段类别聚合。
+
+#### Scenario: Captured policy failures are classified without another model call
+
+- **WHEN** `FAN` 通过 root helper 调用固定的 policy diagnostic
+- **THEN** 系统 SHALL 仅重放已捕获且未审阅的 `policy_rejected` 回复，以固定类别汇总结果，且原有失败工作和语义结果保持不变
+
+#### Scenario: Policy diagnosis is exposed through a normal operation channel
+
+- **WHEN** GitHub Actions、普通 operations helper 或任意带参数的 worker 命令尝试调用该诊断
+- **THEN** 系统 SHALL 拒绝调用，且不得读取或输出审计回复
+
 ### Requirement: Raw-output isolation from normal observability
 
 原始模型输出、重建输入上下文、正文片段和候选字符串 SHALL NOT 写入 PostgreSQL、Git、GitHub Actions、CI、systemd journal、普通日志、状态输出、对象存储或本地工作区文件。普通可观测渠道仅可记录允许的标识、计数、版本、用量、安全错误码及固定审计结论。

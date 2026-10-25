@@ -94,8 +94,8 @@ require_audit_operator() {
 }
 
 [[ "${EUID}" -eq 0 ]] || die 'must run as root'
-[[ "$#" -eq 1 && ( "$1" == 'prepare-trial' || "$1" == 'prepare-output-audit-diagnostic' || "$1" == 'run-plus-trial' || "$1" == 'run-plus-output-audit-diagnostic' || "$1" == 'run-flash-trial' || "$1" == 'expand-plus' || "$1" == 'publish-plus' || "$1" == 'review-plus' || "$1" == 'review-flash' || "$1" == 'audit-plus-contract' || "$1" == 'audit-flash-contract' || "$1" == 'audit-status' || "$1" == 'status' || "$1" == 'logs' ) ]] \
-  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|status|logs>'
+[[ "$#" -eq 1 && ( "$1" == 'prepare-trial' || "$1" == 'prepare-output-audit-diagnostic' || "$1" == 'run-plus-trial' || "$1" == 'run-plus-output-audit-diagnostic' || "$1" == 'run-flash-trial' || "$1" == 'expand-plus' || "$1" == 'publish-plus' || "$1" == 'review-plus' || "$1" == 'review-flash' || "$1" == 'audit-plus-contract' || "$1" == 'audit-flash-contract' || "$1" == 'audit-status' || "$1" == 'audit-policy-diagnostic' || "$1" == 'status' || "$1" == 'logs' ) ]] \
+  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|audit-policy-diagnostic|status|logs>'
 is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
 [[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
 [[ -d "$OUTPUT_AUDIT_DIR" && "$(stat -c '%U:%G:%a' "$OUTPUT_AUDIT_DIR")" == 'root:root:700' ]] || die 'AI output audit directory must be root:root mode 0700'
@@ -172,6 +172,10 @@ case "$1" in
     ;;
   audit-status)
     compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status
+    ;;
+  audit-policy-diagnostic)
+    require_audit_operator
+    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-policy-diagnostic
     ;;
   status)
     compose --profile ai-analysis run --rm --no-deps ai-status

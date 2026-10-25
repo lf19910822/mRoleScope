@@ -50,7 +50,24 @@ reservation 无法取得时，runner 在网络前以 `output_audit_capture_faile
 
 备选方案是允许审计者传 attempt ID/路径，或复用已完成语义结果的 review 命令。前者给出绕过选择器的文件读取面，后者不能处理没有有效 result 的失败响应，均拒绝。
 
-### 5. 用最小挂载与 systemd 允许列表维持隔离
+### 5. 用回滚重放而非重复外发定位 policy 断层
+
+`policy_rejected` 是安全执行结果，不应成为模型回复不可见时的永久黑箱。新增一个仅限 CVM root
+helper、但不在 GitHub Actions 或普通 operations allowlist 中出现的固定离线诊断。它只选择当前
+Plus candidate 集合中未审阅且完整捕获的 `policy_rejected` 工件，使用相同不可变配置、确定性
+request ID、输入构建、校验器和持久化语句重放。
+
+重放先把目标结果与工作项在同一 PostgreSQL 事务内暂时设为可持久化状态，再执行正常持久化路径，
+最后无条件 `ROLLBACK`；因此不产生语义结果、候选词、复核、队列或工件的持久化变更，也不发生
+provider 请求。所有运行时错误被映射为固定的 `experience`、`education`、`candidate_mention`、
+`requirement_group`、`finalization`、`unknown` 或 `replay_succeeded` 聚合类别；不会打印模型值、
+输入、正文、ID、路径、摘要或 PostgreSQL 原始错误。持久化函数按固定阶段包裹安全错误，使普通
+worker 仍只记录原有安全错误码，而离线诊断能分辨应当字段降级的位置。
+
+备选方案是把原始回复传到本地开发环境，或重跑同一模型样本。前者突破正文与原始回复隔离；后者
+增加成本且混入模型随机性，均拒绝。
+
+### 6. 用最小挂载与 systemd 允许列表维持隔离
 
 bootstrap 创建审计根目录为 `root:root:0700`。两个常规 Plus/Flash 试跑服务与一个固定五条 Plus 诊断服务获得读写 bind mount；诊断服务不具备 Flash、扩展或发布操作。两个 TTY 审计服务与一个固定的非交互状态读取器只读挂载；其余服务（包括 API、同步、普通 worker、prepare、expand、publish 和已有语义复核）没有该挂载。仅现有 Plus/Flash systemd 单元把该目录加入 `ReadWritePaths`；诊断和审计操作经 root helper 直接启动、不会注册为 systemd 或 GitHub Actions 操作。
 
