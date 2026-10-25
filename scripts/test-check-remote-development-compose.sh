@@ -60,6 +60,20 @@ sed -i '/^  ai-plus-contract-audit:/,/^  ai-flash-contract-audit:/ { /^        r
   "$temporary_dir/audit-writable.yaml"
 expect_rejected audit-writable "$temporary_dir/audit-writable.yaml"
 
+# Root-owned, mode-0700 audit artifacts are intentionally inaccessible to the
+# image default user. Every fixed reader/writer must therefore explicitly run
+# as container root; removing that identity would turn a safe storage failure
+# into a zero-provider-call diagnostic failure.
+cp "$source_compose" "$temporary_dir/audit-reader-not-root.yaml"
+sed -i '/^  ai-plus-contract-audit:/,/^  ai-flash-contract-audit:/ { /^    user: "0:0"$/d; }' \
+  "$temporary_dir/audit-reader-not-root.yaml"
+expect_rejected audit-reader-not-root "$temporary_dir/audit-reader-not-root.yaml"
+
+cp "$source_compose" "$temporary_dir/audit-writer-not-root.yaml"
+sed -i '/^  ai-plus-output-audit-diagnostic:/,/^  ai-plus-trial:/ { /^    user: "0:0"$/d; }' \
+  "$temporary_dir/audit-writer-not-root.yaml"
+expect_rejected audit-writer-not-root "$temporary_dir/audit-writer-not-root.yaml"
+
 cp "$source_compose" "$temporary_dir/missing-output-audit-diagnostic.yaml"
 sed -i '/^  ai-output-audit-diagnostic-prepare:/,/^  ai-plus-output-audit-diagnostic:/d' \
   "$temporary_dir/missing-output-audit-diagnostic.yaml"

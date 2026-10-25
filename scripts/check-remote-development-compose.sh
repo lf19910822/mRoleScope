@@ -159,6 +159,18 @@ check_output_audit_mount() {
   fi
 }
 
+# The worker image normally runs as UID 10001. The artifact root deliberately
+# stays root:root mode 0700, so every service that receives this mount must
+# explicitly run as container root. Those services each have a single fixed
+# command and mount; other services do not get the root-only directory.
+check_output_audit_root_identity() {
+  local service="$1" block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx '    user: "0:0"' <<<"$block" \
+    || die "${service} must run as container root for the root-only audit directory"
+}
+
 check_terminal_output_audit() {
   local service="$1" model="$2" block
   block=$(service_block "$service")
@@ -236,3 +248,15 @@ for service in ai-plus-trial ai-flash-trial; do
 done
 [[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 3 ]] \
   || die 'the Qwen key variable must appear only in the two fixed trials and five-body diagnostic caller'
+
+for service in \
+  ai-plus-output-audit-diagnostic \
+  ai-plus-trial \
+  ai-flash-trial \
+  ai-plus-contract-audit \
+  ai-flash-contract-audit \
+  ai-output-audit-status; do
+  check_output_audit_root_identity "$service"
+done
+[[ "$(grep -Fxc '        source: /var/lib/mrolescope/ai-output-audit' "$compose_file")" -eq 6 ]] \
+  || die 'only the fixed audit readers and writers may mount the root-only audit directory'

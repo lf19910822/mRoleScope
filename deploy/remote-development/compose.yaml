@@ -142,6 +142,11 @@ services:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-output-audit-diagnostic]
     restart: "no"
+    # The host artifact root is root:root:0700. This short-lived, fixed
+    # operation therefore needs container root solely for its one bind mount;
+    # it has no Docker socket, host namespace, shell argument, or other host
+    # path escape hatch.
+    user: "0:0"
     command: ["analyze-ai", "run-plus-output-audit-diagnostic"]
     environment:
       APP_ENV: remote-development
@@ -167,6 +172,7 @@ services:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-analysis]
     restart: "no"
+    user: "0:0"
     command: ["analyze-ai", "run-plus-trial"]
     environment:
       APP_ENV: remote-development
@@ -192,6 +198,7 @@ services:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-analysis]
     restart: "no"
+    user: "0:0"
     command: ["analyze-ai", "run-flash-trial"]
     environment:
       APP_ENV: remote-development
@@ -319,6 +326,7 @@ services:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-output-audit]
     restart: "no"
+    user: "0:0"
     command: ["audit-ai", "plus"]
     environment:
       APP_ENV: remote-development
@@ -346,6 +354,7 @@ services:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-output-audit]
     restart: "no"
+    user: "0:0"
     command: ["audit-ai", "flash"]
     environment:
       APP_ENV: remote-development
@@ -371,6 +380,7 @@ services:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-output-audit]
     restart: "no"
+    user: "0:0"
     command: ["audit-ai", "status"]
     environment:
       APP_ENV: remote-development
