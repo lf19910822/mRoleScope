@@ -23,6 +23,13 @@ on:
           - approve-v0.2-reviewed-rules
           - prepare-v0.2-analysis
           - run-v0.2-candidate-analysis
+          - prepare-ai-trial
+          - run-ai-plus-trial
+          - run-ai-flash-trial
+          - expand-ai-plus
+          - publish-ai-plus
+          - ai-status
+          - ai-logs
           - publish-v0.2-baseline
           - withdraw-v0.2-material-result-quality
           - withdraw-v0.2-security-privacy
@@ -54,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$OPERATION" in
-            status|sync-logs)
+            status|sync-logs|ai-status|ai-logs)
               exit 0
               ;;
             initialize-sync)
@@ -98,6 +105,21 @@ jobs:
               ;;
             run-v0.2-candidate-analysis)
               expected='RUN_V02_CANDIDATE_ANALYSIS'
+              ;;
+            prepare-ai-trial)
+              expected='PREPARE_AI_TRIAL'
+              ;;
+            run-ai-plus-trial)
+              expected='RUN_AI_PLUS_TRIAL'
+              ;;
+            run-ai-flash-trial)
+              expected='RUN_AI_FLASH_TRIAL'
+              ;;
+            expand-ai-plus)
+              expected='EXPAND_AI_PLUS'
+              ;;
+            publish-ai-plus)
+              expected='PUBLISH_AI_PLUS'
               ;;
             publish-v0.2-baseline)
               expected='PUBLISH_V02_BASELINE'

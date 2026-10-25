@@ -1,0 +1,14 @@
+[Unit]
+Description=mRoleScope controlled Qwen Plus AI trial
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mrolescope-ai-analysis run-plus-trial
+TimeoutStartSec=45m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mrolescope/releases
