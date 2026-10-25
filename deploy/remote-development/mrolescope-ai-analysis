@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Root-owned AI semantic-analysis entry point. Every lifecycle action maps to
+# one fixed Compose service; callers cannot provide a model, prompt, SQL,
+# configuration ID, image, path, body, pricing value, or secret.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
+readonly LOCK_FILE="${RELEASE_DIR}/ai-analysis.lock"
+readonly PROJECT_NAME='mrolescope-remote-development'
+readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
+readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
+readonly QWEN_WORKSPACE_ID_PATTERN='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+die() {
+  printf 'mrolescope AI analysis failed: %s\n' "$1" >&2
+  exit 1
+}
+
+log() {
+  printf 'mrolescope AI analysis: %s\n' "$1"
+}
+
+is_root_owned_mode() {
+  local path="$1" expected_mode="$2"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:${expected_mode}" ]]
+}
+
+compose() {
+  docker compose \
+    --project-name "$PROJECT_NAME" \
+    --file "$COMPOSE_FILE" \
+    --env-file "$SECRETS_FILE" \
+    "$@"
+}
+
+load_release() {
+  local namespace api_image migrate_image worker_image api_pattern migrate_pattern worker_pattern
+  is_root_owned_mode /etc/mrolescope/remote-development.conf 644 || die 'deployment configuration must be root:root mode 0644'
+  is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
+  # shellcheck disable=SC1090
+  . /etc/mrolescope/remote-development.conf
+  # shellcheck disable=SC1090
+  . "$CURRENT_FILE"
+  namespace="${DOCKERHUB_NAMESPACE:-}"
+  api_image="${api_image:-}"
+  migrate_image="${migrate_image:-}"
+  worker_image="${worker_image:-}"
+  [[ "$namespace" =~ $NAMESPACE_PATTERN ]] || die 'invalid configured Docker Hub namespace'
+  api_pattern="^docker\\.io/${namespace}/mrolescope-api@${DIGEST_PATTERN}$"
+  migrate_pattern="^docker\\.io/${namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
+  worker_pattern="^docker\\.io/${namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  [[ "$api_image" =~ $api_pattern ]] || die 'verified release has no allowed API image digest'
+  [[ "$migrate_image" =~ $migrate_pattern ]] || die 'verified release has no allowed migration image digest'
+  [[ "$worker_image" =~ $worker_pattern ]] || die 'verified release has no allowed worker image digest'
+  export MROLESCOPE_API_IMAGE="$api_image"
+  export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
+  export MROLESCOPE_WORKER_IMAGE="$worker_image"
+}
+
+load_database_secret() {
+  is_root_owned_mode "$SECRETS_FILE" 600 || die 'runtime secrets must be root:root mode 0600'
+  set -a
+  # shellcheck disable=SC1090
+  . "$SECRETS_FILE"
+  set +a
+  [[ -n "${DATABASE_URL:-}" ]] || die 'required runtime configuration is missing: DATABASE_URL'
+}
+
+require_model_credential() {
+  [[ -n "${MROLESCOPE_QWEN_API_KEY:-}" ]] || die 'AI model credential is not configured'
+}
+
+require_model_workspace() {
+  local workspace_id="${MROLESCOPE_QWEN_WORKSPACE_ID:-}"
+  [[ "$workspace_id" =~ $QWEN_WORKSPACE_ID_PATTERN ]] || die 'AI model workspace is not configured'
+}
+
+[[ "${EUID}" -eq 0 ]] || die 'must run as root'
+[[ "$#" -eq 1 && ( "$1" == 'prepare-trial' || "$1" == 'run-plus-trial' || "$1" == 'run-flash-trial' || "$1" == 'expand-plus' || "$1" == 'publish-plus' || "$1" == 'review-plus' || "$1" == 'review-flash' || "$1" == 'status' || "$1" == 'logs' ) ]] \
+  || die 'usage: mrolescope-ai-analysis <prepare-trial|run-plus-trial|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|status|logs>'
+is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
+[[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
+command -v docker >/dev/null 2>&1 || die 'docker is required'
+command -v flock >/dev/null 2>&1 || die 'flock is required'
+
+if [[ "$1" == 'logs' ]]; then
+  journalctl \
+    --unit mrolescope-ai-trial-prepare.service \
+    --unit mrolescope-ai-plus-trial.service \
+    --unit mrolescope-ai-flash-trial.service \
+    --unit mrolescope-ai-plus-expand.service \
+    --unit mrolescope-ai-plus-publish.service \
+    --since today --no-pager
+  exit 0
+fi
+
+load_release
+load_database_secret
+require_model_workspace
+case "$1" in
+  run-plus-trial|run-flash-trial)
+    require_model_credential
+    ;;
+esac
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || die 'another AI analysis operation is already running'
+compose up -d --wait --wait-timeout 60 postgres
+case "$1" in
+  prepare-trial)
+    compose --profile ai-analysis run --rm --no-deps ai-trial-prepare
+    log 'controlled trial preparation completed'
+    ;;
+  run-plus-trial)
+    compose --profile ai-analysis run --rm --no-deps ai-plus-trial
+    log 'controlled Plus trial completed'
+    ;;
+  run-flash-trial)
+    compose --profile ai-analysis run --rm --no-deps ai-flash-trial
+    log 'controlled Flash trial completed'
+    ;;
+  expand-plus)
+    compose --profile ai-analysis run --rm --no-deps ai-plus-expand
+    log 'controlled Plus expansion queue completed'
+    ;;
+  publish-plus)
+    compose --profile ai-analysis run --rm --no-deps ai-plus-publish
+    log 'controlled Plus publication completed'
+    ;;
+  review-plus)
+    exec compose --profile ai-review run --rm --no-deps ai-plus-review
+    ;;
+  review-flash)
+    exec compose --profile ai-review run --rm --no-deps ai-flash-review
+    ;;
+  status)
+    compose --profile ai-analysis run --rm --no-deps ai-status
+    ;;
+esac

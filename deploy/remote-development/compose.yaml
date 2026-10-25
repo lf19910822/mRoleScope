@@ -97,6 +97,171 @@ services:
     # network path to the source or object storage.
     networks: [backend]
 
+  ai-trial-prepare:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-analysis]
+    restart: "no"
+    command: ["analyze-ai", "prepare-trial"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Preparation reads only deterministic metadata and PostgreSQL facts. It
+    # cannot call a provider and has no key, host port, COS, raw-data mount,
+    # or external network.
+    networks: [backend]
+
+  ai-plus-trial:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-analysis]
+    restart: "no"
+    command: ["analyze-ai", "run-plus-trial"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Only this remote trial caller receives the root-owned API key and a
+    # dedicated egress bridge. It has no host port, COS or raw-data mount.
+    networks: [backend, ai-edge]
+
+  ai-flash-trial:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-analysis]
+    restart: "no"
+    command: ["analyze-ai", "run-flash-trial"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Flash remains a fixed comparison only. Like Plus, it has no source/COS
+    # route, host port, or raw-data mount.
+    networks: [backend, ai-edge]
+
+  ai-plus-expand:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-analysis]
+    restart: "no"
+    command: ["analyze-ai", "expand-plus"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Expansion only enqueues remaining verified bodies after the trial gate.
+    # It has no provider key or external network path.
+    networks: [backend]
+
+  ai-plus-publish:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-analysis]
+    restart: "no"
+    command: ["analyze-ai", "publish-plus"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Publication only evaluates durable, redacted gate facts.
+    networks: [backend]
+
+  ai-status:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-analysis]
+    restart: "no"
+    command: ["analyze-ai", "status"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Status emits only IDs and aggregate counts from PostgreSQL.
+    networks: [backend]
+
+  ai-plus-review:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-review]
+    restart: "no"
+    command: ["review-ai", "plus"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: true
+    # This direct-terminal session exposes reviewed text only to its attached
+    # CVM operator. It has no provider key, host port, COS/raw-data mount, or
+    # external network path, and it is never a GitHub Actions operation.
+    networks: [backend]
+
+  ai-flash-review:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-review]
+    restart: "no"
+    command: ["review-ai", "flash"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: true
+    # Flash review has the same terminal-only data boundary as Plus review.
+    networks: [backend]
+
   candidate-analysis:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [candidate-analysis]
@@ -333,6 +498,7 @@ networks:
   backend:
     internal: true
   edge: {}
+  ai-edge: {}
 
 volumes:
   postgres_data:

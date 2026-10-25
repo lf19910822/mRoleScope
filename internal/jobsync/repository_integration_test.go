@@ -169,6 +169,39 @@ WHERE configuration_id = $1 AND status = 'pending' AND trigger = 'new_body'`, co
 	}
 }
 
+func TestRepositoryPublishesNewBodiesWithoutWaitingForPublishedAISemanticAnalysis(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	technologyConfigurationID := insertPublishedAnalysisConfiguration(t, repository)
+	aiConfigurationID := insertPublishedAISemanticConfiguration(t, repository, technologyConfigurationID)
+	base := time.Date(2026, 10, 23, 2, 0, 0, 0, time.UTC)
+	run := publishFixtureRun(t, repository, scope, base, 1, []Observation{integrationObservation("v1", base)}, nil)
+	_, bodyID := canonicalReferenceForRun(t, repository, run.ID)
+
+	var workStatus, trigger, executionStatus, semanticStatus string
+	var aiRuns, aiAttempts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT work.status::text, work.trigger::text, result.execution_status::text, result.semantic_status::text,
+       (SELECT count(*) FROM ai_analysis_runs WHERE ai_analysis_configuration_id = $1),
+       (SELECT count(*) FROM ai_analysis_attempts WHERE ai_analysis_configuration_id = $1)
+FROM ai_analysis_work_items AS work
+JOIN ai_semantic_results AS result
+  ON result.ai_analysis_configuration_id = work.ai_analysis_configuration_id
+ AND result.body_content_version_id = work.body_content_version_id
+WHERE work.ai_analysis_configuration_id = $1
+  AND work.body_content_version_id = $2`, aiConfigurationID, bodyID).Scan(
+		&workStatus, &trigger, &executionStatus, &semanticStatus, &aiRuns, &aiAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if workStatus != "pending" || trigger != "new_body" || executionStatus != "pending" || semanticStatus != "not_analyzed" || aiRuns != 0 || aiAttempts != 0 {
+		t.Fatalf("published source/AI isolation = work:%s trigger:%s execution:%s semantic:%s runs:%d attempts:%d", workStatus, trigger, executionStatus, semanticStatus, aiRuns, aiAttempts)
+	}
+}
+
 func TestRepositoryBackfillsVersionedContentWithoutChangingLegacyHistory(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -495,6 +528,66 @@ WHERE singleton = true`, configurationID)
 		_, _ = repository.pool.Exec(cleanupContext, `UPDATE technology_analysis_publication_state SET configuration_id = NULL, updated_at = now() WHERE singleton = true`)
 		_, _ = repository.pool.Exec(cleanupContext, `DELETE FROM technology_analysis_configurations WHERE id = $1`, configurationID)
 		_, _ = repository.pool.Exec(cleanupContext, `DELETE FROM technology_dictionary_versions WHERE id = $1`, dictionaryID)
+	})
+	return configurationID
+}
+
+func insertPublishedAISemanticConfiguration(t *testing.T, repository *Repository, technologyConfigurationID string) string {
+	t.Helper()
+	const configurationID = "00000000-0000-4000-8000-000000000803"
+	ctx := context.Background()
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_configurations (
+    id, technology_analysis_configuration_id, provider, model,
+    configuration_sha256, request_profile_sha256, prompt_sha256,
+    response_schema_version, response_schema_sha256,
+    input_contract_version, input_contract_sha256,
+    validator_version, validator_sha256,
+    pricing_profile_version, pricing_profile_sha256,
+    status, created_by, published_at
+) VALUES (
+    $1, $2, 'bailian', 'qwen-plus',
+    $3, $4, $5, 'synthetic-schema-v1', $6,
+    'synthetic-input-v1', $7,
+    'synthetic-validator-v1', $8,
+    'synthetic-pricing-v1', $9,
+    'published', 'test', now()
+)`, configurationID, technologyConfigurationID,
+		strings.Repeat("c", 64), strings.Repeat("d", 64), strings.Repeat("e", 64),
+		strings.Repeat("f", 64), strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_publication_state (singleton, ai_analysis_configuration_id)
+VALUES (true, $1)
+ON CONFLICT (singleton) DO UPDATE
+SET ai_analysis_configuration_id = EXCLUDED.ai_analysis_configuration_id, updated_at = now()`, configurationID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupContext := context.Background()
+		_, _ = repository.pool.Exec(cleanupContext, `UPDATE ai_analysis_publication_state SET ai_analysis_configuration_id = NULL, updated_at = now() WHERE singleton = true`)
+		_, _ = repository.pool.Exec(cleanupContext, `
+DELETE FROM ai_analysis_audit_events
+WHERE ai_analysis_configuration_id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `
+DELETE FROM ai_analysis_usage_records
+WHERE attempt_id IN (
+    SELECT id FROM ai_analysis_attempts WHERE ai_analysis_configuration_id = $1
+)`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `
+DELETE FROM ai_analysis_attempts
+WHERE ai_analysis_configuration_id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `
+DELETE FROM ai_analysis_work_items
+WHERE ai_analysis_configuration_id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `
+DELETE FROM ai_analysis_runs
+WHERE ai_analysis_configuration_id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `
+DELETE FROM ai_semantic_results
+WHERE ai_analysis_configuration_id = $1`, configurationID)
+		_, _ = repository.pool.Exec(cleanupContext, `DELETE FROM ai_analysis_configurations WHERE id = $1`, configurationID)
 	})
 	return configurationID
 }

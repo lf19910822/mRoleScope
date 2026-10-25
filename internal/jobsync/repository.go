@@ -669,6 +669,9 @@ VALUES ($1, $2, $3, $4, $5)`, newUUID(), presenceID, versionID, input.Run.ID, bo
 		if err := enqueuePublishedBodyAnalysis(ctx, tx, bodyVersionID); err != nil {
 			return fmt.Errorf("enqueue body analysis for job %s: %w", observation.SourceJobID, err)
 		}
+		if err := enqueuePublishedAISemanticAnalysis(ctx, tx, bodyVersionID); err != nil {
+			return fmt.Errorf("enqueue AI semantic analysis for job %s: %w", observation.SourceJobID, err)
+		}
 	}
 	return nil
 }
@@ -743,6 +746,41 @@ ON CONFLICT (configuration_id, body_content_version_id) DO NOTHING`, configurati
 	return nil
 }
 
+// enqueuePublishedAISemanticAnalysis records a pending downstream promise for
+// the one released AI baseline. It deliberately does not call a provider or
+// wait for deterministic/AI workers, so a successful source publication is
+// never coupled to external model availability.
+func enqueuePublishedAISemanticAnalysis(ctx context.Context, tx pgx.Tx, bodyVersionID string) error {
+	var configurationID string
+	err := tx.QueryRow(ctx, `
+SELECT configuration.id::text
+FROM ai_analysis_publication_state AS publication
+JOIN ai_analysis_configurations AS configuration
+  ON configuration.id = publication.ai_analysis_configuration_id
+WHERE publication.singleton = true
+  AND configuration.status = 'published'`).Scan(&configurationID)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find published AI analysis configuration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO ai_semantic_results (body_content_version_id, ai_analysis_configuration_id)
+VALUES ($1, $2)
+ON CONFLICT (body_content_version_id, ai_analysis_configuration_id) DO NOTHING`, bodyVersionID, configurationID); err != nil {
+		return fmt.Errorf("create published AI semantic result: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO ai_analysis_work_items (
+    ai_analysis_configuration_id, body_content_version_id, trigger
+) VALUES ($1, $2, 'new_body')
+ON CONFLICT (body_content_version_id, ai_analysis_configuration_id) DO NOTHING`, configurationID, bodyVersionID); err != nil {
+		return fmt.Errorf("enqueue published AI semantic analysis: %w", err)
+	}
+	return nil
+}
+
 func lockAnalysisPublicationStateForSourcePublish(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `
 INSERT INTO technology_analysis_publication_state (singleton)
@@ -756,6 +794,19 @@ FROM technology_analysis_publication_state
 WHERE singleton = true
 FOR SHARE`); err != nil {
 		return fmt.Errorf("lock analysis publication state for source publication: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO ai_analysis_publication_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING`); err != nil {
+		return fmt.Errorf("ensure AI analysis publication state: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+SELECT singleton
+FROM ai_analysis_publication_state
+WHERE singleton = true
+FOR SHARE`); err != nil {
+		return fmt.Errorf("lock AI analysis publication state for source publication: %w", err)
 	}
 	return nil
 }

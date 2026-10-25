@@ -17,14 +17,20 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 16 ]] \
-  || die 'only PostgreSQL, migration, analysis, backfill, and fixed dictionary services may use backend alone'
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 22 ]] \
+  || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal reviews may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
   || die 'worker must remain an explicitly requested one-shot profile'
 
 grep -Fqx '    profiles: [analysis]' "$compose_file" \
   || die 'analysis must remain an explicitly requested one-shot profile'
+
+grep -Fqx '    profiles: [ai-analysis]' "$compose_file" \
+  || die 'AI analysis must remain an explicitly requested one-shot profile'
+
+[[ "$(grep -Fxc '    profiles: [ai-review]' "$compose_file")" -eq 2 ]] \
+  || die 'the two terminal review services must remain explicitly requested'
 
 grep -Fqx '    profiles: [backfill]' "$compose_file" \
   || die 'backfill must remain an explicitly requested one-shot profile'
@@ -55,6 +61,9 @@ grep -Fqx '    internal: true' "$compose_file" \
 
 grep -Fqx '  edge: {}' "$compose_file" \
   || die 'edge network must be an ordinary bridge network'
+
+grep -Fqx '  ai-edge: {}' "$compose_file" \
+  || die 'AI egress network must be an ordinary bridge network'
 
 service_block() {
   local service="$1"
@@ -94,3 +103,41 @@ check_private_one_shot dictionary-v0.2-seed dictionary '["dictionary-v0.2", "see
 check_private_one_shot dictionary-v0.2-approve dictionary '["dictionary-v0.2", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-v0.2-approve-reviewed dictionary '["dictionary-v0.2", "approve-reviewed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-v0.2-prepare dictionary '["dictionary-v0.2", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+
+check_terminal_review() {
+  local service="$1" model="$2" block
+  block=$(service_block "$service")
+  [[ -n "$block" ]] || die "${service} service was not found"
+  grep -Fqx '    profiles: [ai-review]' <<<"$block" \
+    || die "${service} must use only the ai-review profile"
+  grep -Fqx "    command: [\"review-ai\", \"${model}\"]" <<<"$block" \
+    || die "${service} must use its fixed terminal-review command"
+  grep -Fqx '    networks: [backend]' <<<"$block" \
+    || die "${service} must use only the internal backend network"
+  grep -Fqx '    stdin_open: true' <<<"$block" \
+    || die "${service} must keep standard input open for its direct-terminal session"
+  grep -Fqx '    tty: true' <<<"$block" \
+    || die "${service} must allocate a TTY for its direct-terminal session"
+  if grep -Eq '^[[:space:]]+(MROLESCOPE_QWEN_API_KEY:|COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$block"; then
+    die "${service} must not receive the provider key, COS, an external network, a host port, or raw-data volumes"
+  fi
+}
+
+check_terminal_review ai-plus-review plus
+check_terminal_review ai-flash-review flash
+
+for service in ai-plus-trial ai-flash-trial; do
+  ai_block=$(service_block "$service")
+  [[ -n "$ai_block" ]] || die "${service} service was not found"
+  grep -Fqx '    profiles: [ai-analysis]' <<<"$ai_block" \
+    || die "${service} must use only the ai-analysis profile"
+  grep -Fqx '    networks: [backend, ai-edge]' <<<"$ai_block" \
+    || die "${service} must use only backend and its dedicated egress network"
+  grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$ai_block" \
+    || die "${service} must receive its key only through the root-owned env-file variable"
+  if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)' <<<"$ai_block"; then
+    die "${service} must not receive COS, a host port, raw-data volumes, or the ordinary edge network"
+  fi
+done
+[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 2 ]] \
+  || die 'the Qwen key variable must appear only in the two fixed AI trial callers'

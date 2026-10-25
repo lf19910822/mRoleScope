@@ -50,3 +50,92 @@
 允许输出：配置/运行/工作项的稳定 ID、状态、计数、版本标签、规则 ID、字段名、坐标、哈希、错误类别与容量汇总。
 
 禁止输出：JD 正文或片段、原始 API 响应、COS 对象内容、数据库 URL、访问密钥、token、Cookie 和未脱敏上游错误。
+
+## 首期 AI 语义解析：受控试跑与发布
+
+本节适用于已部署 AI 迁移和新版 root-owned 资产后。它只处理已经版本化的
+`description`、`jobRequire`、`addition`，技术词典仍由确定性分析配置提供；不接受
+任意模型、提示词、正文、配置 ID、SQL、路径、价格或批次参数。
+
+### 密钥与部署前提
+
+- `MROLESCOPE_QWEN_WORKSPACE_ID` 与 `MROLESCOPE_QWEN_API_KEY` 只能由 CVM
+  操作者手工加入既有的 `/etc/mrolescope/secrets/remote-development.env`。前者是已确认的
+  北京业务空间标识，worker 只用它构造
+  `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；后者是按量付费
+  百炼 API Key。该文件必须始终是 `root:root`、`0600`；密钥值不得进入 Git、GitHub
+  Actions 输入/输出、聊天、`.env`、镜像、Compose 文件或普通日志。缺失或非法 WorkspaceId
+  会在连接数据库或发送模型请求前安全失败，绝不退回旧通用端点。
+- 只有 `ai-plus-trial` 与 `ai-flash-trial` 两个一次性容器接收该环境变量，并只连接
+  `backend` 与专用 `ai-edge` 网络。准备、扩展、发布、状态容器没有模型密钥、COS
+  凭据、正文挂载或主机端口。
+- 先经受控部署工作流部署包含 `000010` 至 `000018` 迁移、worker 和 bootstrap 资产的
+  同一受保护 `main` 修订。随后由 CVM 的 root 操作者以固定提交重新运行 bootstrap，
+  使 `mrolescope-ai-analysis` 和五个 `mrolescope-ai-*.service` 单元落位；bootstrap
+  不创建或打印密钥，也不启动试跑。
+- 在未准备候选前，可以选择 `ai-status` 检查无正文的状态；它不发送模型请求。
+
+### GitHub Actions 固定操作
+
+仅在 GitHub 的 `Remote development operations` 工作流、受保护的 `main` 上运行下列
+操作。除 `ai-status`、`ai-logs` 外，确认文本必须逐字匹配。操作没有额外参数输入框；
+GitHub actor 也不会成为可选择的模型、提示词或发布人。AI 发布证明的发布人固定为
+`FAN`。
+
+| 顺序 | operation | confirmation | 会做什么 | 不会做什么 |
+| --- | --- | --- | --- | --- |
+| 1 | `prepare-ai-trial` | `PREPARE_AI_TRIAL` | 对固定的 30 份分层正文建立同一输入契约下的 Plus 候选与 Flash 对照，创建共享的 60 逻辑任务/180 尝试/2.00 元预算组。 | 不调用模型，不发送正文，不扩大样本。 |
+| 2 | `run-ai-plus-trial` | `RUN_AI_PLUS_TRIAL` | 只执行固定的 `qwen-plus` 非思考试跑工作；每个逻辑任务至多三次，发送前预留预算。 | 不执行 Flash、不改变提示词或 token 上限、不处理扩展队列。 |
+| 3 | `run-ai-flash-trial` | `RUN_AI_FLASH_TRIAL` | 只执行同一批样本的固定 `qwen-flash` 成本/质量对照。 | 不成为默认模型或自动路由目标。 |
+| 4 | `ai-status` | 无 | 输出配置 ID、工作/尝试/复核状态及 token、金额等安全汇总。 | 不发送模型请求、不显示 JD/片段/原始响应/密钥。 |
+| 5 | `ai-logs` | 无 | 只读取当天五个 AI systemd 单元的 journal。 | 不读取容器原始请求/响应；输出仍须按本指南的无正文边界审阅。 |
+| 6 | `expand-ai-plus` | `EXPAND_AI_PLUS` | 仅在 30 份 Plus 试跑全部完成、全审且零重大错误后，把其余已完成确定性技术分析的正文**入队**。 | 不调用模型；不绕过生产批次预算；不发布。 |
+| 7 | `publish-ai-plus` | `PUBLISH_AI_PLUS` | 在所有已入队工作完成、试跑全审、`required_review` 全审、`spot_check` 20% 和 `routine` 5% 抽审均满足时，写入不可变发布证明并指向固定 Plus 配置。 | 不接受发布人、配置 ID 或任意复核结果；任一门禁失败时不移动发布指针。 |
+
+### CVM 直连人工复核（不属于 GitHub Actions）
+
+真实 JD 只能在 CVM 终端短暂显示，因此人工复核**不能**从 GitHub Actions、`ai-logs`、
+`ai-status` 或聊天中执行。已取得 CVM root 操作权限的审核人可在直连终端逐次运行：
+
+```bash
+sudo /usr/local/sbin/mrolescope-ai-analysis review-plus
+sudo /usr/local/sbin/mrolescope-ai-analysis review-flash
+```
+
+每次命令只选择当前固定 Plus 候选或 Flash 对照中的一个未复核结构化结论，显示三段已版本化
+正文、持久化的结构化结论和证据位置；文本仅写到这次交互终端，不写 journal、数据库审计、
+GitHub 日志或本地文件。终端会提示输入且只接受 `accepted`、`not_reviewable`、`minor_error`
+或 `major_error`；后两者还必须从五类固定错误类别中选择一项。裁决人固定记录为 `FAN`，记录
+不可修改。输入非枚举值、配置不是当前受控试跑臂或没有待复核项都会安全停止，不会写入裁决。
+
+终端内容属于远端受控查看，不要复制到聊天、Git、Issue、CI 输出或截图。正文中的终端控制字符
+会被转义后再显示，避免不可信文本改写终端界面。30 份 Plus 和 30 份 Flash 的有效结论须重复
+上述命令直至 `ai-status` 的无正文汇总显示相应复核完成；任一重大错误即停止扩展和发布。
+
+### 试跑验收与扩展停止点
+
+1. 先执行步骤 1，再分别执行步骤 2 与 3；运行任一模型前都必须确认密钥已由 root
+   按上述边界配置。缺少密钥时 worker 会在读取数据库配置或构造模型客户端前安全失败。
+2. 使用 `ai-status` 只读确认试跑安全汇总。30 份 Plus 与 30 份 Flash 必须保持固定样本；
+   任何 `not_analyzed`、预算停止、校验失败或安全失败都不能解释成学历/年限未配置。
+3. 在 CVM 的受控人工复核流程中审阅 30 份 Plus 与 30 份 Flash 的全部有效解析项；只记录
+   复核结论、ID、计数、错误类别和用量摘要。发现任一重大错误时，不执行扩展或发布；
+   修订提示词、输入契约、校验器或模型档案必须创建新的候选配置并重新试跑。
+4. `expand-ai-plus` 只建立剩余工作项，特意不具有模型外呼能力。当前共享的 2.00 元预算
+   只适用于 30×2 试跑，**不得**用 `run-ai-plus-trial` 消费扩展后的工作项。
+5. 在允许任何正式 Plus 外呼之前，必须另行批准生产批次策略：每批正文数、请求/尝试/
+   输入 token/输出 token/人民币上限、一次确认覆盖一批还是全部剩余正文，以及每批后的
+   暂停与复核规则。在该决定和对应的新受控操作部署前，扩展队列是安全的停止状态，而非
+   可执行的正式分析队列。
+
+### 恢复与回退
+
+- 试跑的瞬时故障只可在固定重试上限内恢复；鉴权、请求、JSON、证据或策略错误不自动
+  重试。每次物理尝试都持久化并计入共享上限，进程中断后也不会使一次已预留请求消失。
+- 候选或试跑未通过时，不删除历史技术提及、正文版本、已完成 AI 结果或审计记录；旧的
+  已发布确定性分析基线持续有效。修正语义契约后创建新的 AI 候选，而不是覆盖旧配置。
+- 在 AI 配置尚未发布时，回退就是不执行 `publish-ai-plus`；扩展队列及候选结果保留作
+  审计，不触发日常同步或默认分析。
+- 当前首期没有 `withdraw-ai-plus` 这一受控操作。发布后的撤回策略必须在投入生产
+  批次前另行设计、测试并作为新的固定 operation 部署；不得通过直接 SQL、删除记录或
+  改写发布证明实施“回退”。部署资产本身若需回退，沿用既有受控部署工作流与已验证提交。

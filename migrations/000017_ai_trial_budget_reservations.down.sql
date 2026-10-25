@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS ai_analysis_trial_budget_reservations_group_idx;
+DROP TABLE IF EXISTS ai_analysis_trial_budget_reservations;
+DROP TYPE IF EXISTS ai_analysis_trial_budget_reservation_status;

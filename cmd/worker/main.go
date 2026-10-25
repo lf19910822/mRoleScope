@@ -5,8 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"mrolescope/internal/collector"
 	"mrolescope/internal/config"
@@ -23,6 +26,12 @@ func main() {
 			return
 		case "analyze":
 			runPendingAnalysis(arguments[1:])
+			return
+		case "analyze-ai":
+			runAIAnalysis(arguments[1:])
+			return
+		case "review-ai":
+			runAIReview(arguments[1:])
 			return
 		case "backfill-versioned-content":
 			runVersionedContentBackfill(arguments[1:])
@@ -47,6 +56,258 @@ func main() {
 	// Preserve the reviewed synchronization helper's existing flag-only
 	// invocation while making new analysis execution explicit.
 	runSync(arguments)
+}
+
+type aiAnalysisOperation string
+
+const (
+	aiAnalysisOperationExpandPlus    aiAnalysisOperation = "expand-plus"
+	aiAnalysisOperationPrepareTrial  aiAnalysisOperation = "prepare-trial"
+	aiAnalysisOperationPublishPlus   aiAnalysisOperation = "publish-plus"
+	aiAnalysisOperationRunFlashTrial aiAnalysisOperation = "run-flash-trial"
+	aiAnalysisOperationRunPlusTrial  aiAnalysisOperation = "run-plus-trial"
+	aiAnalysisOperationStatus        aiAnalysisOperation = "status"
+)
+
+// parseAIAnalysisOperation deliberately provides no escape hatch for a model,
+// prompt, SQL statement, path, price, body ID, payload, or credential. The
+// root-owned helper/Compose service selects one of these exact verbs.
+func parseAIAnalysisOperation(arguments []string) (aiAnalysisOperation, error) {
+	if len(arguments) != 1 {
+		return "", fmt.Errorf("analyze-ai accepts exactly one fixed operation")
+	}
+	switch aiAnalysisOperation(arguments[0]) {
+	case aiAnalysisOperationPrepareTrial,
+		aiAnalysisOperationRunPlusTrial,
+		aiAnalysisOperationRunFlashTrial,
+		aiAnalysisOperationExpandPlus,
+		aiAnalysisOperationPublishPlus,
+		aiAnalysisOperationStatus:
+		return aiAnalysisOperation(arguments[0]), nil
+	default:
+		return "", fmt.Errorf("analyze-ai operation is not allowlisted")
+	}
+}
+
+func runAIAnalysis(arguments []string) {
+	operation, err := parseAIAnalysisOperation(arguments)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(2)
+	}
+	// Reject a missing provider credential before configuration or database
+	// initialization. A trial cannot make progress without it, and this keeps
+	// the failure local without creating a path that could construct a client.
+	if aiAnalysisOperationRequiresCredential(operation) && strings.TrimSpace(os.Getenv("MROLESCOPE_QWEN_API_KEY")) == "" {
+		slog.Error("AI model credential is not configured")
+		os.Exit(1)
+	}
+	workspaceID := os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID")
+	if _, err := jdanalysis.QwenBeijingWorkspaceCompatibleBaseURL(workspaceID); err != nil {
+		slog.Error("AI model workspace is not configured")
+		os.Exit(1)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid AI analysis configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("AI analysis database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+
+	switch operation {
+	case aiAnalysisOperationPrepareTrial:
+		prepared, err := repository.PrepareControlledAITrial(ctx, workspaceID)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+			os.Exit(1)
+		}
+		slog.Info("controlled AI trial prepared",
+			"plus_configuration_id", prepared.Plus.ID,
+			"flash_configuration_id", prepared.Flash.ID,
+			"budget_group_id", prepared.BudgetGroupID,
+			"plus_queued", prepared.PlusQueued,
+			"flash_queued", prepared.FlashQueued,
+			"reused", prepared.Reused,
+		)
+	case aiAnalysisOperationRunPlusTrial:
+		runControlledAITrialModel(ctx, repository, "qwen-plus", workspaceID)
+	case aiAnalysisOperationRunFlashTrial:
+		runControlledAITrialModel(ctx, repository, "qwen-flash", workspaceID)
+	case aiAnalysisOperationExpandPlus:
+		configurationID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-plus", workspaceID)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+			os.Exit(1)
+		}
+		summary, err := repository.ExpandAIPlusCandidate(ctx, configurationID)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err), "configuration_id", configurationID)
+			os.Exit(1)
+		}
+		slog.Info("controlled AI Plus expansion completed",
+			"configuration_id", summary.AIConfigurationID,
+			"existing_expansion_work", summary.ExistingExpansionWorkCount,
+			"queued", summary.Queued,
+		)
+	case aiAnalysisOperationPublishPlus:
+		configurationID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-plus", workspaceID)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+			os.Exit(1)
+		}
+		summary, err := repository.PublishAIConfiguration(ctx, configurationID)
+		if err != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(err), "configuration_id", configurationID)
+			os.Exit(1)
+		}
+		slog.Info("controlled AI Plus configuration published",
+			"configuration_id", summary.AIConfigurationID,
+			"trial_body_count", summary.TrialBodyCount,
+			"fully_reviewed_trial_body_count", summary.FullyReviewedTrialBodyCount,
+			"major_error_count", summary.MajorErrorCount,
+			"publisher", summary.Publisher,
+		)
+	case aiAnalysisOperationStatus:
+		runControlledAITrialStatus(ctx, repository, workspaceID)
+	}
+}
+
+// parseAIReviewModel exposes only the two trial arms to the direct CVM review
+// session. It deliberately does not accept a configuration ID, artifact ID,
+// reviewer, SQL statement, body ID, model identifier, or any free-form input.
+func parseAIReviewModel(arguments []string) (string, error) {
+	if len(arguments) != 1 {
+		return "", fmt.Errorf("review-ai accepts exactly one fixed trial arm")
+	}
+	switch arguments[0] {
+	case "plus":
+		return "qwen-plus", nil
+	case "flash":
+		return "qwen-flash", nil
+	default:
+		return "", fmt.Errorf("review-ai trial arm is not allowlisted")
+	}
+}
+
+// runAIReview is intentionally separate from runAIAnalysis: it writes JD
+// text only to the directly attached CVM terminal and never through slog,
+// systemd, GitHub Actions, or a status operation.
+func runAIReview(arguments []string) {
+	model, err := parseAIReviewModel(arguments)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI review operation is not allowlisted")
+		os.Exit(2)
+	}
+	workspaceID := os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID")
+	if _, err := jdanalysis.QwenBeijingWorkspaceCompatibleBaseURL(workspaceID); err != nil {
+		fmt.Fprintln(os.Stderr, "AI review workspace is not configured")
+		os.Exit(1)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI review configuration is unavailable")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI review database is unavailable")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	configurationID, err := repository.ControlledAITrialConfigurationID(ctx, model, workspaceID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "AI review candidate is unavailable")
+		os.Exit(1)
+	}
+	if _, err := jdanalysis.RunControlledAIReviewSession(ctx, repository, configurationID, model, os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "AI review was not recorded")
+		os.Exit(1)
+	}
+}
+
+func aiAnalysisOperationRequiresCredential(operation aiAnalysisOperation) bool {
+	return operation == aiAnalysisOperationRunPlusTrial || operation == aiAnalysisOperationRunFlashTrial
+}
+
+func runControlledAITrialModel(ctx context.Context, repository *jdanalysis.Repository, model, workspaceID string) {
+	apiKey := strings.TrimSpace(os.Getenv("MROLESCOPE_QWEN_API_KEY"))
+	if apiKey == "" {
+		slog.Error("AI model credential is not configured")
+		os.Exit(1)
+	}
+	configurationID, err := repository.ControlledAITrialConfigurationID(ctx, model, workspaceID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	httpClient := &http.Client{Timeout: 90 * time.Second}
+	var client jdanalysis.ControlledAIModelClient
+	switch model {
+	case "qwen-plus":
+		client, err = jdanalysis.NewQwenPlusClient(apiKey, httpClient, workspaceID)
+	case "qwen-flash":
+		client, err = jdanalysis.NewQwenFlashComparisonClient(apiKey, httpClient, workspaceID)
+	default:
+		err = jdanalysis.NewSafeAIError(jdanalysis.AISafeErrorConfigurationInvalid, nil)
+	}
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	summary, err := (jdanalysis.AISemanticProcessor{
+		Repository:                   repository,
+		RequirePersistentTrialBudget: true,
+		Runner: jdanalysis.AIModelAttemptRunner{
+			Client:    client,
+			Estimator: jdanalysis.ConservativeAIInputTokenEstimator{},
+		},
+	}).ProcessPending(ctx, configurationID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err), "configuration_id", configurationID, "run_id", summary.RunID, "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+		os.Exit(1)
+	}
+	slog.Info("controlled AI trial model completed", "model", model, "configuration_id", configurationID, "run_id", summary.RunID, "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+}
+
+func runControlledAITrialStatus(ctx context.Context, repository *jdanalysis.Repository, workspaceID string) {
+	plusID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-plus", workspaceID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	flashID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-flash", workspaceID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	report, err := repository.ReadAITrialComparisonReport(ctx, plusID, flashID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err))
+		os.Exit(1)
+	}
+	slog.Info("controlled AI trial status",
+		"plus_configuration_id", report.Plus.AIConfigurationID,
+		"flash_configuration_id", report.Flash.AIConfigurationID,
+		"plus_logical_tasks", report.Plus.LogicalTaskCount,
+		"flash_logical_tasks", report.Flash.LogicalTaskCount,
+		"plus_pending", report.Plus.PendingTaskCount,
+		"flash_pending", report.Flash.PendingTaskCount,
+		"plus_complete", report.Plus.CompleteTaskCount,
+		"flash_complete", report.Flash.CompleteTaskCount,
+		"plus_input_tokens", report.Plus.InputTokenCount,
+		"plus_output_tokens", report.Plus.OutputTokenCount,
+		"flash_input_tokens", report.Flash.InputTokenCount,
+		"flash_output_tokens", report.Flash.OutputTokenCount,
+	)
 }
 
 func runSync(arguments []string) {
