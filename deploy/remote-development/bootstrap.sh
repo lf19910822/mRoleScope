@@ -15,6 +15,7 @@ readonly ANALYSIS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-analysis'
 readonly BACKFILL_HELPER_DESTINATION='/usr/local/sbin/mrolescope-backfill-versioned-content'
 readonly DICTIONARY_HELPER_DESTINATION='/usr/local/sbin/mrolescope-dictionary'
 readonly RELEASE_HELPER_DESTINATION='/usr/local/sbin/mrolescope-release'
+readonly AI_ANALYSIS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-ai-analysis'
 readonly OPERATIONS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-operations'
 readonly SYNC_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-sync.service'
 readonly SYNC_TIMER_DESTINATION='/etc/systemd/system/mrolescope-sync.timer'
@@ -22,6 +23,11 @@ readonly ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-analysis.s
 readonly CANDIDATE_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis.service'
 readonly CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis-v0.2.service'
 readonly BACKFILL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-backfill-versioned-content.service'
+readonly AI_TRIAL_PREPARE_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-trial-prepare.service'
+readonly AI_PLUS_TRIAL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-trial.service'
+readonly AI_FLASH_TRIAL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-flash-trial.service'
+readonly AI_PLUS_EXPAND_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-expand.service'
+readonly AI_PLUS_PUBLISH_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-publish.service'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
 readonly SECRETS_DIR='/etc/mrolescope/secrets'
@@ -133,6 +139,7 @@ download_asset 'deploy/remote-development/mrolescope-analysis' "$staging_dir/mro
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content' "$staging_dir/mrolescope-backfill-versioned-content"
 download_asset 'deploy/remote-development/mrolescope-dictionary' "$staging_dir/mrolescope-dictionary"
 download_asset 'deploy/remote-development/mrolescope-release' "$staging_dir/mrolescope-release"
+download_asset 'deploy/remote-development/mrolescope-ai-analysis' "$staging_dir/mrolescope-ai-analysis"
 download_asset 'deploy/remote-development/mrolescope-operations' "$staging_dir/mrolescope-operations"
 download_asset 'deploy/remote-development/mrolescope-sync.service' "$staging_dir/mrolescope-sync.service"
 download_asset 'deploy/remote-development/mrolescope-sync.timer' "$staging_dir/mrolescope-sync.timer"
@@ -140,12 +147,18 @@ download_asset 'deploy/remote-development/mrolescope-analysis.service' "$staging
 download_asset 'deploy/remote-development/mrolescope-candidate-analysis.service' "$staging_dir/mrolescope-candidate-analysis.service"
 download_asset 'deploy/remote-development/mrolescope-candidate-analysis-v0.2.service' "$staging_dir/mrolescope-candidate-analysis-v0.2.service"
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content.service' "$staging_dir/mrolescope-backfill-versioned-content.service"
+download_asset 'deploy/remote-development/mrolescope-ai-trial-prepare.service' "$staging_dir/mrolescope-ai-trial-prepare.service"
+download_asset 'deploy/remote-development/mrolescope-ai-plus-trial.service' "$staging_dir/mrolescope-ai-plus-trial.service"
+download_asset 'deploy/remote-development/mrolescope-ai-flash-trial.service' "$staging_dir/mrolescope-ai-flash-trial.service"
+download_asset 'deploy/remote-development/mrolescope-ai-plus-expand.service' "$staging_dir/mrolescope-ai-plus-expand.service"
+download_asset 'deploy/remote-development/mrolescope-ai-plus-publish.service' "$staging_dir/mrolescope-ai-plus-publish.service"
 bash -n "$staging_dir/mrolescope-deploy"
 bash -n "$staging_dir/mrolescope-sync"
 bash -n "$staging_dir/mrolescope-analysis"
 bash -n "$staging_dir/mrolescope-backfill-versioned-content"
 bash -n "$staging_dir/mrolescope-dictionary"
 bash -n "$staging_dir/mrolescope-release"
+bash -n "$staging_dir/mrolescope-ai-analysis"
 bash -n "$staging_dir/mrolescope-operations"
 printf 'DOCKERHUB_NAMESPACE=%s\n' "$DOCKERHUB_NAMESPACE" >"$staging_dir/remote-development.conf"
 
@@ -165,6 +178,7 @@ install -o root -g root -m 0750 "$staging_dir/mrolescope-analysis" "$ANALYSIS_HE
 install -o root -g root -m 0750 "$staging_dir/mrolescope-backfill-versioned-content" "$BACKFILL_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-dictionary" "$DICTIONARY_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-release" "$RELEASE_HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-ai-analysis" "$AI_ANALYSIS_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-operations" "$OPERATIONS_HELPER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.service" "$SYNC_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.timer" "$SYNC_TIMER_DESTINATION"
@@ -172,6 +186,11 @@ install -o root -g root -m 0644 "$staging_dir/mrolescope-analysis.service" "$ANA
 install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis.service" "$CANDIDATE_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis-v0.2.service" "$CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-backfill-versioned-content.service" "$BACKFILL_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-trial-prepare.service" "$AI_TRIAL_PREPARE_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-trial.service" "$AI_PLUS_TRIAL_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-flash-trial.service" "$AI_FLASH_TRIAL_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-expand.service" "$AI_PLUS_EXPAND_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-publish.service" "$AI_PLUS_PUBLISH_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
 
 sudoers_candidate="$staging_dir/mrolescope-deploy.sudoers"

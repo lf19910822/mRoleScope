@@ -11,6 +11,930 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AiAnalysisAttemptStatus string
+
+const (
+	AiAnalysisAttemptStatusRunning   AiAnalysisAttemptStatus = "running"
+	AiAnalysisAttemptStatusSucceeded AiAnalysisAttemptStatus = "succeeded"
+	AiAnalysisAttemptStatusFailed    AiAnalysisAttemptStatus = "failed"
+)
+
+func (e *AiAnalysisAttemptStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisAttemptStatus(s)
+	case string:
+		*e = AiAnalysisAttemptStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisAttemptStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisAttemptStatus struct {
+	AiAnalysisAttemptStatus AiAnalysisAttemptStatus
+	Valid                   bool // Valid is true if AiAnalysisAttemptStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisAttemptStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisAttemptStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisAttemptStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisAttemptStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisAttemptStatus), nil
+}
+
+type AiAnalysisConfigurationStatus string
+
+const (
+	AiAnalysisConfigurationStatusCandidate  AiAnalysisConfigurationStatus = "candidate"
+	AiAnalysisConfigurationStatusComparison AiAnalysisConfigurationStatus = "comparison"
+	AiAnalysisConfigurationStatusPublished  AiAnalysisConfigurationStatus = "published"
+	AiAnalysisConfigurationStatusFailed     AiAnalysisConfigurationStatus = "failed"
+	AiAnalysisConfigurationStatusRetired    AiAnalysisConfigurationStatus = "retired"
+)
+
+func (e *AiAnalysisConfigurationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisConfigurationStatus(s)
+	case string:
+		*e = AiAnalysisConfigurationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisConfigurationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisConfigurationStatus struct {
+	AiAnalysisConfigurationStatus AiAnalysisConfigurationStatus
+	Valid                         bool // Valid is true if AiAnalysisConfigurationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisConfigurationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisConfigurationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisConfigurationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisConfigurationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisConfigurationStatus), nil
+}
+
+type AiAnalysisProvider string
+
+const (
+	AiAnalysisProviderBailian AiAnalysisProvider = "bailian"
+)
+
+func (e *AiAnalysisProvider) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisProvider(s)
+	case string:
+		*e = AiAnalysisProvider(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisProvider: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisProvider struct {
+	AiAnalysisProvider AiAnalysisProvider
+	Valid              bool // Valid is true if AiAnalysisProvider is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisProvider) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisProvider, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisProvider.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisProvider) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisProvider), nil
+}
+
+type AiAnalysisRunStatus string
+
+const (
+	AiAnalysisRunStatusRunning      AiAnalysisRunStatus = "running"
+	AiAnalysisRunStatusComplete     AiAnalysisRunStatus = "complete"
+	AiAnalysisRunStatusFailedSafely AiAnalysisRunStatus = "failed_safely"
+)
+
+func (e *AiAnalysisRunStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisRunStatus(s)
+	case string:
+		*e = AiAnalysisRunStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisRunStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisRunStatus struct {
+	AiAnalysisRunStatus AiAnalysisRunStatus
+	Valid               bool // Valid is true if AiAnalysisRunStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisRunStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisRunStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisRunStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisRunStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisRunStatus), nil
+}
+
+type AiAnalysisTrialBudgetReservationStatus string
+
+const (
+	AiAnalysisTrialBudgetReservationStatusReserved AiAnalysisTrialBudgetReservationStatus = "reserved"
+	AiAnalysisTrialBudgetReservationStatusSettled  AiAnalysisTrialBudgetReservationStatus = "settled"
+)
+
+func (e *AiAnalysisTrialBudgetReservationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisTrialBudgetReservationStatus(s)
+	case string:
+		*e = AiAnalysisTrialBudgetReservationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisTrialBudgetReservationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisTrialBudgetReservationStatus struct {
+	AiAnalysisTrialBudgetReservationStatus AiAnalysisTrialBudgetReservationStatus
+	Valid                                  bool // Valid is true if AiAnalysisTrialBudgetReservationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisTrialBudgetReservationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisTrialBudgetReservationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisTrialBudgetReservationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisTrialBudgetReservationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisTrialBudgetReservationStatus), nil
+}
+
+type AiAnalysisTrigger string
+
+const (
+	AiAnalysisTriggerTrial       AiAnalysisTrigger = "trial"
+	AiAnalysisTriggerExpansion   AiAnalysisTrigger = "expansion"
+	AiAnalysisTriggerNewBody     AiAnalysisTrigger = "new_body"
+	AiAnalysisTriggerManualRetry AiAnalysisTrigger = "manual_retry"
+)
+
+func (e *AiAnalysisTrigger) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisTrigger(s)
+	case string:
+		*e = AiAnalysisTrigger(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisTrigger: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisTrigger struct {
+	AiAnalysisTrigger AiAnalysisTrigger
+	Valid             bool // Valid is true if AiAnalysisTrigger is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisTrigger) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisTrigger, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisTrigger.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisTrigger) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisTrigger), nil
+}
+
+type AiAnalysisWorkStatus string
+
+const (
+	AiAnalysisWorkStatusPending      AiAnalysisWorkStatus = "pending"
+	AiAnalysisWorkStatusRunning      AiAnalysisWorkStatus = "running"
+	AiAnalysisWorkStatusComplete     AiAnalysisWorkStatus = "complete"
+	AiAnalysisWorkStatusFailedSafely AiAnalysisWorkStatus = "failed_safely"
+)
+
+func (e *AiAnalysisWorkStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAnalysisWorkStatus(s)
+	case string:
+		*e = AiAnalysisWorkStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAnalysisWorkStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiAnalysisWorkStatus struct {
+	AiAnalysisWorkStatus AiAnalysisWorkStatus
+	Valid                bool // Valid is true if AiAnalysisWorkStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAnalysisWorkStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAnalysisWorkStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAnalysisWorkStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAnalysisWorkStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAnalysisWorkStatus), nil
+}
+
+type AiAuditCode string
+
+const (
+	AiAuditCodeCandidatePrepared      AiAuditCode = "candidate_prepared"
+	AiAuditCodeWorkQueued             AiAuditCode = "work_queued"
+	AiAuditCodeAttemptStarted         AiAuditCode = "attempt_started"
+	AiAuditCodeAttemptCompleted       AiAuditCode = "attempt_completed"
+	AiAuditCodeSafeFailureRecorded    AiAuditCode = "safe_failure_recorded"
+	AiAuditCodeConfigurationPublished AiAuditCode = "configuration_published"
+)
+
+func (e *AiAuditCode) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAuditCode(s)
+	case string:
+		*e = AiAuditCode(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAuditCode: %T", src)
+	}
+	return nil
+}
+
+type NullAiAuditCode struct {
+	AiAuditCode AiAuditCode
+	Valid       bool // Valid is true if AiAuditCode is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAuditCode) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAuditCode, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAuditCode.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAuditCode) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAuditCode), nil
+}
+
+type AiAuditSeverity string
+
+const (
+	AiAuditSeverityInfo    AiAuditSeverity = "info"
+	AiAuditSeverityWarning AiAuditSeverity = "warning"
+	AiAuditSeverityError   AiAuditSeverity = "error"
+)
+
+func (e *AiAuditSeverity) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiAuditSeverity(s)
+	case string:
+		*e = AiAuditSeverity(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiAuditSeverity: %T", src)
+	}
+	return nil
+}
+
+type NullAiAuditSeverity struct {
+	AiAuditSeverity AiAuditSeverity
+	Valid           bool // Valid is true if AiAuditSeverity is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiAuditSeverity) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiAuditSeverity, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiAuditSeverity.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiAuditSeverity) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiAuditSeverity), nil
+}
+
+type AiEducationLevel string
+
+const (
+	AiEducationLevelAssociateOrLower AiEducationLevel = "associate_or_lower"
+	AiEducationLevelBachelor         AiEducationLevel = "bachelor"
+	AiEducationLevelMaster           AiEducationLevel = "master"
+	AiEducationLevelDoctor           AiEducationLevel = "doctor"
+)
+
+func (e *AiEducationLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiEducationLevel(s)
+	case string:
+		*e = AiEducationLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiEducationLevel: %T", src)
+	}
+	return nil
+}
+
+type NullAiEducationLevel struct {
+	AiEducationLevel AiEducationLevel
+	Valid            bool // Valid is true if AiEducationLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiEducationLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiEducationLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiEducationLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiEducationLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiEducationLevel), nil
+}
+
+type AiProficiencyLevel string
+
+const (
+	AiProficiencyLevelP1 AiProficiencyLevel = "p1"
+	AiProficiencyLevelP2 AiProficiencyLevel = "p2"
+	AiProficiencyLevelP3 AiProficiencyLevel = "p3"
+	AiProficiencyLevelP4 AiProficiencyLevel = "p4"
+)
+
+func (e *AiProficiencyLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiProficiencyLevel(s)
+	case string:
+		*e = AiProficiencyLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiProficiencyLevel: %T", src)
+	}
+	return nil
+}
+
+type NullAiProficiencyLevel struct {
+	AiProficiencyLevel AiProficiencyLevel
+	Valid              bool // Valid is true if AiProficiencyLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiProficiencyLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiProficiencyLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiProficiencyLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiProficiencyLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiProficiencyLevel), nil
+}
+
+type AiRequirementNecessity string
+
+const (
+	AiRequirementNecessityRequired    AiRequirementNecessity = "required"
+	AiRequirementNecessityPreferred   AiRequirementNecessity = "preferred"
+	AiRequirementNecessityUnspecified AiRequirementNecessity = "unspecified"
+)
+
+func (e *AiRequirementNecessity) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiRequirementNecessity(s)
+	case string:
+		*e = AiRequirementNecessity(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiRequirementNecessity: %T", src)
+	}
+	return nil
+}
+
+type NullAiRequirementNecessity struct {
+	AiRequirementNecessity AiRequirementNecessity
+	Valid                  bool // Valid is true if AiRequirementNecessity is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiRequirementNecessity) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiRequirementNecessity, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiRequirementNecessity.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiRequirementNecessity) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiRequirementNecessity), nil
+}
+
+type AiRequirementOperator string
+
+const (
+	AiRequirementOperatorAtLeast AiRequirementOperator = "at_least"
+)
+
+func (e *AiRequirementOperator) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiRequirementOperator(s)
+	case string:
+		*e = AiRequirementOperator(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiRequirementOperator: %T", src)
+	}
+	return nil
+}
+
+type NullAiRequirementOperator struct {
+	AiRequirementOperator AiRequirementOperator
+	Valid                 bool // Valid is true if AiRequirementOperator is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiRequirementOperator) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiRequirementOperator, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiRequirementOperator.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiRequirementOperator) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiRequirementOperator), nil
+}
+
+type AiRequirementRole string
+
+const (
+	AiRequirementRoleQualification  AiRequirementRole = "qualification"
+	AiRequirementRoleResponsibility AiRequirementRole = "responsibility"
+	AiRequirementRoleMention        AiRequirementRole = "mention"
+	AiRequirementRoleUnspecified    AiRequirementRole = "unspecified"
+)
+
+func (e *AiRequirementRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiRequirementRole(s)
+	case string:
+		*e = AiRequirementRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiRequirementRole: %T", src)
+	}
+	return nil
+}
+
+type NullAiRequirementRole struct {
+	AiRequirementRole AiRequirementRole
+	Valid             bool // Valid is true if AiRequirementRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiRequirementRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiRequirementRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiRequirementRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiRequirementRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiRequirementRole), nil
+}
+
+type AiSafeErrorCode string
+
+const (
+	AiSafeErrorCodeInputTooLarge                AiSafeErrorCode = "input_too_large"
+	AiSafeErrorCodeBudgetExhausted              AiSafeErrorCode = "budget_exhausted"
+	AiSafeErrorCodeProviderTimeout              AiSafeErrorCode = "provider_timeout"
+	AiSafeErrorCodeProviderRateLimited          AiSafeErrorCode = "provider_rate_limited"
+	AiSafeErrorCodeProviderServerError          AiSafeErrorCode = "provider_server_error"
+	AiSafeErrorCodeProviderAuthenticationFailed AiSafeErrorCode = "provider_authentication_failed"
+	AiSafeErrorCodeInvalidResponseSchema        AiSafeErrorCode = "invalid_response_schema"
+	AiSafeErrorCodeInvalidEvidenceReference     AiSafeErrorCode = "invalid_evidence_reference"
+	AiSafeErrorCodePolicyRejected               AiSafeErrorCode = "policy_rejected"
+	AiSafeErrorCodeConfigurationInvalid         AiSafeErrorCode = "configuration_invalid"
+)
+
+func (e *AiSafeErrorCode) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSafeErrorCode(s)
+	case string:
+		*e = AiSafeErrorCode(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSafeErrorCode: %T", src)
+	}
+	return nil
+}
+
+type NullAiSafeErrorCode struct {
+	AiSafeErrorCode AiSafeErrorCode
+	Valid           bool // Valid is true if AiSafeErrorCode is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSafeErrorCode) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSafeErrorCode, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSafeErrorCode.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSafeErrorCode) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSafeErrorCode), nil
+}
+
+type AiSemanticArtifactKind string
+
+const (
+	AiSemanticArtifactKindExperienceSummary   AiSemanticArtifactKind = "experience_summary"
+	AiSemanticArtifactKindExperienceItem      AiSemanticArtifactKind = "experience_item"
+	AiSemanticArtifactKindEducationSummary    AiSemanticArtifactKind = "education_summary"
+	AiSemanticArtifactKindConditionBranch     AiSemanticArtifactKind = "condition_branch"
+	AiSemanticArtifactKindRequirementGroup    AiSemanticArtifactKind = "requirement_group"
+	AiSemanticArtifactKindRequirementOption   AiSemanticArtifactKind = "requirement_option"
+	AiSemanticArtifactKindCandidateTechnology AiSemanticArtifactKind = "candidate_technology"
+)
+
+func (e *AiSemanticArtifactKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSemanticArtifactKind(s)
+	case string:
+		*e = AiSemanticArtifactKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSemanticArtifactKind: %T", src)
+	}
+	return nil
+}
+
+type NullAiSemanticArtifactKind struct {
+	AiSemanticArtifactKind AiSemanticArtifactKind
+	Valid                  bool // Valid is true if AiSemanticArtifactKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSemanticArtifactKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSemanticArtifactKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSemanticArtifactKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSemanticArtifactKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSemanticArtifactKind), nil
+}
+
+type AiSemanticExecutionStatus string
+
+const (
+	AiSemanticExecutionStatusPending      AiSemanticExecutionStatus = "pending"
+	AiSemanticExecutionStatusRunning      AiSemanticExecutionStatus = "running"
+	AiSemanticExecutionStatusComplete     AiSemanticExecutionStatus = "complete"
+	AiSemanticExecutionStatusFailedSafely AiSemanticExecutionStatus = "failed_safely"
+)
+
+func (e *AiSemanticExecutionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSemanticExecutionStatus(s)
+	case string:
+		*e = AiSemanticExecutionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSemanticExecutionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiSemanticExecutionStatus struct {
+	AiSemanticExecutionStatus AiSemanticExecutionStatus
+	Valid                     bool // Valid is true if AiSemanticExecutionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSemanticExecutionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSemanticExecutionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSemanticExecutionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSemanticExecutionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSemanticExecutionStatus), nil
+}
+
+type AiSemanticReviewErrorCategory string
+
+const (
+	AiSemanticReviewErrorCategoryNecessityReversal   AiSemanticReviewErrorCategory = "necessity_reversal"
+	AiSemanticReviewErrorCategoryAlternativeReversal AiSemanticReviewErrorCategory = "alternative_reversal"
+	AiSemanticReviewErrorCategoryEducationReversal   AiSemanticReviewErrorCategory = "education_reversal"
+	AiSemanticReviewErrorCategoryExperienceReversal  AiSemanticReviewErrorCategory = "experience_reversal"
+	AiSemanticReviewErrorCategoryOther               AiSemanticReviewErrorCategory = "other"
+)
+
+func (e *AiSemanticReviewErrorCategory) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSemanticReviewErrorCategory(s)
+	case string:
+		*e = AiSemanticReviewErrorCategory(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSemanticReviewErrorCategory: %T", src)
+	}
+	return nil
+}
+
+type NullAiSemanticReviewErrorCategory struct {
+	AiSemanticReviewErrorCategory AiSemanticReviewErrorCategory
+	Valid                         bool // Valid is true if AiSemanticReviewErrorCategory is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSemanticReviewErrorCategory) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSemanticReviewErrorCategory, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSemanticReviewErrorCategory.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSemanticReviewErrorCategory) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSemanticReviewErrorCategory), nil
+}
+
+type AiSemanticReviewTier string
+
+const (
+	AiSemanticReviewTierRoutine        AiSemanticReviewTier = "routine"
+	AiSemanticReviewTierSpotCheck      AiSemanticReviewTier = "spot_check"
+	AiSemanticReviewTierRequiredReview AiSemanticReviewTier = "required_review"
+)
+
+func (e *AiSemanticReviewTier) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSemanticReviewTier(s)
+	case string:
+		*e = AiSemanticReviewTier(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSemanticReviewTier: %T", src)
+	}
+	return nil
+}
+
+type NullAiSemanticReviewTier struct {
+	AiSemanticReviewTier AiSemanticReviewTier
+	Valid                bool // Valid is true if AiSemanticReviewTier is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSemanticReviewTier) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSemanticReviewTier, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSemanticReviewTier.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSemanticReviewTier) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSemanticReviewTier), nil
+}
+
+type AiSemanticReviewVerdict string
+
+const (
+	AiSemanticReviewVerdictAccepted      AiSemanticReviewVerdict = "accepted"
+	AiSemanticReviewVerdictMinorError    AiSemanticReviewVerdict = "minor_error"
+	AiSemanticReviewVerdictMajorError    AiSemanticReviewVerdict = "major_error"
+	AiSemanticReviewVerdictNotReviewable AiSemanticReviewVerdict = "not_reviewable"
+)
+
+func (e *AiSemanticReviewVerdict) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSemanticReviewVerdict(s)
+	case string:
+		*e = AiSemanticReviewVerdict(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSemanticReviewVerdict: %T", src)
+	}
+	return nil
+}
+
+type NullAiSemanticReviewVerdict struct {
+	AiSemanticReviewVerdict AiSemanticReviewVerdict
+	Valid                   bool // Valid is true if AiSemanticReviewVerdict is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSemanticReviewVerdict) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSemanticReviewVerdict, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSemanticReviewVerdict.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSemanticReviewVerdict) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSemanticReviewVerdict), nil
+}
+
+type AiSemanticValueStatus string
+
+const (
+	AiSemanticValueStatusNotAnalyzed   AiSemanticValueStatus = "not_analyzed"
+	AiSemanticValueStatusNotConfigured AiSemanticValueStatus = "not_configured"
+	AiSemanticValueStatusUncertain     AiSemanticValueStatus = "uncertain"
+	AiSemanticValueStatusConfigured    AiSemanticValueStatus = "configured"
+)
+
+func (e *AiSemanticValueStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiSemanticValueStatus(s)
+	case string:
+		*e = AiSemanticValueStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiSemanticValueStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiSemanticValueStatus struct {
+	AiSemanticValueStatus AiSemanticValueStatus
+	Valid                 bool // Valid is true if AiSemanticValueStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiSemanticValueStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiSemanticValueStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiSemanticValueStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiSemanticValueStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiSemanticValueStatus), nil
+}
+
 type CollectionRunStatus string
 
 const (
@@ -587,6 +1511,239 @@ type AggregateSnapshot struct {
 	MethodologyVersion string
 	Payload            []byte
 	CreatedAt          pgtype.Timestamptz
+}
+
+type AiAnalysisAttempt struct {
+	ID                        pgtype.UUID
+	AiAnalysisConfigurationID pgtype.UUID
+	WorkItemID                pgtype.UUID
+	RunID                     pgtype.UUID
+	AttemptNumber             int32
+	Status                    AiAnalysisAttemptStatus
+	InputTokenLimit           int32
+	OutputTokenLimit          int32
+	SafeErrorCode             pgtype.Text
+	ProviderRequestID         pgtype.UUID
+	StartedAt                 pgtype.Timestamptz
+	CompletedAt               pgtype.Timestamptz
+}
+
+type AiAnalysisAuditEvent struct {
+	ID                        pgtype.UUID
+	AiAnalysisConfigurationID pgtype.UUID
+	RunID                     pgtype.UUID
+	WorkItemID                pgtype.UUID
+	Severity                  AiAuditSeverity
+	Code                      AiAuditCode
+	SafeErrorCode             NullAiSafeErrorCode
+	LogicalTaskCount          int32
+	AttemptCount              int32
+	InputTokenCount           int32
+	OutputTokenCount          int32
+	ChargeRmb                 pgtype.Numeric
+	OccurredAt                pgtype.Timestamptz
+}
+
+type AiAnalysisConfiguration struct {
+	ID                                pgtype.UUID
+	TechnologyAnalysisConfigurationID pgtype.UUID
+	Provider                          AiAnalysisProvider
+	Model                             string
+	ConfigurationSha256               string
+	RequestProfileSha256              string
+	PromptSha256                      string
+	ResponseSchemaVersion             string
+	ResponseSchemaSha256              string
+	InputContractVersion              string
+	InputContractSha256               string
+	ValidatorVersion                  string
+	ValidatorSha256                   string
+	PricingProfileVersion             string
+	PricingProfileSha256              string
+	Status                            AiAnalysisConfigurationStatus
+	CreatedBy                         string
+	CreatedAt                         pgtype.Timestamptz
+	PublishedAt                       pgtype.Timestamptz
+	FailedAt                          pgtype.Timestamptz
+	RetiredAt                         pgtype.Timestamptz
+	SafeFailureCode                   pgtype.Text
+}
+
+type AiAnalysisPublicationState struct {
+	Singleton                 bool
+	AiAnalysisConfigurationID pgtype.UUID
+	UpdatedAt                 pgtype.Timestamptz
+}
+
+type AiAnalysisReleaseAttestation struct {
+	ID                          pgtype.UUID
+	AiAnalysisConfigurationID   pgtype.UUID
+	GateVersion                 string
+	Publisher                   string
+	AttestationSha256           string
+	TrialBodyCount              int32
+	FullyReviewedTrialBodyCount int32
+	MajorErrorCount             int32
+	ReleasedAt                  pgtype.Timestamptz
+}
+
+type AiAnalysisRun struct {
+	ID                        pgtype.UUID
+	AiAnalysisConfigurationID pgtype.UUID
+	Trigger                   AiAnalysisTrigger
+	Status                    AiAnalysisRunStatus
+	StartedAt                 pgtype.Timestamptz
+	CompletedAt               pgtype.Timestamptz
+	ClaimedCount              int32
+	CompletedCount            int32
+	FailedCount               int32
+	SafeErrorCode             pgtype.Text
+}
+
+type AiAnalysisTrialBudgetGroup struct {
+	ID                          pgtype.UUID
+	MaximumLogicalTaskCount     int32
+	MaximumPhysicalAttemptCount int32
+	MaximumChargeNanoRmb        int64
+	CreatedAt                   pgtype.Timestamptz
+}
+
+type AiAnalysisTrialBudgetGroupMember struct {
+	AiAnalysisTrialBudgetGroupID pgtype.UUID
+	AiAnalysisConfigurationID    pgtype.UUID
+}
+
+type AiAnalysisTrialBudgetReservation struct {
+	ID                           pgtype.UUID
+	AiAnalysisTrialBudgetGroupID pgtype.UUID
+	AiAnalysisConfigurationID    pgtype.UUID
+	WorkItemID                   pgtype.UUID
+	AttemptNumber                int32
+	Status                       AiAnalysisTrialBudgetReservationStatus
+	EstimatedInputTokens         int32
+	ReservedChargeNanoRmb        int64
+	ActualInputTokens            pgtype.Int4
+	ActualOutputTokens           pgtype.Int4
+	ActualChargeNanoRmb          pgtype.Int8
+	ReservedAt                   pgtype.Timestamptz
+	SettledAt                    pgtype.Timestamptz
+}
+
+type AiAnalysisUsageRecord struct {
+	ID                 pgtype.UUID
+	AttemptID          pgtype.UUID
+	InputTokens        int32
+	OutputTokens       int32
+	EstimatedChargeRmb pgtype.Numeric
+	ActualChargeRmb    pgtype.Numeric
+	RecordedAt         pgtype.Timestamptz
+}
+
+type AiAnalysisWorkItem struct {
+	ID                        pgtype.UUID
+	AiAnalysisConfigurationID pgtype.UUID
+	BodyContentVersionID      pgtype.UUID
+	Trigger                   AiAnalysisTrigger
+	Status                    AiAnalysisWorkStatus
+	AttemptCount              int32
+	LastRunID                 pgtype.UUID
+	LastSafeErrorCode         pgtype.Text
+	QueuedAt                  pgtype.Timestamptz
+	CompletedAt               pgtype.Timestamptz
+	UpdatedAt                 pgtype.Timestamptz
+}
+
+type AiCandidateTechnologyMention struct {
+	ID                    pgtype.UUID
+	DictionaryCandidateID pgtype.UUID
+}
+
+type AiExperienceRequirementItem struct {
+	ID                   pgtype.UUID
+	ExperienceSummaryID  pgtype.UUID
+	SubjectKind          string
+	TechnologyIdentityID pgtype.UUID
+	DomainKey            pgtype.Text
+	MinimumYears         pgtype.Numeric
+}
+
+type AiExperienceSummary struct {
+	ID       pgtype.UUID
+	Status   AiSemanticValueStatus
+	BaseYear pgtype.Numeric
+}
+
+type AiMinimumEducationRequirement struct {
+	ID           pgtype.UUID
+	Status       AiSemanticValueStatus
+	MinimumLevel NullAiEducationLevel
+}
+
+type AiSemanticArtifact struct {
+	ID                 pgtype.UUID
+	AiSemanticResultID pgtype.UUID
+	ArtifactKind       AiSemanticArtifactKind
+	SemanticStatus     AiSemanticValueStatus
+	ReviewTier         AiSemanticReviewTier
+	CreatedAt          pgtype.Timestamptz
+}
+
+type AiSemanticConditionBranch struct {
+	ID                     pgtype.UUID
+	ExperienceSummaryID    pgtype.UUID
+	EducationLevel         NullAiEducationLevel
+	MinimumExperienceYears pgtype.Numeric
+	BranchOrder            int32
+}
+
+type AiSemanticEvidence struct {
+	ID                          pgtype.UUID
+	SemanticArtifactID          pgtype.UUID
+	SpanID                      string
+	SourceField                 string
+	NormalizationVersion        string
+	NormalizedFieldSha256       string
+	CodepointStart              int32
+	CodepointEnd                int32
+	TechnologyMentionEvidenceID pgtype.UUID
+	CreatedAt                   pgtype.Timestamptz
+}
+
+type AiSemanticResult struct {
+	ID                        pgtype.UUID
+	BodyContentVersionID      pgtype.UUID
+	AiAnalysisConfigurationID pgtype.UUID
+	ExecutionStatus           AiSemanticExecutionStatus
+	SemanticStatus            AiSemanticValueStatus
+	SafeErrorCode             pgtype.Text
+	CreatedAt                 pgtype.Timestamptz
+	CompletedAt               pgtype.Timestamptz
+}
+
+type AiSemanticReview struct {
+	ID                 pgtype.UUID
+	AiSemanticResultID pgtype.UUID
+	SemanticArtifactID pgtype.UUID
+	Reviewer           string
+	Verdict            AiSemanticReviewVerdict
+	ErrorCategory      NullAiSemanticReviewErrorCategory
+	ReviewedAt         pgtype.Timestamptz
+}
+
+type AiTechnologyRequirementGroup struct {
+	ID           pgtype.UUID
+	Role         AiRequirementRole
+	Necessity    AiRequirementNecessity
+	Operator     NullAiRequirementOperator
+	MinSatisfied pgtype.Int4
+}
+
+type AiTechnologyRequirementOption struct {
+	ID                   pgtype.UUID
+	RequirementGroupID   pgtype.UUID
+	TechnologyIdentityID pgtype.UUID
+	Proficiency          NullAiProficiencyLevel
+	OptionOrder          int32
 }
 
 type ChangeEvent struct {
