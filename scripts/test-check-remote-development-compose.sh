@@ -55,4 +55,14 @@ sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ s/      MROLESCOPE_QWEN_WORKS
   "$temporary_dir/key-leak.yaml"
 expect_rejected key-leak "$temporary_dir/key-leak.yaml"
 
+cp "$source_compose" "$temporary_dir/audit-writable.yaml"
+sed -i '/^  ai-plus-contract-audit:/,/^  ai-flash-contract-audit:/ { /^        read_only: true$/d; }' \
+  "$temporary_dir/audit-writable.yaml"
+expect_rejected audit-writable "$temporary_dir/audit-writable.yaml"
+
+cp "$source_compose" "$temporary_dir/missing-output-audit-diagnostic.yaml"
+sed -i '/^  ai-output-audit-diagnostic-prepare:/,/^  ai-plus-output-audit-diagnostic:/d' \
+  "$temporary_dir/missing-output-audit-diagnostic.yaml"
+expect_rejected missing-output-audit-diagnostic "$temporary_dir/missing-output-audit-diagnostic.yaml"
+
 printf '%s\n' 'Compose checker review-session regression test passed'

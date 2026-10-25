@@ -11,4 +11,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/mrolescope/releases
+ReadWritePaths=/var/lib/mrolescope/releases /var/lib/mrolescope/ai-output-audit

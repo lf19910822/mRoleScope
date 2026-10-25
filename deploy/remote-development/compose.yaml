@@ -118,6 +118,51 @@ services:
     # or external network.
     networks: [backend]
 
+  ai-output-audit-diagnostic-prepare:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-output-audit-diagnostic]
+    restart: "no"
+    command: ["analyze-ai", "prepare-output-audit-diagnostic"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # This one fixed preparation creates exactly five Plus diagnostic work
+    # items. It has no provider key, audit mount, host port, COS, or egress.
+    networks: [backend]
+
+  ai-plus-output-audit-diagnostic:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-output-audit-diagnostic]
+    restart: "no"
+    command: ["analyze-ai", "run-plus-output-audit-diagnostic"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
+    # The only non-baseline writer is a fixed five-body Plus diagnostic. It
+    # cannot run Flash, publish, expand, or access COS/raw data or a host port.
+    networks: [backend, ai-edge]
+
   ai-plus-trial:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-analysis]
@@ -135,6 +180,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
     # Only this remote trial caller receives the root-owned API key and a
     # dedicated egress bridge. It has no host port, COS or raw-data mount.
     networks: [backend, ai-edge]
@@ -156,6 +205,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
     # Flash remains a fixed comparison only. Like Plus, it has no source/COS
     # route, host port, or raw-data mount.
     networks: [backend, ai-edge]
@@ -260,6 +313,84 @@ services:
     stdin_open: true
     tty: true
     # Flash review has the same terminal-only data boundary as Plus review.
+    networks: [backend]
+
+  ai-plus-contract-audit:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-output-audit]
+    restart: "no"
+    command: ["audit-ai", "plus"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: true
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
+        read_only: true
+    # This is a direct-CVM-terminal-only reader. It has no model key, host
+    # port, COS/raw-data mount, or provider network route.
+    networks: [backend]
+
+  ai-flash-contract-audit:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-output-audit]
+    restart: "no"
+    command: ["audit-ai", "flash"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    stdin_open: true
+    tty: true
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
+        read_only: true
+    networks: [backend]
+
+  ai-output-audit-status:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-output-audit]
+    restart: "no"
+    command: ["audit-ai", "status"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-output-audit
+        target: /var/lib/mrolescope/ai-output-audit
+        read_only: true
+    # This fixed, non-interactive reader emits aggregate capacity and fixed
+    # failure counts only. It has no provider key, COS, raw-data mount, port,
+    # or external network.
     networks: [backend]
 
   candidate-analysis:

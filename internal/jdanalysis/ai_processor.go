@@ -22,6 +22,10 @@ type AISemanticProcessor struct {
 	Repository                   *Repository
 	Runner                       AIModelAttemptRunner
 	RequirePersistentTrialBudget bool
+	// OutputAudit is supplied only by the fixed candidate/comparison trial
+	// runtime. It is intentionally absent from published analysis.
+	OutputAudit        *aiOutputAuditStore
+	RequireOutputAudit bool
 }
 
 // AIProcessSummary contains no source or model content. It is safe for a
@@ -169,12 +173,43 @@ func (processor AISemanticProcessor) processWork(ctx context.Context, configurat
 		runner.PersistentTrialBudget = budget
 		runner.PersistentTrialWorkItem = work.ID
 	}
-	response, attempts, executeErr := runner.Execute(ctx, work.ID, input)
-	if err := processor.Repository.recordAIAttempts(ctx, configuration.ID, runID, work, attempts, response, executeErr == nil); err != nil {
-		return err
+	var auditReservation *AIOutputAuditReservation
+	if processor.requiresOutputAudit(configuration) {
+		if processor.OutputAudit == nil {
+			return NewSafeAIError(AISafeErrorOutputAuditCapture, nil)
+		}
+		var err error
+		auditReservation, err = processor.OutputAudit.Reserve()
+		if err != nil {
+			return NewSafeAIError(AISafeErrorOutputAuditCapture, err)
+		}
+		defer func() { _ = auditReservation.Release() }()
 	}
+	response, attempts, executeErr := runner.Execute(ctx, work.ID, input)
 	if executeErr != nil {
+		if err := processor.Repository.recordAIAttempts(ctx, configuration.ID, runID, work, attempts, response, false); err != nil {
+			return err
+		}
 		return executeErr
+	}
+	if auditReservation != nil {
+		if len(attempts) == 0 {
+			return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+		}
+		if _, err := auditReservation.Capture(AIOutputAuditIdentity{
+			ConfigurationID:      configuration.ID,
+			WorkItemID:           work.ID,
+			AttemptNumber:        attempts[len(attempts)-1].Number,
+			BodyContentVersionID: work.BodyContentVersionID,
+		}, response.Content); err != nil {
+			if recordErr := processor.Repository.recordAIAttempts(ctx, configuration.ID, runID, work, attempts, response, true); recordErr != nil {
+				return recordErr
+			}
+			return NewSafeAIError(AISafeErrorOutputAuditCapture, err)
+		}
+	}
+	if err := processor.Repository.recordAIAttempts(ctx, configuration.ID, runID, work, attempts, response, true); err != nil {
+		return err
 	}
 	projection, err := input.ValidateAndMapResponse(response.Content)
 	if err != nil {
@@ -192,6 +227,10 @@ func (processor AISemanticProcessor) processWork(ctx context.Context, configurat
 		InputTokenCount:   response.Usage.InputTokens,
 		OutputTokenCount:  response.Usage.OutputTokens,
 	})
+}
+
+func (processor AISemanticProcessor) requiresOutputAudit(configuration aiProcessingConfiguration) bool {
+	return processor.RequireOutputAudit && (configuration.Status == "candidate" || configuration.Status == "comparison")
 }
 
 func (repository *Repository) loadAIProcessingConfiguration(ctx context.Context, configurationID string) (aiProcessingConfiguration, error) {

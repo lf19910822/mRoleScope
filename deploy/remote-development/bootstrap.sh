@@ -30,6 +30,7 @@ readonly AI_PLUS_EXPAND_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-p
 readonly AI_PLUS_PUBLISH_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-publish.service'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'
 readonly SECRETS_DIR='/etc/mrolescope/secrets'
 readonly SUDOERS_DESTINATION='/etc/sudoers.d/mrolescope-deploy'
 readonly DEPLOY_USER='mrolescope-deploy'
@@ -170,7 +171,7 @@ usermod --gid "$DEPLOY_USER" --groups "$DEPLOY_USER" --shell /usr/sbin/nologin "
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0750 /opt/mrolescope-runner
 
 install -d -o root -g root -m 0755 /opt/mrolescope /etc/mrolescope /var/lib/mrolescope
-install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR"
+install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR"
 install -o root -g root -m 0644 "$staging_dir/compose.yaml" "$COMPOSE_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-deploy" "$HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-sync" "$SYNC_HELPER_DESTINATION"

@@ -42,6 +42,20 @@ if bash "$checker" \
   exit 1
 fi
 
+cp "$source_dir/mrolescope-ai-analysis" "$copied_dir/weak-audit-operator-helper"
+sed -i 's/\[\[ "${SUDO_USER:-}" == "$AUDIT_OPERATOR" \]\]/true/' "$copied_dir/weak-audit-operator-helper"
+
+if bash "$checker" \
+  "$copied_dir/weak-audit-operator-helper" \
+  "$source_dir/mrolescope-operations" \
+  "$repository_root/.github/workflows/remote-development-operations.yml" \
+  "$source_dir/bootstrap.sh" \
+  "$source_dir/compose.yaml" >"$temporary_dir/weak-audit-operator-helper.log" 2>&1; then
+  cat "$temporary_dir/weak-audit-operator-helper.log" >&2
+  printf '%s\n' 'AI deployment checker accepted a helper without FAN operator binding.' >&2
+  exit 1
+fi
+
 sed -i '/MROLESCOPE_QWEN_WORKSPACE_ID/d' "$copied_dir/compose.yaml"
 
 if bash "$checker" \
@@ -128,6 +142,21 @@ if bash "$checker" \
   "$source_dir/compose.yaml" >"$temporary_dir/review-leaking-operations.log" 2>&1; then
   cat "$temporary_dir/review-leaking-operations.log" >&2
   printf '%s\n' 'AI deployment checker accepted a terminal review action exposed through operations.' >&2
+  exit 1
+fi
+
+cp "$source_dir/compose.yaml" "$copied_dir/no-output-audit-diagnostic-compose.yaml"
+sed -i '/^  ai-plus-output-audit-diagnostic:/,/^  ai-plus-trial:/ { /^  ai-plus-trial:/!d; }' \
+  "$copied_dir/no-output-audit-diagnostic-compose.yaml"
+
+if bash "$checker" \
+  "$source_dir/mrolescope-ai-analysis" \
+  "$source_dir/mrolescope-operations" \
+  "$repository_root/.github/workflows/remote-development-operations.yml" \
+  "$source_dir/bootstrap.sh" \
+  "$copied_dir/no-output-audit-diagnostic-compose.yaml" >"$temporary_dir/no-output-audit-diagnostic.log" 2>&1; then
+  cat "$temporary_dir/no-output-audit-diagnostic.log" >&2
+  printf '%s\n' 'AI deployment checker accepted a missing five-body output-audit diagnostic caller.' >&2
   exit 1
 fi
 

@@ -10,6 +10,7 @@ type AISafeErrorCode string
 
 const (
 	AISafeErrorInputTooLarge          AISafeErrorCode = "input_too_large"
+	AISafeErrorOutputAuditCapture     AISafeErrorCode = "output_audit_capture_failed"
 	AISafeErrorBudgetExhausted        AISafeErrorCode = "budget_exhausted"
 	AISafeErrorProviderTimeout        AISafeErrorCode = "provider_timeout"
 	AISafeErrorProviderRateLimited    AISafeErrorCode = "provider_rate_limited"
@@ -24,6 +25,7 @@ const (
 func (code AISafeErrorCode) valid() bool {
 	switch code {
 	case AISafeErrorInputTooLarge,
+		AISafeErrorOutputAuditCapture,
 		AISafeErrorBudgetExhausted,
 		AISafeErrorProviderTimeout,
 		AISafeErrorProviderRateLimited,
