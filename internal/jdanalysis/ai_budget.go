@@ -88,12 +88,13 @@ func (profile AITrialPricingProfile) SHA256() string {
 	return sha256Hex(string(encoded))
 }
 
-// ConservativeAIInputTokenEstimator treats UTF-8 bytes plus fixed chat
-// envelope allowance as an upper bound. It never truncates text to meet a
-// token budget; an over-limit estimate is handled by the budget gate.
-type ConservativeAIInputTokenEstimator struct {
-	EnvelopeTokens int
-}
+// ConservativeAIInputTokenEstimator counts the model-visible system prompt,
+// serialized model input, and strict response schema with the pinned Qwen BPE
+// vocabulary plus a fixed chat envelope allowance. It intentionally adds safe
+// segmentation boundaries rather than treating UTF-8 bytes as tokens. It never
+// truncates text to meet a token budget; an over-limit estimate is handled by
+// the budget gate.
+type ConservativeAIInputTokenEstimator struct{}
 
 // Estimate returns a conservative request-size estimate without persisting or
 // reporting the serialized input.
@@ -102,11 +103,19 @@ func (estimator ConservativeAIInputTokenEstimator) Estimate(input AIModelInput) 
 	if err != nil {
 		return 0, err
 	}
-	overhead := estimator.EnvelopeTokens
-	if overhead <= 0 {
-		overhead = 512
+	promptTokens, err := conservativeQwenTokenCount(AISystemPromptV1())
+	if err != nil {
+		return 0, err
 	}
-	return len(encoded) + len(AISystemPromptV1()) + len(AIResponseSchemaV1()) + overhead, nil
+	inputTokens, err := conservativeQwenTokenCount(string(encoded))
+	if err != nil {
+		return 0, err
+	}
+	schemaTokens, err := conservativeQwenTokenCount(AIResponseSchemaV1())
+	if err != nil {
+		return 0, err
+	}
+	return promptTokens + inputTokens + schemaTokens + qwenChatEnvelopeTokens, nil
 }
 
 // NewAITrialBudgetGate accepts only a complete verified frozen pricing record.

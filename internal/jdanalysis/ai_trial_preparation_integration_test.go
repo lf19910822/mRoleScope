@@ -149,6 +149,78 @@ func TestPrepareControlledAITrialUsesOnlyFixedProfilesAndPublishedBaseline(t *te
 	}
 }
 
+func TestPrepareControlledAITrialCreatesNewCandidatesAfterLegacyByteEstimatorContract(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-legacy-token-estimator")
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+
+	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
+		Plus:  legacyByteEstimatorConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		Flash: legacyByteEstimatorConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preFixQwenBPE, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
+		Plus:  preFixQwenBPEConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		Flash: preFixQwenBPEConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Reused || current.Plus.ID == legacy.Plus.ID || current.Flash.ID == legacy.Flash.ID ||
+		current.Plus.ID == preFixQwenBPE.Plus.ID || current.Flash.ID == preFixQwenBPE.Flash.ID {
+		t.Fatalf("current/legacy candidates = current:%#v byte:%#v qwen-v1:%#v; want distinct new candidates", current, legacy, preFixQwenBPE)
+	}
+	plus, err := repository.ReadAIConfiguration(ctx, current.Plus.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPlus, err := repository.ReadAIConfiguration(ctx, legacy.Plus.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plus.InputContractSHA256 == legacyPlus.InputContractSHA256 {
+		t.Fatalf("current input contract digest = %q, legacy digest = %q; want estimator contract identity change", plus.InputContractSHA256, legacyPlus.InputContractSHA256)
+	}
+	preFixQwenBPEPlus, err := repository.ReadAIConfiguration(ctx, preFixQwenBPE.Plus.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plus.InputContractSHA256 == preFixQwenBPEPlus.InputContractSHA256 {
+		t.Fatalf("current input contract digest = %q, pre-fix Qwen BPE digest = %q; want estimator contract identity change", plus.InputContractSHA256, preFixQwenBPEPlus.InputContractSHA256)
+	}
+}
+
+func legacyByteEstimatorConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
+	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
+	input.InputContractSHA256 = sha256Hex(AIInputContractVersionV1 + "|" + AISpanContractVersionV1)
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
+func preFixQwenBPEConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
+	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
+	input.InputContractSHA256 = aiInputContractSHA256(AIInputTokenEstimatorVersionV1, aiInputTokenEstimatorSHA256(AIInputTokenEstimatorVersionV1))
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
 func assertTrialWorkExactlyMatchesSample(t *testing.T, repository *Repository, configurationID string, sample []string) {
 	t.Helper()
 	ctx := context.Background()
