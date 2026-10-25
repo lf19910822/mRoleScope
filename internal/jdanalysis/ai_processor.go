@@ -693,7 +693,7 @@ WHERE id = $1`, runID, status, summary.Claimed, summary.Completed, summary.Faile
 }
 
 func semanticStatusForProjection(projection AISemanticProjection) string {
-	if projection.Experience.Status == "uncertain" || projection.MinimumEducation.Status == "uncertain" {
+	if projection.Experience.Status == "uncertain" || projection.MinimumEducation.Status == "uncertain" || projection.CandidateMentionsUncertain {
 		return "uncertain"
 	}
 	if projection.Experience.Status == "configured" || projection.MinimumEducation.Status == "configured" ||
