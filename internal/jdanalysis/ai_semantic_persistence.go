@@ -99,15 +99,15 @@ WHERE id = $1
 	return nil
 }
 
-// persistAIExperienceItems stores overall and deterministically bound
-// technology experience. Domain scopes need their own controlled-domain
-// contract before they can be persisted, so they remain safely rejected.
+// persistAIExperienceItems stores overall, deterministically bound technology,
+// and evidence-bound domain experience.
 func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx pgx.Tx, resultID, experienceSummaryID, configurationID, bodyContentVersionID string, input AIModelInput, items []AIExperienceItemProjection) error {
 	for _, item := range items {
 		if item.MinimumYears < 1 {
 			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
 		var technologyIdentityID *string
+		var domainKey *string
 		switch item.SubjectKind {
 		case "overall":
 			if item.SubjectKey != "" {
@@ -119,6 +119,11 @@ func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx p
 				return err
 			}
 			technologyIdentityID = &identityID
+		case "domain":
+			if item.SubjectKey == "" {
+				return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			}
+			domainKey = &item.SubjectKey
 		default:
 			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
@@ -132,7 +137,7 @@ func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx p
 		if _, err := tx.Exec(ctx, `
 INSERT INTO ai_experience_requirement_items (
     id, experience_summary_id, subject_kind, technology_identity_id, domain_key, minimum_years
-) VALUES ($1, $2, $3, $4, NULL, $5)`, artifactID, experienceSummaryID, item.SubjectKind, technologyIdentityID, item.MinimumYears); err != nil {
+) VALUES ($1, $2, $3, $4, $5, $6)`, artifactID, experienceSummaryID, item.SubjectKind, technologyIdentityID, domainKey, item.MinimumYears); err != nil {
 			return fmt.Errorf("insert AI experience item: %w", err)
 		}
 	}

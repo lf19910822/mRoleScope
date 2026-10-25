@@ -209,7 +209,7 @@ func controlledAIConfigurationInput(technologyConfigurationID string, requestPro
 		Provider:                  "bailian",
 		Model:                     requestProfile.Model(),
 		RequestProfileSHA256:      requestProfile.SHA256(),
-		PromptSHA256:              AISystemPromptV1SHA256(),
+		PromptSHA256:              AISystemPromptV2SHA256(),
 		ResponseSchemaVersion:     AIResponseSchemaVersionV1,
 		ResponseSchemaSHA256:      AIResponseSchemaV1SHA256(),
 		InputContractVersion:      AIInputContractVersionV1,

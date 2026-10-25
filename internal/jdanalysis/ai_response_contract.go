@@ -20,6 +20,9 @@ const (
 //go:embed assets/ai_system_prompt_v1.txt
 var aiSystemPromptV1 string
 
+//go:embed assets/ai_system_prompt_v2.txt
+var aiSystemPromptV2 string
+
 //go:embed assets/ai_response_schema_v1.json
 var aiResponseSchemaV1 string
 
@@ -155,6 +158,18 @@ func AISystemPromptV1() string {
 // analysis configuration.
 func AISystemPromptV1SHA256() string {
 	return sha256Hex(aiSystemPromptV1)
+}
+
+// AISystemPromptV2 returns the active reviewed prompt. It keeps the v1 asset
+// available for immutable historic configurations and their CVM-only audits.
+func AISystemPromptV2() string {
+	return aiSystemPromptV2
+}
+
+// AISystemPromptV2SHA256 returns the digest frozen into newly prepared AI
+// configurations that use the active prompt.
+func AISystemPromptV2SHA256() string {
+	return sha256Hex(aiSystemPromptV2)
 }
 
 // Validate accepts only one strict v0.1 JSON response whose opaque references

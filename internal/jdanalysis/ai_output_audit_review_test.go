@@ -45,3 +45,15 @@ func TestControlledAIOutputAuditTerminalVerdictsAreFixed(t *testing.T) {
 		t.Fatal("output audit accepted a free-form verdict")
 	}
 }
+
+func TestControlledAIOutputAuditAcceptsOnlyHistoricV1OrActiveV2PromptIdentity(t *testing.T) {
+	if !validControlledAIOutputAuditPromptSHA256(AISystemPromptV1SHA256()) {
+		t.Fatal("historic V1 audit artifact prompt was rejected")
+	}
+	if !validControlledAIOutputAuditPromptSHA256(AISystemPromptV2SHA256()) {
+		t.Fatal("active V2 audit artifact prompt was rejected")
+	}
+	if validControlledAIOutputAuditPromptSHA256(sha256Hex("unreviewed-prompt")) {
+		t.Fatal("unreviewed audit artifact prompt was accepted")
+	}
+}

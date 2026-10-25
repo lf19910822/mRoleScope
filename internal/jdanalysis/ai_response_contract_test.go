@@ -113,6 +113,20 @@ func TestV1AISemanticContractAssetsAreFrozenAndStrict(t *testing.T) {
 	}
 }
 
+func TestV2AISystemPromptPreservesTheFrozenV1AssetAndAddsRepresentableScopes(t *testing.T) {
+	if got, want := AISystemPromptV2SHA256(), "ddbcc4547b4d69aaca41ba1b1e33224bbd9b59edd46c64bed7709f072b062216"; got != want {
+		t.Fatalf("v2 system prompt SHA-256 = %q, want %q", got, want)
+	}
+	if AISystemPromptV2() == AISystemPromptV1() {
+		t.Fatal("v2 system prompt did not create a distinct immutable candidate identity")
+	}
+	for _, instruction := range []string{"不得翻译、归一化、加下划线", "experience_scope=base", "experience_scope_key=overall"} {
+		if !strings.Contains(AISystemPromptV2(), instruction) {
+			t.Fatalf("v2 system prompt is missing representable-scope instruction %q", instruction)
+		}
+	}
+}
+
 func validAISemanticResponseJSON() string {
 	return `{
 		"response_schema_version":"ai-jd-result-v1",
