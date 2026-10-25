@@ -226,6 +226,39 @@ WHERE diagnostic_member.ai_analysis_configuration_id = $1
 	}
 }
 
+func TestPrepareControlledAIOutputAuditDiagnosticCreatesNewCandidateAfterNonPersistableStorageContract(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-non-persistable-audit-diagnostic")
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+
+	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := repository.prepareControlledAIOutputAuditDiagnostic(ctx,
+		prePersistableOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		prePersistableOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := repository.PrepareControlledAIOutputAuditDiagnostic(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Reused || current.Plus.ID == legacy.Plus.ID || current.PlusQueued != aiOutputAuditDiagnosticSampleSize {
+		t.Fatalf("persistable/legacy diagnostic candidates = current:%#v legacy:%#v; want a distinct new five-item candidate", current, legacy)
+	}
+	assertAIWorkMatchesSample(t, repository, current.Plus.ID, current.BodyContentVersionIDs)
+}
+
 func TestPrepareControlledAITrialCreatesNewCandidatesAfterLegacyByteEstimatorContract(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -452,6 +485,17 @@ func legacyV2ConfigurationInput(technologyConfigurationID string, requestProfile
 func legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
 	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
 	input.InputContractSHA256 = legacyThirtyBodyControlledAIInputContractSHA256()
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
+func prePersistableOutputAuditDiagnosticConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
+	input := controlledAIOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
+	input.InputContractSHA256 = sha256Hex(strings.Join([]string{
+		controlledAIInputContractSHA256(),
+		"diagnostic_execution=plus_only",
+		"diagnostic_sample_size=5",
+	}, "|"))
 	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
 	return input
 }

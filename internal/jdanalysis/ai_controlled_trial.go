@@ -12,6 +12,11 @@ import (
 const (
 	AIControlledConfigurationCreator         = "FAN"
 	AIControlledOutputAuditDiagnosticCreator = "FAN/audit-diagnostic"
+	// AIOutputAuditDiagnosticExecutionContractV1 records the first execution
+	// environment that can durably reserve and capture diagnostic output in the
+	// root-only CVM audit mount. It deliberately gives post-fix diagnostics a
+	// new immutable candidate identity rather than retrying prior safe failures.
+	AIOutputAuditDiagnosticExecutionContractV1 = "diagnostic_output_audit_execution=ai-output-audit-root-mount-v1"
 	AIValidatorVersionV1                     = "ai-semantic-validator-v1"
 	AIValidatorVersionV2                     = "ai-semantic-validator-v2"
 	AIValidatorVersionV3                     = "ai-semantic-validator-v3"
@@ -344,6 +349,7 @@ func controlledAIOutputAuditDiagnosticInputContractSHA256() string {
 		controlledAIInputContractSHA256(),
 		"diagnostic_execution=plus_only",
 		"diagnostic_sample_size=5",
+		AIOutputAuditDiagnosticExecutionContractV1,
 	}, "|"))
 }
 

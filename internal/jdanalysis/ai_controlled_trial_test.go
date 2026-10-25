@@ -104,3 +104,15 @@ func TestControlledAITrialConfigurationDigestChangesFromHistoricalOutputBudget(t
 		t.Fatal("v3 output budget and contract reused the historical configuration digest")
 	}
 }
+
+func TestControlledAIOutputAuditDiagnosticContractBindsPersistableExecution(t *testing.T) {
+	want := sha256Hex(strings.Join([]string{
+		controlledAIInputContractSHA256(),
+		"diagnostic_execution=plus_only",
+		"diagnostic_sample_size=5",
+		"diagnostic_output_audit_execution=ai-output-audit-root-mount-v1",
+	}, "|"))
+	if got := controlledAIOutputAuditDiagnosticInputContractSHA256(); got != want {
+		t.Fatalf("output-audit diagnostic contract = %q, want persistable-execution contract %q", got, want)
+	}
+}
