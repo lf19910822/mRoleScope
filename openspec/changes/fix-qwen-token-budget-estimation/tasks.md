@@ -8,6 +8,7 @@
 ## 2. 不可变配置身份
 
 - [x] 2.1 以 PostgreSQL 集成红测证明旧字节估算试跑不可被新契约复用；将估算器版本/摘要并入输入契约摘要并验证新 Plus/Flash candidates 被创建。
+- [x] 2.2 以 PostgreSQL 集成回归证明已存在的 `qwen-bpe-conservative-v1` 候选不会被逐字节 BPE 的 `v2` 契约复用。
 
 ## 3. 交付验证
 

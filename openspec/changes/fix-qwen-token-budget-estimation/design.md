@@ -24,6 +24,8 @@
 
 将 Qwen `qwen.tiktoken` 词表以压缩受控资产嵌入 worker，运行时校验解压后的 SHA-256 和预期条目数。实现最低 rank BPE 合并计数，不依赖 CVM 上的 Python、模型文件或请求期网络。词表摘要为 `b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186`。
 
+当前实现的估算器版本为 `qwen-bpe-conservative-v2`：它在每个已选分段内逐 UTF-8 字节初始化 BPE，再合并最低 rank token。此前的 `v1` 实现错误地按 rune 起点初始化，可能低估少数多 Token 的 Unicode 码点；即使其余词表、分段和 envelope 未变，此语义修复仍必须改变输入契约摘要，避免复用任何由 `v1` 创建的候选。
+
 备选方案是字符/字节比例换算或调用远端计数 API；前者不能证明与 Qwen 兼容，后者会在预算判定前再次外发正文且增加可用性边界，因此拒绝。
 
 ### 保守切分与固定 envelope

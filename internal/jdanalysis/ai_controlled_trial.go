@@ -120,10 +120,14 @@ func candidateAIConfigurationSHA256(input CandidateAIConfigurationInput) string 
 // produces a new candidate rather than reusing historical trial results that
 // were accepted or rejected under a different counting contract.
 func controlledAIInputContractSHA256() string {
+	return aiInputContractSHA256(AIInputTokenEstimatorVersionV2, AIInputTokenEstimatorSHA256())
+}
+
+func aiInputContractSHA256(estimatorVersion, estimatorSHA256 string) string {
 	return sha256Hex(strings.Join([]string{
 		AIInputContractVersionV1,
 		AISpanContractVersionV1,
-		AIInputTokenEstimatorVersionV1,
-		AIInputTokenEstimatorSHA256(),
+		estimatorVersion,
+		estimatorSHA256,
 	}, "|"))
 }

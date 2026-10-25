@@ -16,10 +16,14 @@ import (
 )
 
 const (
-	// AIInputTokenEstimatorVersionV1 identifies the immutable preflight
+	// AIInputTokenEstimatorVersionV1 identifies the legacy preflight contract
+	// that initialized BPE tokens by rune boundary. It is retained only to
+	// model historical configuration identity in regression tests.
+	AIInputTokenEstimatorVersionV1 = "qwen-bpe-conservative-v1"
+	// AIInputTokenEstimatorVersionV2 identifies the current immutable preflight
 	// counting contract. Changing any input to its digest requires a new
 	// candidate configuration.
-	AIInputTokenEstimatorVersionV1 = "qwen-bpe-conservative-v1"
+	AIInputTokenEstimatorVersionV2 = "qwen-bpe-conservative-v2"
 
 	qwenBPEVocabularySHA256  = "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186"
 	qwenBPEVocabularyEntries = 151643
@@ -40,8 +44,12 @@ var (
 // deliberately separate from the prompt/schema digests: those assets are
 // already frozen independently in every AI configuration.
 func AIInputTokenEstimatorSHA256() string {
+	return aiInputTokenEstimatorSHA256(AIInputTokenEstimatorVersionV2)
+}
+
+func aiInputTokenEstimatorSHA256(version string) string {
 	return sha256Hex(strings.Join([]string{
-		AIInputTokenEstimatorVersionV1,
+		version,
 		"vocabulary_sha256=" + qwenBPEVocabularySHA256,
 		"segmentation=ascii_letter_runs_and_single_non_ascii_or_non_letter_units-v1",
 		"bpe=qwen_tiktoken_lowest_rank_merge-v1",

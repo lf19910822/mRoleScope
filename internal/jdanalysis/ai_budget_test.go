@@ -103,7 +103,7 @@ func TestAIModelAttemptRunnerBlocksActuallyOversizedChineseInputBeforeProviderCa
 
 func TestAIInputTokenEstimatorContractIncludesFixedChatEnvelope(t *testing.T) {
 	want := sha256Hex(strings.Join([]string{
-		AIInputTokenEstimatorVersionV1,
+		"qwen-bpe-conservative-v2",
 		"vocabulary_sha256=" + qwenBPEVocabularySHA256,
 		"segmentation=ascii_letter_runs_and_single_non_ascii_or_non_letter_units-v1",
 		"bpe=qwen_tiktoken_lowest_rank_merge-v1",
