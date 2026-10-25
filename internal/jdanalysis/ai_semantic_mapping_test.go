@@ -90,6 +90,21 @@ func TestAIModelInputMapsUncertainWithoutInventingAZeroValue(t *testing.T) {
 	}
 }
 
+func TestAIModelInputRejectsNonBaseConditionalQualification(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	response := syntheticConfiguredSemanticResponse()
+	response.Experience.ConditionalQualifications[0].ExperienceScope = "technology"
+	response.Experience.ConditionalQualifications[0].ExperienceScopeKey = "go"
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := input.ValidateAndMapResponse(raw); err == nil {
+		t.Fatal("ValidateAndMapResponse() accepted a conditional qualification outside the representable overall scope")
+	}
+}
+
 func syntheticConfiguredSemanticResponse() AISemanticResponse {
 	baseYear := 3
 	doctorLevel := "doctor"

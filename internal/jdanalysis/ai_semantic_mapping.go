@@ -159,7 +159,7 @@ func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperi
 		if err != nil {
 			return AIExperienceProjection{}, err
 		}
-		subjectKind, subjectKey, err := mapExperienceScope(item.ScopeType, item.ScopeKey)
+		subjectKind, subjectKey, err := input.mapExperienceScope(item.ScopeType, item.ScopeKey, item.EvidenceSpanIDs)
 		if err != nil {
 			return AIExperienceProjection{}, err
 		}
@@ -183,7 +183,10 @@ func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperi
 		if !exists {
 			return AIExperienceProjection{}, fmt.Errorf("conditional education level is invalid")
 		}
-		subjectKind, subjectKey, err := mapExperienceScope(conditional.ExperienceScope, conditional.ExperienceScopeKey)
+		if conditional.ExperienceScope != "base" || conditional.ExperienceScopeKey != "overall" {
+			return AIExperienceProjection{}, fmt.Errorf("conditional experience scope is not representable")
+		}
+		subjectKind, subjectKey, err := input.mapExperienceScope(conditional.ExperienceScope, conditional.ExperienceScopeKey, conditional.EvidenceSpanIDs)
 		if err != nil {
 			return AIExperienceProjection{}, err
 		}
@@ -311,13 +314,16 @@ func (input AIModelInput) mapRequirementGroups(groups []AITechnologyRequirementG
 	return projections, nil
 }
 
-func mapExperienceScope(scopeType, scopeKey string) (string, string, error) {
+func (input AIModelInput) mapExperienceScope(scopeType, scopeKey string, evidenceSpanIDs []string) (string, string, error) {
 	switch scopeType {
 	case "base":
 		return "overall", "", nil
 	case "technology":
 		return "technology", scopeKey, nil
 	case "domain":
+		if err := input.validateEvidenceBoundDomainScope(scopeKey, evidenceSpanIDs); err != nil {
+			return "", "", err
+		}
 		return "domain", scopeKey, nil
 	default:
 		return "", "", fmt.Errorf("experience scope is invalid")

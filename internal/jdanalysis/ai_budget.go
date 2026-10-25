@@ -103,7 +103,7 @@ func (estimator ConservativeAIInputTokenEstimator) Estimate(input AIModelInput) 
 	if err != nil {
 		return 0, err
 	}
-	promptTokens, err := conservativeQwenTokenCount(AISystemPromptV1())
+	promptTokens, err := conservativeQwenTokenCount(AISystemPromptV2())
 	if err != nil {
 		return 0, err
 	}

@@ -64,7 +64,7 @@ func RunControlledAIOutputAuditSession(ctx context.Context, repository *Reposito
 		}
 		return false, nil
 	}
-	if !validControlledAIOutputAuditInputContractSHA256(target.InputContractSHA256) || target.PromptSHA256 != AISystemPromptV1SHA256() ||
+	if !validControlledAIOutputAuditInputContractSHA256(target.InputContractSHA256) || !validControlledAIOutputAuditPromptSHA256(target.PromptSHA256) ||
 		target.ResponseSchemaVersion != AIResponseSchemaVersionV1 || target.ResponseSchemaSHA256 != AIResponseSchemaV1SHA256() {
 		return false, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
@@ -348,4 +348,8 @@ func validAIOutputAuditVerdict(verdict string) bool {
 func validControlledAIOutputAuditInputContractSHA256(inputContractSHA256 string) bool {
 	return inputContractSHA256 == controlledAIInputContractSHA256() ||
 		inputContractSHA256 == controlledAIOutputAuditDiagnosticInputContractSHA256()
+}
+
+func validControlledAIOutputAuditPromptSHA256(promptSHA256 string) bool {
+	return promptSHA256 == AISystemPromptV1SHA256() || promptSHA256 == AISystemPromptV2SHA256()
 }
