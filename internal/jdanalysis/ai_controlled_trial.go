@@ -85,7 +85,7 @@ func controlledAITrialConfigurationInput(technologyConfigurationID string, reque
 		ResponseSchemaVersion:     AIResponseSchemaVersionV1,
 		ResponseSchemaSHA256:      AIResponseSchemaV1SHA256(),
 		InputContractVersion:      AIInputContractVersionV1,
-		InputContractSHA256:       sha256Hex(AIInputContractVersionV1 + "|" + AISpanContractVersionV1),
+		InputContractSHA256:       controlledAIInputContractSHA256(),
 		ValidatorVersion:          AIValidatorVersionV1,
 		ValidatorSHA256:           sha256Hex(AIValidatorVersionV1),
 		PricingProfileVersion:     pricingProfile.Version,
@@ -109,4 +109,17 @@ func controlledAITrialConfigurationInput(technologyConfigurationID string, reque
 		input.CreatedBy,
 	}, "\n"))
 	return input
+}
+
+// controlledAIInputContractSHA256 records every non-secret rule that affects
+// the provider-visible input or the pre-send decision. Changing the estimator
+// produces a new candidate rather than reusing historical trial results that
+// were accepted or rejected under a different counting contract.
+func controlledAIInputContractSHA256() string {
+	return sha256Hex(strings.Join([]string{
+		AIInputContractVersionV1,
+		AISpanContractVersionV1,
+		AIInputTokenEstimatorVersionV1,
+		AIInputTokenEstimatorSHA256(),
+	}, "|"))
 }
