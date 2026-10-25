@@ -116,3 +116,26 @@ func TestControlledAIOutputAuditDiagnosticContractBindsPersistableExecution(t *t
 		t.Fatalf("output-audit diagnostic contract = %q, want persistable-execution contract %q", got, want)
 	}
 }
+
+func TestControlledAIConfigurationInputsFreezeActiveV2PromptIdentity(t *testing.T) {
+	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []CandidateAIConfigurationInput{
+		controlledAITrialConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", plusProfile, QwenPlusTrialPricingProfile()),
+		controlledAIOutputAuditDiagnosticConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", plusProfile, QwenPlusTrialPricingProfile()),
+		controlledAITrialConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", flashProfile, QwenFlashComparisonPricingProfile()),
+	} {
+		if input.PromptSHA256 != AISystemPromptV2SHA256() {
+			t.Fatalf("controlled configuration prompt SHA-256 = %q, want active V2 %q", input.PromptSHA256, AISystemPromptV2SHA256())
+		}
+		if input.PromptSHA256 == AISystemPromptV1SHA256() {
+			t.Fatal("controlled configuration reused the historic V1 prompt identity")
+		}
+	}
+}

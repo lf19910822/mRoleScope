@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // AIModelInput is the only in-memory payload allowed to cross from the CVM to
@@ -210,6 +211,37 @@ func (input AIModelInput) LocateCandidate(candidateText, spanID string) (AISeman
 		SourceField:           span.SourceField,
 		SpanID:                span.ID,
 	}, nil
+}
+
+// validateEvidenceBoundDomainScope permits a domain key only when it is a
+// bounded verbatim term in exactly one of the cited model-visible spans. This
+// prevents a model from turning a supported experience statement into an
+// invented or translated domain taxonomy key.
+func (input AIModelInput) validateEvidenceBoundDomainScope(domainKey string, spanIDs []string) error {
+	if domainKey == "" || utf8.RuneCountInString(domainKey) > 128 || len(spanIDs) == 0 {
+		return fmt.Errorf("domain scope is invalid")
+	}
+
+	matches := 0
+	for _, spanID := range spanIDs {
+		span, found := input.spanIndex.Lookup(spanID)
+		if !found {
+			return fmt.Errorf("domain scope evidence is invalid")
+		}
+		fieldText, found := input.fieldTextBySource[span.SourceField]
+		if !found {
+			return fmt.Errorf("domain scope evidence is invalid")
+		}
+		spanText, err := CodePointSlice(fieldText, span.CodePointRange)
+		if err != nil {
+			return fmt.Errorf("domain scope evidence is invalid")
+		}
+		matches += strings.Count(spanText, domainKey)
+	}
+	if matches != 1 {
+		return fmt.Errorf("domain scope is not uniquely supported")
+	}
+	return nil
 }
 
 // ResolveSpanIDs converts response references into persistence-ready,
