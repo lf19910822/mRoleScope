@@ -76,6 +76,24 @@
 - **WHEN** GitHub Actions、普通 operations helper 或任意带参数的 worker 命令尝试调用该诊断
 - **THEN** 系统 SHALL 拒绝调用，且不得读取或输出审计回复
 
+### Requirement: Field-local candidate-governance fallback
+
+对使用字段级容错校验器的候选或对照配置，系统 SHALL 将“词典外候选词无法写入已发布或已退役
+词典版本”处理为候选词字段的不确定状态，而不是整份 JD 的安全失败。系统不得因该降级修改冻结
+词典、创建技术身份、创建已验证技术选项，或持久化模型给出的候选词字符串；其余可验证语义
+SHALL 继续原子持久化。
+
+#### Scenario: External candidate targets a published dictionary
+
+- **WHEN** V2 配置的模型回复包含已由片段证据绑定的词典外候选词，而依赖词典版本已发布或退役
+- **THEN** 系统 SHALL 保留仅含既有证据的 `candidate_technology` 不确定、需复核工件，完成工作并将
+  结果标记为 `uncertain`；字典候选表、技术身份和硬性技术条件均不得被该候选词改变
+
+#### Scenario: Historical strict configuration replays the same limitation
+
+- **WHEN** V1 配置遇到相同的冻结词典候选词限制
+- **THEN** 系统 SHALL 保持其既有安全拒绝语义，避免历史不可变配置在回放时悄悄改变结果
+
 ### Requirement: Raw-output isolation from normal observability
 
 原始模型输出、重建输入上下文、正文片段和候选字符串 SHALL NOT 写入 PostgreSQL、Git、GitHub Actions、CI、systemd journal、普通日志、状态输出、对象存储或本地工作区文件。普通可观测渠道仅可记录允许的标识、计数、版本、用量、安全错误码及固定审计结论。

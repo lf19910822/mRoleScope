@@ -108,6 +108,12 @@ INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_v
 VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_dictionary_versions
+SET status = 'published', published_at = now()
+WHERE id = $1`, dictionaryID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: enabledAliasCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
 		t.Fatalf("V2 alias candidate processing error = %v; want local skip", err)
 	}
@@ -126,6 +132,67 @@ SELECT
 	}
 	if dictionaryCandidates != 0 || candidateArtifacts != 0 {
 		t.Fatalf("V2 enabled alias created candidate records: candidates:%d artifacts:%d", dictionaryCandidates, candidateArtifacts)
+	}
+}
+
+func TestAISemanticProcessorV2SkipsExternalCandidateWhenDictionaryIsPublished(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	baseBodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, baseBodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-v2-frozen-candidate-reference")
+	bodyID := insertSyntheticExternalCandidateBody(t, repository, technologyConfigurationID, dictionaryID, technologyID, ruleID)
+	configurationInput := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-v2-frozen-external-candidate")
+	configurationInput.PromptSHA256 = AISystemPromptV3SHA256()
+	configurationInput.ValidatorVersion = AIValidatorVersionV2
+	configurationInput.ValidatorSHA256 = sha256Hex(AIValidatorVersionV2)
+	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, configurationInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.EnsureAISemanticResult(ctx, bodyID, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_version_id, trigger)
+VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_dictionary_versions
+SET status = 'published', published_at = now()
+WHERE id = $1`, dictionaryID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: externalCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
+		t.Fatalf("V2 processing with a published dictionary error = %v; want local candidate skip", err)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "uncertain")
+
+	var dictionaryCandidates, candidateArtifacts, unresolvedCandidateArtifacts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM technology_dictionary_candidates WHERE dictionary_version_id = $1),
+  (SELECT count(*) FROM ai_candidate_technology_mentions AS candidate
+   JOIN ai_semantic_artifacts AS artifact ON artifact.id = candidate.id
+   JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
+   WHERE result.ai_analysis_configuration_id = $2 AND result.body_content_version_id = $3),
+  (SELECT count(*) FROM ai_semantic_artifacts AS artifact
+   JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
+   WHERE result.ai_analysis_configuration_id = $2
+     AND result.body_content_version_id = $3
+     AND artifact.artifact_kind = 'candidate_technology'
+     AND artifact.semantic_status = 'uncertain'
+     AND artifact.review_tier = 'required_review'
+     AND NOT EXISTS (
+       SELECT 1 FROM ai_candidate_technology_mentions AS candidate
+       WHERE candidate.id = artifact.id
+     ))
+`, dictionaryID, aiConfiguration.ID, bodyID).Scan(&dictionaryCandidates, &candidateArtifacts, &unresolvedCandidateArtifacts); err != nil {
+		t.Fatal(err)
+	}
+	if dictionaryCandidates != 0 || candidateArtifacts != 0 || unresolvedCandidateArtifacts != 1 {
+		t.Fatalf("V2 frozen dictionary candidate handling = candidates:%d linked-artifacts:%d unresolved-artifacts:%d", dictionaryCandidates, candidateArtifacts, unresolvedCandidateArtifacts)
 	}
 }
 
