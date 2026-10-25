@@ -133,6 +133,63 @@ func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 	}
 }
 
+func TestAISemanticResponseContractAcceptsBusinessInconsistenciesForFieldLevelRecovery(t *testing.T) {
+	contract := NewAISemanticResponseContract(
+		"request-01",
+		[]string{"span-01"},
+		[]string{"go"},
+		[]string{"evidence-01"},
+	)
+
+	for _, test := range []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "configured experience without item",
+			raw: `{
+				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
+				"experience":{"status":"configured","base_year":3,"items":[],"conditional_qualifications":[],"evidence_span_ids":["span-01"],"review_recommendation":"routine"},
+				"minimum_education":{"status":"not_configured","level":null,"level_code":null,"evidence_span_ids":[],"review_recommendation":"routine"},
+				"technology_requirement_groups":[],"candidate_mentions":[]
+			}`,
+		},
+		{
+			name: "inconsistent configured education code",
+			raw: `{
+				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
+				"experience":{"status":"not_configured","base_year":null,"items":[],"conditional_qualifications":[],"evidence_span_ids":[],"review_recommendation":"routine"},
+				"minimum_education":{"status":"configured","level":"bachelor","level_code":3,"evidence_span_ids":["span-01"],"review_recommendation":"routine"},
+				"technology_requirement_groups":[],"candidate_mentions":[]
+			}`,
+		},
+		{
+			name: "non overall education condition",
+			raw: `{
+				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
+				"experience":{"status":"configured","base_year":3,"items":[{"scope_type":"base","scope_key":"overall","min_years":3,"evidence_span_ids":["span-01"],"review_recommendation":"routine"}],"conditional_qualifications":[{"when_education":"bachelor","experience_scope":"technology","experience_scope_key":"go","min_years":3,"evidence_span_ids":["span-01"],"review_recommendation":"required_review"}],"evidence_span_ids":["span-01"],"review_recommendation":"required_review"},
+				"minimum_education":{"status":"not_configured","level":null,"level_code":null,"evidence_span_ids":[],"review_recommendation":"routine"},
+				"technology_requirement_groups":[],"candidate_mentions":[]
+			}`,
+		},
+		{
+			name: "qualification group without option",
+			raw: `{
+				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
+				"experience":{"status":"not_configured","base_year":null,"items":[],"conditional_qualifications":[],"evidence_span_ids":[],"review_recommendation":"routine"},
+				"minimum_education":{"status":"not_configured","level":null,"level_code":null,"evidence_span_ids":[],"review_recommendation":"routine"},
+				"technology_requirement_groups":[{"local_id":"group-01","role":"qualification","necessity":"required","operator":"at_least","min_satisfied":1,"options":[],"evidence_span_ids":["span-01"],"review_recommendation":"routine"}],"candidate_mentions":[]
+			}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := contract.Validate([]byte(test.raw)); err != nil {
+				t.Fatalf("Validate() error = %v, want structurally valid response retained for field-level recovery", err)
+			}
+		})
+	}
+}
+
 func TestV1AISemanticContractAssetsAreFrozenAndStrict(t *testing.T) {
 	if got, want := AISystemPromptV1SHA256(), "c29802261906be7c55a54be1a5a663e87621783d78afae2b9afa06bb66a346ac"; got != want {
 		t.Fatalf("system prompt SHA-256 = %q, want %q", got, want)
@@ -186,6 +243,20 @@ func TestV3AISemanticContractAssetsFreezeCandidateSourceTermRules(t *testing.T) 
 	prompt := AISystemPromptV3()
 	if !strings.Contains(prompt, AIResponseSchemaVersionV3) || !strings.Contains(prompt, "最多输出三个") || !strings.Contains(prompt, "source_term") || !strings.Contains(prompt, "职责") {
 		t.Fatal("v3 prompt does not contain the adjudicated candidate-governance boundary")
+	}
+}
+
+func TestV3AISystemPromptAddsCrossFieldContractInstructions(t *testing.T) {
+	if got, want := AISystemPromptV3SHA256(), "9e2f84cd0b01902f819e828d44ff005080f0c732393f6e4acc51691415437903"; got != want {
+		t.Fatalf("v3 system prompt SHA-256 = %q, want %q", got, want)
+	}
+	if AISystemPromptV3() == AISystemPromptV2() {
+		t.Fatal("v3 system prompt did not create a distinct immutable candidate identity")
+	}
+	for _, instruction := range []string{"至少输出一项 items", "bachelor=2", "role=unspecified"} {
+		if !strings.Contains(AISystemPromptV3(), instruction) {
+			t.Fatalf("v3 system prompt is missing cross-field contract instruction %q", instruction)
+		}
 	}
 }
 

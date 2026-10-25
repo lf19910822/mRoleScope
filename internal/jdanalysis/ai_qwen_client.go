@@ -246,7 +246,7 @@ func (client *QwenClient) Analyze(ctx context.Context, input AIModelInput) (AIMo
 		EnableThinking: client.profile.enableThinking,
 		MaxTokens:      client.profile.maxOutputTokens,
 		Messages: []qwenChatMessage{
-			{Content: assets.prompt, Role: "system"},
+			{Content: input.reviewedSystemPrompt(), Role: "system"},
 			{Content: string(inputJSON), Role: "user"},
 		},
 		Model: client.profile.model,

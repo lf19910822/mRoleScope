@@ -3,6 +3,7 @@ package jdanalysis
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // AISemanticProjection is the transient, normalized semantic result produced
@@ -112,6 +113,15 @@ func (input AIModelInput) ValidateAndMapResponse(raw []byte) (AISemanticProjecti
 // MapValidatedResponse converts a response already accepted by the strict
 // contract into conservative, persistence-ready semantic values.
 func (input AIModelInput) MapValidatedResponse(response AISemanticResponse) (AISemanticProjection, error) {
+	if input.validatorVersion == AIValidatorVersionV2 {
+		return input.mapValidatedResponseV2(response), nil
+	}
+	if input.validatorVersion == AIValidatorVersionV3 {
+		return input.mapValidatedResponseV3(response), nil
+	}
+	if input.validatorVersion != "" && input.validatorVersion != AIValidatorVersionV1 {
+		return AISemanticProjection{}, semanticPolicyError(fmt.Errorf("validator version is not supported"))
+	}
 	experience, err := input.mapExperience(response.Experience)
 	if err != nil {
 		return AISemanticProjection{}, semanticPolicyError(err)
@@ -180,6 +190,39 @@ func (input AIModelInput) mapCandidateMentions(candidates []AICandidateMentionRe
 	return projections, unresolvedSourceTerms
 }
 
+// mapValidatedResponseV2 makes model defects local to their semantic field.
+// The response has already passed the non-negotiable JSON, request identity,
+// and opaque-reference checks. Consequently a malformed business conclusion
+// must not discard independently verified conclusions from the same JD.
+func (input AIModelInput) mapValidatedResponseV2(response AISemanticResponse) AISemanticProjection {
+	return AISemanticProjection{
+		CandidateMentions: input.mapCandidateMentionsV2(response.CandidateMentions),
+		Experience:        input.mapExperienceV2(response.Experience),
+		MinimumEducation:  input.mapMinimumEducationV2(response.MinimumEducation),
+		RequirementGroups: input.mapRequirementGroupsV2(response.TechnologyRequirementGroups),
+	}
+}
+
+// mapValidatedResponseV3 preserves every strict v3 conclusion that can be
+// represented, while keeping a malformed semantic field local to that field.
+// Request identity, schema, span IDs, and verified technology identifiers have
+// already passed their non-negotiable validation before this mapper runs.
+func (input AIModelInput) mapValidatedResponseV3(response AISemanticResponse) AISemanticProjection {
+	projection := input.mapValidatedResponseV2(response)
+
+	if experience, err := input.mapExperience(response.Experience); err == nil {
+		projection.Experience = experience
+	}
+	if education, err := input.mapMinimumEducation(response.MinimumEducation); err == nil {
+		projection.MinimumEducation = education
+	}
+	if groups, err := input.mapRequirementGroups(response.TechnologyRequirementGroups); err == nil {
+		projection.RequirementGroups = groups
+	}
+	projection.CandidateMentions, projection.PendingUnresolvedSourceTerms = input.mapCandidateMentions(response.CandidateMentions)
+	return projection
+}
+
 // isCandidateTechnicalNameOrAbbreviation deliberately uses a narrow,
 // explainable first-release boundary: candidates must contain an ASCII letter
 // or digit, which admits technical proper names/abbreviations such as DFMEA,
@@ -193,6 +236,30 @@ func isCandidateTechnicalNameOrAbbreviation(candidate string) bool {
 		}
 	}
 	return false
+}
+
+// mapCandidateMentionsV2 treats a non-locatable candidate as a defect in that
+// one model claim. Its supplied span ID has already been checked globally;
+// an exact-text mismatch is not a reason to fail the rest of a JD.
+func (input AIModelInput) mapCandidateMentionsV2(candidates []AICandidateMentionResponse) []AICandidateMentionProjection {
+	projections := make([]AICandidateMentionProjection, 0, len(candidates))
+	for _, candidate := range candidates {
+		if utf8.RuneCountInString(candidate.CandidateText) > 256 {
+			continue
+		}
+		evidence, err := input.LocateCandidate(candidate.CandidateText, candidate.SpanID)
+		if err != nil {
+			continue
+		}
+		projections = append(projections, AICandidateMentionProjection{
+			CandidateText: candidate.CandidateText,
+			Evidence:      evidence,
+			Necessity:     candidate.Necessity,
+			ReviewTier:    forcedRequiredReviewTier(),
+			Role:          candidate.Role,
+		})
+	}
+	return projections
 }
 
 func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperienceProjection, error) {
@@ -279,6 +346,133 @@ func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperi
 	return projection, nil
 }
 
+// mapExperienceV2 preserves every independently evidence-bound experience
+// item it can represent. The summary becomes uncertain when the model's
+// cross-field shape is contradictory, rather than turning a local omission
+// into a failed_safely JD.
+func (input AIModelInput) mapExperienceV2(response AIExperienceResponse) AIExperienceProjection {
+	projection := AIExperienceProjection{
+		ReviewTier: forcedRequiredReviewTier(),
+		Status:     "uncertain",
+	}
+
+	evidence, evidenceErr := input.ResolveSpanIDs(response.EvidenceSpanIDs)
+	if evidenceErr == nil {
+		projection.Evidence = evidence
+	}
+
+	if response.Status != "configured" {
+		if response.Status == "not_configured" && response.BaseYear == nil && len(response.Items) == 0 && len(response.ConditionalQualifications) == 0 && len(response.EvidenceSpanIDs) == 0 {
+			projection.Status = "not_configured"
+			projection.ReviewTier = response.ReviewRecommendation
+		}
+		return projection
+	}
+
+	maximumYears := 0
+	for _, item := range response.Items {
+		itemEvidence, err := input.ResolveSpanIDs(item.EvidenceSpanIDs)
+		if err != nil || len(itemEvidence) == 0 {
+			continue
+		}
+		subjectKind, subjectKey, err := mapExperienceScope(item.ScopeType, item.ScopeKey)
+		if err != nil {
+			continue
+		}
+		if subjectKind == "domain" && !input.isSingleSourceExactExperienceDomain(subjectKey, item.EvidenceSpanIDs) {
+			continue
+		}
+		projection.Items = append(projection.Items, AIExperienceItemProjection{
+			Evidence:     itemEvidence,
+			MinimumYears: item.MinYears,
+			ReviewTier:   item.ReviewRecommendation,
+			SubjectKey:   subjectKey,
+			SubjectKind:  subjectKind,
+		})
+		if item.MinYears > maximumYears {
+			maximumYears = item.MinYears
+		}
+	}
+
+	for _, conditional := range response.ConditionalQualifications {
+		conditionalEvidence, err := input.ResolveSpanIDs(conditional.EvidenceSpanIDs)
+		if err != nil || len(conditionalEvidence) == 0 {
+			continue
+		}
+		educationLevel, _, exists := normalizedEducationLevel(conditional.WhenEducation)
+		if !exists || conditional.ExperienceScope != "base" || conditional.ExperienceScopeKey != "overall" {
+			continue
+		}
+		projection.ConditionalQualifications = append(projection.ConditionalQualifications, AIConditionalQualificationProjection{
+			EducationLevel: educationLevel,
+			Evidence:       conditionalEvidence,
+			MinimumYears:   conditional.MinYears,
+			ReviewTier:     forcedRequiredReviewTier(),
+			SubjectKey:     "",
+			SubjectKind:    "overall",
+		})
+		if conditional.MinYears > maximumYears {
+			maximumYears = conditional.MinYears
+		}
+	}
+
+	if len(projection.Evidence) == 0 {
+		projection.Evidence = evidenceFromExperienceProjection(projection)
+	}
+	if response.BaseYear == nil || len(projection.Evidence) == 0 {
+		return projection
+	}
+	if len(projection.Items) == 0 {
+		// A cited aggregate year is useful even when the model omitted the
+		// redundant base/overall item required by the persistence shape.
+		projection.Items = append(projection.Items, AIExperienceItemProjection{
+			Evidence:     projection.Evidence,
+			MinimumYears: *response.BaseYear,
+			ReviewTier:   forcedRequiredReviewTier(),
+			SubjectKind:  "overall",
+		})
+		maximumYears = *response.BaseYear
+	}
+	if maximumYears != *response.BaseYear {
+		return projection
+	}
+	baseYear := *response.BaseYear
+	projection.BaseYear = &baseYear
+	projection.Status = "configured"
+	if allExperienceFieldsWereRepresentable(response, projection) {
+		projection.ReviewTier = response.ReviewRecommendation
+	}
+	return projection
+}
+
+func evidenceFromExperienceProjection(projection AIExperienceProjection) []AISemanticEvidence {
+	evidence := make([]AISemanticEvidence, 0)
+	seen := make(map[string]struct{})
+	appendEvidence := func(values []AISemanticEvidence) {
+		for _, value := range values {
+			if _, exists := seen[value.SpanID]; exists {
+				continue
+			}
+			seen[value.SpanID] = struct{}{}
+			evidence = append(evidence, value)
+		}
+	}
+	for _, item := range projection.Items {
+		appendEvidence(item.Evidence)
+	}
+	for _, conditional := range projection.ConditionalQualifications {
+		appendEvidence(conditional.Evidence)
+	}
+	return evidence
+}
+
+func allExperienceFieldsWereRepresentable(response AIExperienceResponse, projection AIExperienceProjection) bool {
+	if response.BaseYear == nil || len(response.EvidenceSpanIDs) == 0 || len(response.Items) != len(projection.Items) || len(response.ConditionalQualifications) != len(projection.ConditionalQualifications) {
+		return false
+	}
+	return true
+}
+
 func (input AIModelInput) mapMinimumEducation(response AIMinimumEducationResponse) (AIMinimumEducationProjection, error) {
 	evidence, err := input.ResolveSpanIDs(response.EvidenceSpanIDs)
 	if err != nil {
@@ -312,6 +506,47 @@ func (input AIModelInput) mapMinimumEducation(response AIMinimumEducationRespons
 		return AIMinimumEducationProjection{}, fmt.Errorf("education status is invalid")
 	}
 	return projection, nil
+}
+
+// mapMinimumEducationV2 regards level_code as redundant transport data. A
+// supported level remains useful when its numeric mirror is wrong, but it is
+// always escalated for review. Missing level/evidence or contradictory status
+// becomes an uncertain field rather than a whole-response rejection.
+func (input AIModelInput) mapMinimumEducationV2(response AIMinimumEducationResponse) AIMinimumEducationProjection {
+	projection := AIMinimumEducationProjection{
+		ReviewTier: forcedRequiredReviewTier(),
+		Status:     "uncertain",
+	}
+	evidence, err := input.ResolveSpanIDs(response.EvidenceSpanIDs)
+	if err == nil {
+		projection.Evidence = evidence
+	}
+	switch response.Status {
+	case "not_configured":
+		if response.Level == nil && response.LevelCode == nil && len(response.EvidenceSpanIDs) == 0 {
+			projection.Status = "not_configured"
+			projection.ReviewTier = response.ReviewRecommendation
+		}
+		return projection
+	case "uncertain":
+		return projection
+	case "configured":
+		if response.Level == nil || len(projection.Evidence) == 0 {
+			return projection
+		}
+		level, expectedCode, exists := normalizedEducationLevel(*response.Level)
+		if !exists {
+			return projection
+		}
+		projection.Level = level
+		projection.Status = "configured"
+		if response.LevelCode != nil && *response.LevelCode == expectedCode {
+			projection.ReviewTier = response.ReviewRecommendation
+		}
+		return projection
+	default:
+		return projection
+	}
 }
 
 func (input AIModelInput) mapRequirementGroups(groups []AITechnologyRequirementGroupResponse) ([]AIRequirementGroupProjection, error) {
@@ -495,6 +730,119 @@ func (input AIModelInput) splitIndependentPositiveQualificationGroup(response AI
 		split = append(split, part)
 	}
 	return split
+}
+
+// mapRequirementGroupsV2 keeps evidence-bound options and unambiguous groups
+// while converting an incomplete qualification relationship into a visible,
+// non-candidate unspecified group. This avoids a fabricated hard filter and
+// lets a reviewer see that the relationship needs attention.
+func (input AIModelInput) mapRequirementGroupsV2(groups []AITechnologyRequirementGroupResponse) []AIRequirementGroupProjection {
+	projections := make([]AIRequirementGroupProjection, 0, len(groups))
+	seenLocalIDs := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		if _, duplicate := seenLocalIDs[group.LocalID]; duplicate {
+			continue
+		}
+		seenLocalIDs[group.LocalID] = struct{}{}
+		evidence, err := input.ResolveSpanIDs(group.EvidenceSpanIDs)
+		if err != nil || len(evidence) == 0 {
+			continue
+		}
+		options, deduplicated := input.mapRequirementOptionsV2(group.Options)
+		if len(options) == 0 {
+			continue
+		}
+		projection := AIRequirementGroupProjection{
+			CandidateRequirement: false,
+			Evidence:             evidence,
+			LocalID:              group.LocalID,
+			Necessity:            group.Necessity,
+			Options:              options,
+			ReviewTier:           group.ReviewRecommendation,
+			Role:                 group.Role,
+		}
+		if group.Role == "qualification" && group.Operator != nil && *group.Operator == "at_least" && group.MinSatisfied != nil && *group.MinSatisfied >= 1 && *group.MinSatisfied <= len(options) {
+			projection.CandidateRequirement = true
+			projection.Operator = *group.Operator
+			projection.MinSatisfied = *group.MinSatisfied
+		} else if group.Role != "responsibility" && group.Role != "mention" && group.Role != "unspecified" ||
+			(group.Role != "qualification" && (group.Operator != nil || group.MinSatisfied != nil)) ||
+			group.Role == "qualification" {
+			projection.Necessity = "unspecified"
+			projection.ReviewTier = forcedRequiredReviewTier()
+			projection.Role = "unspecified"
+		}
+		if projection.Role == "unspecified" || projection.Necessity == "unspecified" {
+			projection.CandidateRequirement = false
+			projection.Operator = ""
+			projection.MinSatisfied = 0
+			projection.ReviewTier = forcedRequiredReviewTier()
+		}
+		if deduplicated {
+			projection.ReviewTier = forcedRequiredReviewTier()
+		}
+		projections = append(projections, projection)
+	}
+	return projections
+}
+
+func (input AIModelInput) mapRequirementOptionsV2(options []AITechnologyRequirementOptionResponse) ([]AIRequirementOptionProjection, bool) {
+	projections := make([]AIRequirementOptionProjection, 0, len(options))
+	byTechnologyKey := make(map[string]int, len(options))
+	deduplicated := false
+	for _, option := range options {
+		if len(option.MentionEvidenceIDs) == 0 {
+			continue
+		}
+		valid := true
+		for _, mentionEvidenceID := range option.MentionEvidenceIDs {
+			reference, exists := input.responseContract.knownMentionReferences[mentionEvidenceID]
+			if !exists || reference.technologyKey != option.TechnologyKey {
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
+		if index, exists := byTechnologyKey[option.TechnologyKey]; exists {
+			deduplicated = true
+			projections[index].MentionEvidenceIDs = appendUniqueMentionEvidenceIDs(projections[index].MentionEvidenceIDs, option.MentionEvidenceIDs)
+			if !sameProficiency(projections[index].Proficiency, option.Proficiency) {
+				projections[index].Proficiency = nil
+			}
+			continue
+		}
+		byTechnologyKey[option.TechnologyKey] = len(projections)
+		projections = append(projections, AIRequirementOptionProjection{
+			MentionEvidenceIDs: append([]string(nil), option.MentionEvidenceIDs...),
+			Proficiency:        normalizedProficiency(option.Proficiency),
+			TechnologyKey:      option.TechnologyKey,
+		})
+	}
+	return projections, deduplicated
+}
+
+func appendUniqueMentionEvidenceIDs(current, additional []string) []string {
+	seen := make(map[string]struct{}, len(current)+len(additional))
+	for _, evidenceID := range current {
+		seen[evidenceID] = struct{}{}
+	}
+	for _, evidenceID := range additional {
+		if _, exists := seen[evidenceID]; exists {
+			continue
+		}
+		seen[evidenceID] = struct{}{}
+		current = append(current, evidenceID)
+	}
+	return current
+}
+
+func sameProficiency(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func mapExperienceScope(scopeType, scopeKey string) (string, string, error) {

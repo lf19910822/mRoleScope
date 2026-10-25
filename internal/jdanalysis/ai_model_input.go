@@ -21,7 +21,9 @@ type AIModelInput struct {
 
 	fieldTextBySource map[string]string
 	responseContract  AISemanticResponseContract
+	systemPrompt      string
 	spanIndex         AISpanIndex
+	validatorVersion  string
 }
 
 // AIModelInputField contains the model-visible text for one approved field.
@@ -90,6 +92,11 @@ func buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID 
 			SourceFieldAddition:    body.Addition,
 		},
 		spanIndex: spanIndex,
+		// Direct construction is used by unit tests and cannot be associated
+		// with a historical database configuration. It uses the current prompt
+		// while retaining the original strict mapper by default.
+		systemPrompt:     AISystemPromptV3(),
+		validatorVersion: AIValidatorVersionV1,
 	}
 	input.Fields = buildAIModelInputFields(body, spanIndex)
 	input.VerifiedTechnologyMentions = make([]VerifiedTechnologyMention, 0, len(mentions))
@@ -144,14 +151,18 @@ func (repository *Repository) BuildAIModelInput(ctx context.Context, requestID, 
 	if requestID == "" || aiConfigurationID == "" || bodyContentVersionID == "" {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
-	var technologyConfigurationID, responseSchemaVersion string
+	var technologyConfigurationID, responseSchemaVersion, validatorVersion, validatorSHA256, promptSHA256 string
 	err := repository.pool.QueryRow(ctx, `
-SELECT technology_configuration.id::text, ai_configuration.response_schema_version
+SELECT technology_configuration.id::text,
+	     ai_configuration.response_schema_version,
+       ai_configuration.validator_version,
+       ai_configuration.validator_sha256,
+       ai_configuration.prompt_sha256
 FROM ai_analysis_configurations AS ai_configuration
 JOIN technology_analysis_configurations AS technology_configuration
   ON technology_configuration.id = ai_configuration.technology_analysis_configuration_id
 WHERE ai_configuration.id = $1
-	  AND technology_configuration.status = 'published'`, aiConfigurationID).Scan(&technologyConfigurationID, &responseSchemaVersion)
+	  AND technology_configuration.status = 'published'`, aiConfigurationID).Scan(&technologyConfigurationID, &responseSchemaVersion, &validatorVersion, &validatorSHA256, &promptSHA256)
 	if err != nil {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
@@ -177,7 +188,56 @@ WHERE ai_configuration.id = $1
 	if err != nil {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorInvalidEvidence, err)
 	}
-	return buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID, body, spanIndex, mentions)
+	input, err := buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID, body, spanIndex, mentions)
+	if err != nil {
+		return AIModelInput{}, err
+	}
+	if err := input.applyFrozenExecutionContract(validatorVersion, validatorSHA256, promptSHA256); err != nil {
+		return AIModelInput{}, err
+	}
+	return input, nil
+}
+
+// applyFrozenExecutionContract binds model execution to the exact validator
+// and prompt identities stored with an immutable AI configuration. This keeps
+// historical candidates from silently acquiring a newer interpretation.
+func (input *AIModelInput) applyFrozenExecutionContract(validatorVersion, validatorSHA256, promptSHA256 string) error {
+	if input == nil {
+		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	if validatorVersion != AIValidatorVersionV1 && validatorVersion != AIValidatorVersionV2 && validatorVersion != AIValidatorVersionV3 {
+		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	if validatorSHA256 != sha256Hex(validatorVersion) {
+		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	prompt, exists := reviewedAISystemPromptBySHA256(promptSHA256)
+	if !exists {
+		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	input.systemPrompt = prompt
+	input.validatorVersion = validatorVersion
+	return nil
+}
+
+func reviewedAISystemPromptBySHA256(promptSHA256 string) (string, bool) {
+	switch promptSHA256 {
+	case AISystemPromptV1SHA256():
+		return AISystemPromptV1(), true
+	case AISystemPromptV2SHA256():
+		return AISystemPromptV2(), true
+	case AISystemPromptV3SHA256():
+		return AISystemPromptV3(), true
+	default:
+		return "", false
+	}
+}
+
+func (input AIModelInput) reviewedSystemPrompt() string {
+	if input.systemPrompt == "" {
+		return AISystemPromptV3()
+	}
+	return input.systemPrompt
 }
 
 // LocateCandidate finds a candidate exactly once in its approved span and

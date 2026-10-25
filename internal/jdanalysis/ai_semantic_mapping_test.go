@@ -300,6 +300,73 @@ func syntheticExperienceOnlyModelInput(t *testing.T, description string) AIModel
 	return input
 }
 
+func TestAIModelInputV2RecoversLocallyMalformedFieldsWithoutDiscardingJD(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	input.validatorVersion = AIValidatorVersionV2
+	bachelor, wrongBachelorCode := "bachelor", 3
+	baseYear := 3
+	minimumSatisfied := 1
+	atLeast := "at_least"
+	response := AISemanticResponse{
+		ResponseSchemaVersion: AIResponseSchemaVersionV1,
+		RequestID:             input.RequestID,
+		Experience: AIExperienceResponse{
+			Status:          "configured",
+			BaseYear:        &baseYear,
+			EvidenceSpanIDs: []string{"jobRequire:s01"},
+			Items:           []AIExperienceItemResponse{},
+			ConditionalQualifications: []AIConditionalQualificationResponse{{
+				WhenEducation: "bachelor", ExperienceScope: "technology", ExperienceScopeKey: "go", MinYears: 3,
+				EvidenceSpanIDs: []string{"jobRequire:s01"}, ReviewRecommendation: "required_review",
+			}},
+			ReviewRecommendation: "routine",
+		},
+		MinimumEducation: AIMinimumEducationResponse{
+			Status: "configured", Level: &bachelor, LevelCode: &wrongBachelorCode,
+			EvidenceSpanIDs: []string{"jobRequire:s01"}, ReviewRecommendation: "routine",
+		},
+		TechnologyRequirementGroups: []AITechnologyRequirementGroupResponse{
+			{
+				LocalID: "invalid-qualification", Role: "qualification", Necessity: "required",
+				Operator: &atLeast, MinSatisfied: &minimumSatisfied, Options: []AITechnologyRequirementOptionResponse{},
+				EvidenceSpanIDs: []string{"description:s01"}, ReviewRecommendation: "routine",
+			},
+			{
+				LocalID: "verified-responsibility", Role: "responsibility", Necessity: "unspecified",
+				Options: []AITechnologyRequirementOptionResponse{
+					{TechnologyKey: "go", MentionEvidenceIDs: []string{"evidence-go"}},
+					{TechnologyKey: "go", MentionEvidenceIDs: []string{"evidence-go"}},
+				},
+				EvidenceSpanIDs: []string{"description:s01"}, ReviewRecommendation: "routine",
+			},
+		},
+		CandidateMentions: []AICandidateMentionResponse{
+			{CandidateText: "not present", SpanID: "description:s01", Role: "qualification", Necessity: "required", ReviewRecommendation: "required_review"},
+		},
+	}
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	projection, err := input.ValidateAndMapResponse(raw)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v; local defects must not reject the JD", err)
+	}
+	if projection.Experience.Status != "configured" || projection.Experience.BaseYear == nil || *projection.Experience.BaseYear != 3 || len(projection.Experience.Items) != 1 || projection.Experience.Items[0].SubjectKind != "overall" || projection.Experience.ReviewTier != "required_review" {
+		t.Fatalf("experience recovery = %#v, want synthesized overall item with required review", projection.Experience)
+	}
+	if projection.MinimumEducation.Status != "configured" || projection.MinimumEducation.Level != "bachelor" || projection.MinimumEducation.ReviewTier != "required_review" {
+		t.Fatalf("education recovery = %#v, want verified level with required review", projection.MinimumEducation)
+	}
+	if len(projection.RequirementGroups) != 1 || projection.RequirementGroups[0].Role != "responsibility" || projection.RequirementGroups[0].CandidateRequirement || projection.RequirementGroups[0].ReviewTier != "required_review" || len(projection.RequirementGroups[0].Options) != 1 {
+		t.Fatalf("requirement recovery = %#v, want only non-candidate review group", projection.RequirementGroups)
+	}
+	if len(projection.CandidateMentions) != 0 {
+		t.Fatalf("unlocatable candidate was persisted in projection: %#v", projection.CandidateMentions)
+	}
+}
+
 func syntheticConfiguredSemanticResponse() AISemanticResponse {
 	baseYear := 3
 	doctorLevel := "doctor"
