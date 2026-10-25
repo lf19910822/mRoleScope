@@ -155,20 +155,20 @@ case "$1" in
     log 'controlled Plus publication completed'
     ;;
   review-plus)
-    exec compose --profile ai-review run --rm --no-deps ai-plus-review
+    compose --profile ai-review run --rm --no-deps ai-plus-review
     ;;
   review-flash)
-    exec compose --profile ai-review run --rm --no-deps ai-flash-review
+    compose --profile ai-review run --rm --no-deps ai-flash-review
     ;;
   audit-plus-contract)
     [[ -t 0 && -t 1 ]] || die 'AI output audit requires a direct terminal'
     require_audit_operator
-    exec compose --profile ai-output-audit run --rm --no-deps ai-plus-contract-audit
+    compose --profile ai-output-audit run --rm --no-deps ai-plus-contract-audit
     ;;
   audit-flash-contract)
     [[ -t 0 && -t 1 ]] || die 'AI output audit requires a direct terminal'
     require_audit_operator
-    exec compose --profile ai-output-audit run --rm --no-deps ai-flash-contract-audit
+    compose --profile ai-output-audit run --rm --no-deps ai-flash-contract-audit
     ;;
   audit-status)
     compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status

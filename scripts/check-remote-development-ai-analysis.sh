@@ -60,6 +60,17 @@ grep -Fqx '    compose --profile ai-output-audit-diagnostic run --rm --no-deps a
   || die 'AI helper must invoke only the fixed five-body diagnostic caller'
 grep -Fqx '    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status' "$helper" \
   || die 'AI helper must invoke only the fixed text-free output-audit status reader'
+if grep -Fq 'exec compose ' "$helper"; then
+  die 'AI helper must not exec the compose shell function'
+fi
+for service in ai-plus-review ai-flash-review; do
+  grep -Fqx "    compose --profile ai-review run --rm --no-deps ${service}" "$helper" \
+    || die "AI helper must invoke only fixed ${service} Compose service without exec"
+done
+for service in ai-plus-contract-audit ai-flash-contract-audit; do
+  grep -Fqx "    compose --profile ai-output-audit run --rm --no-deps ${service}" "$helper" \
+    || die "AI helper must invoke only fixed ${service} Compose service without exec"
+done
 
 for operation in prepare-ai-trial run-ai-plus-trial run-ai-flash-trial expand-ai-plus publish-ai-plus ai-status ai-logs; do
   grep -Fqx "  ${operation})" "$operations" \
