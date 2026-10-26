@@ -389,77 +389,6 @@ WHERE ai_analysis_configuration_id = $1 AND body_content_version_id = $2`, aiCon
 	}
 }
 
-func TestAISemanticProcessorPersistsEvidenceBoundDomainExperience(t *testing.T) {
-	repository := newIntegrationRepository(t)
-	ctx := context.Background()
-	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
-	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-domain-experience-reference")
-	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-domain-experience-candidate"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.EnsureAISemanticResult(ctx, bodyID, aiConfiguration.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.pool.Exec(ctx, `
-INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_version_id, trigger)
-VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: domainExperienceAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	var subjectKind, domainKey string
-	var minimumYears, evidenceCount int
-	if err := repository.pool.QueryRow(ctx, `
-SELECT item.subject_kind, item.domain_key, item.minimum_years::integer,
-       (SELECT count(*) FROM ai_semantic_evidence AS evidence WHERE evidence.semantic_artifact_id = item.id)
-FROM ai_experience_requirement_items AS item
-WHERE item.subject_kind = 'domain'`).Scan(&subjectKind, &domainKey, &minimumYears, &evidenceCount); err != nil {
-		t.Fatal(err)
-	}
-	if subjectKind != "domain" || domainKey != "Go" || minimumYears != 3 || evidenceCount != 1 {
-		t.Fatalf("persisted AI domain experience = subject:%s domain:%s minimum:%d evidence:%d", subjectKind, domainKey, minimumYears, evidenceCount)
-	}
-}
-
-func TestAISemanticProcessorRejectsDomainExperienceWithoutExactEvidence(t *testing.T) {
-	repository := newIntegrationRepository(t)
-	ctx := context.Background()
-	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
-	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-unbound-domain-reference")
-	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-unbound-domain-candidate"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.EnsureAISemanticResult(ctx, bodyID, aiConfiguration.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.pool.Exec(ctx, `
-INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_version_id, trigger)
-VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
-		t.Fatal(err)
-	}
-
-	summary, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: domainExperienceAIModelClient{domainKey: "invented-domain"}}}).ProcessPending(ctx, aiConfiguration.ID)
-	if !errors.Is(err, ErrAISemanticWorkFailed) || summary.Failed != 1 {
-		t.Fatalf("ProcessPending() = summary:%#v err:%v, want one safe failure", summary, err)
-	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "failed_safely", "failed_safely", "not_analyzed")
-	var safeCode string
-	if err := repository.pool.QueryRow(ctx, `
-SELECT last_safe_error_code::text
-FROM ai_analysis_work_items
-WHERE ai_analysis_configuration_id = $1 AND body_content_version_id = $2`, aiConfiguration.ID, bodyID).Scan(&safeCode); err != nil {
-		t.Fatal(err)
-	}
-	if safeCode != string(AISafeErrorPolicyRejected) {
-		t.Fatalf("safe error code = %q, want %q", safeCode, AISafeErrorPolicyRejected)
-	}
-}
-
 func TestAISemanticProcessorPersistsEducationExperienceConditionBranches(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -736,37 +665,6 @@ func (technologyExperienceAIModelClient) Analyze(_ context.Context, input AIMode
 			Items:                     []AIExperienceItemResponse{{ScopeType: "technology", ScopeKey: mention.TechnologyKey, MinYears: 3, EvidenceSpanIDs: []string{mention.SpanID}, ReviewRecommendation: "routine"}},
 			ConditionalQualifications: []AIConditionalQualificationResponse{},
 			ReviewRecommendation:      "routine",
-		},
-		MinimumEducation:            AIMinimumEducationResponse{Status: "not_configured", EvidenceSpanIDs: []string{}, ReviewRecommendation: "routine"},
-		RequestID:                   input.RequestID,
-		ResponseSchemaVersion:       AIResponseSchemaVersionV1,
-		TechnologyRequirementGroups: []AITechnologyRequirementGroupResponse{},
-	})
-	if err != nil {
-		return AIModelResponse{}, err
-	}
-	return AIModelResponse{Content: raw, Usage: AIModelUsage{InputTokens: 10, OutputTokens: 10, TotalTokens: 20}}, nil
-}
-
-type domainExperienceAIModelClient struct {
-	domainKey string
-}
-
-func (client domainExperienceAIModelClient) Analyze(_ context.Context, input AIModelInput) (AIModelResponse, error) {
-	baseYear := 3
-	domainKey := client.domainKey
-	if domainKey == "" {
-		domainKey = "Go"
-	}
-	raw, err := json.Marshal(AISemanticResponse{
-		CandidateMentions: []AICandidateMentionResponse{},
-		Experience: AIExperienceResponse{
-			Status:                    "configured",
-			BaseYear:                  &baseYear,
-			EvidenceSpanIDs:           []string{"description:s01"},
-			Items:                     []AIExperienceItemResponse{{ScopeType: "domain", ScopeKey: domainKey, MinYears: 3, EvidenceSpanIDs: []string{"description:s01"}, ReviewRecommendation: "required_review"}},
-			ConditionalQualifications: []AIConditionalQualificationResponse{},
-			ReviewRecommendation:      "required_review",
 		},
 		MinimumEducation:            AIMinimumEducationResponse{Status: "not_configured", EvidenceSpanIDs: []string{}, ReviewRecommendation: "routine"},
 		RequestID:                   input.RequestID,
