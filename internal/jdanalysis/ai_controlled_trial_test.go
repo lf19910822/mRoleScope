@@ -137,8 +137,8 @@ func TestControlledAIConfigurationInputsFreezeActiveV3PromptAndValidatorIdentity
 		if input.PromptSHA256 == AISystemPromptV1SHA256() || input.PromptSHA256 == AISystemPromptV2SHA256() {
 			t.Fatal("controlled configuration reused a historic prompt identity")
 		}
-		if input.ValidatorVersion != AIValidatorVersionV2 || input.ValidatorSHA256 != sha256Hex(AIValidatorVersionV2) {
-			t.Fatalf("controlled configuration validator = %s/%s, want active V2 validator", input.ValidatorVersion, input.ValidatorSHA256)
+		if input.ValidatorVersion != AIValidatorVersionV3 || input.ValidatorSHA256 != sha256Hex(AIValidatorVersionV3) {
+			t.Fatalf("controlled configuration validator = %s/%s, want active V3 validator", input.ValidatorVersion, input.ValidatorSHA256)
 		}
 	}
 }

@@ -86,7 +86,7 @@ func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *test
 		t.Fatalf("cross-body mention error = %v, want redacted invalid evidence error", err)
 	}
 
-	input, err := BuildAIModelInput("request-01", body, spans, []VerifiedTechnologyMention{{
+	input, err := buildAIModelInputForResponseSchemaVersion(AIResponseSchemaVersionV3, "request-01", body, spans, []VerifiedTechnologyMention{{
 		BodyContentVersionID:  body.BodyContentVersionID,
 		CanonicalName:         "Go",
 		CodePointRange:        CodePointRange{Start: 4, End: 6},
@@ -99,7 +99,9 @@ func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = input.ValidateResponse([]byte(validAIModelResponseWithGoOption(2)))
+	input.validatorVersion = AIValidatorVersionV3
+	response := strings.Replace(validAIModelResponseWithGoOption(2), AIResponseSchemaVersionV1, AIResponseSchemaVersionV3, 1)
+	_, err = input.ValidateAndMapResponse([]byte(response))
 	if err != nil {
 		t.Fatalf("structurally valid but locally inconsistent min_satisfied error = %v, want field-level recovery eligibility", err)
 	}

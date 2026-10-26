@@ -530,31 +530,11 @@ func validateTechnologyRequirementGroupShape(raw json.RawMessage) error {
 		return err
 	}
 
-	var options []json.RawMessage
-	if err := json.Unmarshal(object["options"], &options); err != nil {
-		return err
-	}
-	var operator *string
-	if err := json.Unmarshal(object["operator"], &operator); err != nil {
-		return err
-	}
-	var minSatisfied *int
-	if err := json.Unmarshal(object["min_satisfied"], &minSatisfied); err != nil {
-		return err
-	}
-	var role string
-	if err := json.Unmarshal(object["role"], &role); err != nil {
-		return err
-	}
-	if (operator == nil) != (minSatisfied == nil) {
-		return fmt.Errorf("requirement operator and minimum satisfaction must be paired")
-	}
-	if operator != nil && (*minSatisfied > len(options) || len(options) == 0) {
-		return fmt.Errorf("requirement minimum satisfaction exceeds its options")
-	}
-	if role == "qualification" && (operator == nil || minSatisfied == nil || len(options) == 0) {
-		return fmt.Errorf("qualification group is incomplete")
-	}
+	// Cross-field requirement semantics are deliberately handled by the
+	// versioned mapper. The structural contract remains strict about JSON
+	// shape, fields, enums, and reference IDs; a locally inconsistent relation
+	// is recoverable as an uncertain/non-candidate group rather than grounds to
+	// discard the JD's independent conclusions.
 	return nil
 }
 
