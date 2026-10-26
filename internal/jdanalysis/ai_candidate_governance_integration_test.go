@@ -49,7 +49,7 @@ SELECT
 	}
 }
 
-func TestAISemanticProcessorLocallyIgnoresEnabledAliasCandidateWithoutCreatingGovernanceRecords(t *testing.T) {
+func TestAISemanticProcessorV1RejectsEnabledAliasCandidateUnderHistoricalPolicy(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -66,10 +66,11 @@ INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_v
 VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: enabledAliasCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
-		t.Fatalf("enabled alias candidate processing error = %v, want success", err)
+	summary, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: enabledAliasCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID)
+	if err == nil || summary.Failed != 1 {
+		t.Fatalf("historical V1 enabled-alias result = summary:%#v err:%v, want one safe failure", summary, err)
 	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "not_configured")
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "failed_safely", "failed_safely", "not_analyzed")
 
 	var dictionaryCandidates, identities, candidateArtifacts, requirementOptions int
 	if err := repository.pool.QueryRow(ctx, `
@@ -82,7 +83,7 @@ SELECT
 		t.Fatal(err)
 	}
 	if dictionaryCandidates != 0 || identities != 1 || candidateArtifacts != 0 || requirementOptions != 0 {
-		t.Fatalf("enabled alias candidate left governance records = candidates:%d identities:%d artifacts:%d options:%d", dictionaryCandidates, identities, candidateArtifacts, requirementOptions)
+		t.Fatalf("historical V1 enabled alias left governance records = candidates:%d identities:%d artifacts:%d options:%d", dictionaryCandidates, identities, candidateArtifacts, requirementOptions)
 	}
 }
 

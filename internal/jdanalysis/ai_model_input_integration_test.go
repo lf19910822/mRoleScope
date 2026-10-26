@@ -31,8 +31,11 @@ func TestRepositoryBuildsAIModelInputFromPublishedDeterministicEvidenceOnly(t *t
 		t.Fatal(err)
 	}
 	configurationInput := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-model-input")
+	configurationInput.PromptSHA256 = AISystemPromptV2SHA256()
 	configurationInput.ResponseSchemaVersion = AIResponseSchemaVersionV2
 	configurationInput.ResponseSchemaSHA256 = AIResponseSchemaV2SHA256()
+	configurationInput.ValidatorVersion = AIValidatorVersionV2
+	configurationInput.ValidatorSHA256 = sha256Hex(AIValidatorVersionV2)
 	aiConfiguration, err := repository.PrepareCandidateAIConfiguration(ctx, configurationInput)
 	if err != nil {
 		t.Fatal(err)
