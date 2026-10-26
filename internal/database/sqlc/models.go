@@ -717,13 +717,14 @@ func (ns NullAiSafeErrorCode) Value() (driver.Value, error) {
 type AiSemanticArtifactKind string
 
 const (
-	AiSemanticArtifactKindExperienceSummary   AiSemanticArtifactKind = "experience_summary"
-	AiSemanticArtifactKindExperienceItem      AiSemanticArtifactKind = "experience_item"
-	AiSemanticArtifactKindEducationSummary    AiSemanticArtifactKind = "education_summary"
-	AiSemanticArtifactKindConditionBranch     AiSemanticArtifactKind = "condition_branch"
-	AiSemanticArtifactKindRequirementGroup    AiSemanticArtifactKind = "requirement_group"
-	AiSemanticArtifactKindRequirementOption   AiSemanticArtifactKind = "requirement_option"
-	AiSemanticArtifactKindCandidateTechnology AiSemanticArtifactKind = "candidate_technology"
+	AiSemanticArtifactKindExperienceSummary    AiSemanticArtifactKind = "experience_summary"
+	AiSemanticArtifactKindExperienceItem       AiSemanticArtifactKind = "experience_item"
+	AiSemanticArtifactKindEducationSummary     AiSemanticArtifactKind = "education_summary"
+	AiSemanticArtifactKindConditionBranch      AiSemanticArtifactKind = "condition_branch"
+	AiSemanticArtifactKindRequirementGroup     AiSemanticArtifactKind = "requirement_group"
+	AiSemanticArtifactKindRequirementOption    AiSemanticArtifactKind = "requirement_option"
+	AiSemanticArtifactKindCandidateTechnology  AiSemanticArtifactKind = "candidate_technology"
+	AiSemanticArtifactKindUnresolvedSourceTerm AiSemanticArtifactKind = "unresolved_source_term"
 )
 
 func (e *AiSemanticArtifactKind) Scan(src interface{}) error {
@@ -1737,6 +1738,11 @@ type AiOutputAuditReview struct {
 	OutputSha256              string
 	Verdict                   AiOutputAuditVerdict
 	ReviewedAt                pgtype.Timestamptz
+}
+
+type AiPendingUnresolvedSourceTerm struct {
+	ID         pgtype.UUID
+	SourceTerm string
 }
 
 type AiSemanticArtifact struct {

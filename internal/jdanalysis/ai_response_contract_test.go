@@ -246,14 +246,20 @@ func TestV3AISemanticContractAssetsFreezeCandidateSourceTermRules(t *testing.T) 
 	}
 }
 
-func TestV3AISystemPromptAddsCrossFieldContractInstructions(t *testing.T) {
-	if got, want := AISystemPromptV3SHA256(), "9e2f84cd0b01902f819e828d44ff005080f0c732393f6e4acc51691415437903"; got != want {
+func TestV3AISystemPromptFreezesAdjudicatedCrossFieldInstructions(t *testing.T) {
+	if got, want := AISystemPromptV3SHA256(), "9045f0878e8eba0fc5ac9c1c08a273e2e33caf1ae87598f0bc972a23f0549a55"; got != want {
 		t.Fatalf("v3 system prompt SHA-256 = %q, want %q", got, want)
 	}
 	if AISystemPromptV3() == AISystemPromptV2() {
 		t.Fatal("v3 system prompt did not create a distinct immutable candidate identity")
 	}
-	for _, instruction := range []string{"至少输出一项 items", "bachelor=2", "role=unspecified"} {
+	for _, instruction := range []string{
+		"items=[] 时独立成立",
+		"省略所有该句的 domain items",
+		"各自一个单项 at_least=1 组",
+		"source_term",
+		"role=unspecified",
+	} {
 		if !strings.Contains(AISystemPromptV3(), instruction) {
 			t.Fatalf("v3 system prompt is missing cross-field contract instruction %q", instruction)
 		}
