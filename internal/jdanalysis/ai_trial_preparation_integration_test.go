@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestPrepareAITrialFreezesSameThirtyBodyIDsForPlusAndFlash(t *testing.T) {
+func TestPrepareAITrialFreezesSameFiveBodyIDsForPlusAndFlash(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -27,7 +27,7 @@ func TestPrepareAITrialFreezesSameThirtyBodyIDsForPlusAndFlash(t *testing.T) {
 	if _, err := repository.PromoteCandidateConfiguration(ctx, technologyConfigurationID); err != nil {
 		t.Fatal(err)
 	}
-	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 6)
 
 	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-trial-plus")
 	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-trial-flash")
@@ -108,7 +108,7 @@ func TestPrepareControlledAITrialUsesOnlyFixedProfilesAndPublishedBaseline(t *te
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
 	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-controlled-ai-trial-reference")
-	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 6)
 
 	first, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
 	if err != nil {
@@ -125,8 +125,18 @@ func TestPrepareControlledAITrialUsesOnlyFixedProfilesAndPublishedBaseline(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plus.TechnologyConfigurationID != technologyConfigurationID || plus.Model != "qwen-plus" || plus.PricingProfileVersion != QwenPlusTrialPricingProfile().Version || plus.PricingProfileSHA256 != QwenPlusTrialPricingProfile().SHA256() || flash.TechnologyConfigurationID != technologyConfigurationID || flash.Model != "qwen-flash" || flash.PricingProfileVersion != QwenFlashComparisonPricingProfile().Version || flash.PricingProfileSHA256 != QwenFlashComparisonPricingProfile().SHA256() {
+	if plus.TechnologyConfigurationID != technologyConfigurationID || plus.Model != "qwen-plus" || plus.PromptSHA256 != AISystemPromptV3SHA256() || plus.ResponseSchemaVersion != AIResponseSchemaVersionV3 || plus.ResponseSchemaSHA256 != AIResponseSchemaV3SHA256() || plus.ValidatorVersion != AIValidatorVersionV3 || plus.PricingProfileVersion != QwenPlusTrialPricingProfile().Version || plus.PricingProfileSHA256 != QwenPlusTrialPricingProfile().SHA256() || flash.TechnologyConfigurationID != technologyConfigurationID || flash.Model != "qwen-flash" || flash.PromptSHA256 != AISystemPromptV3SHA256() || flash.ResponseSchemaVersion != AIResponseSchemaVersionV3 || flash.ResponseSchemaSHA256 != AIResponseSchemaV3SHA256() || flash.ValidatorVersion != AIValidatorVersionV3 || flash.PricingProfileVersion != QwenFlashComparisonPricingProfile().Version || flash.PricingProfileSHA256 != QwenFlashComparisonPricingProfile().SHA256() {
 		t.Fatalf("controlled AI trial configurations = plus:%#v flash:%#v", plus, flash)
+	}
+	var attempts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM ai_analysis_attempts
+WHERE ai_analysis_configuration_id IN ($1, $2)`, first.Plus.ID, first.Flash.ID).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 {
+		t.Fatalf("trial preparation made %d model attempt ledger row(s), want zero before a separately confirmed run", attempts)
 	}
 
 	second, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
@@ -304,6 +314,99 @@ func TestPrepareControlledAITrialCreatesNewCandidatesAfterPreAuditCaptureContrac
 	}
 }
 
+func TestPrepareControlledAITrialCreatesV3ConfigurationsWithoutReusingV2ResultsOrSending(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-v2-v3-contract")
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
+		Plus:  legacyV2ConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		Flash: legacyV2ConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.EnsureAISemanticResult(ctx, historical.BodyContentVersionIDs[0], historical.Plus.ID); err != nil {
+		t.Fatal(err)
+	}
+	current, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Reused || current.Plus.ID == historical.Plus.ID || current.Flash.ID == historical.Flash.ID {
+		t.Fatalf("v3 trial configuration reused a v2 identity: current:%#v historical:%#v", current, historical)
+	}
+	var resultCount, attempts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM ai_semantic_results
+   WHERE body_content_version_id = $1 AND ai_analysis_configuration_id IN ($2, $3)),
+  (SELECT count(*) FROM ai_analysis_attempts
+   WHERE ai_analysis_configuration_id IN ($3, $4))`,
+		historical.BodyContentVersionIDs[0], historical.Plus.ID, current.Plus.ID, current.Flash.ID).Scan(&resultCount, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if resultCount != 2 || attempts != 0 {
+		t.Fatalf("v2/v3 result isolation = results:%d attempts:%d, want 2/0", resultCount, attempts)
+	}
+}
+
+func TestPrepareControlledAITrialDoesNotReuseHistoricalThirtyBodyV3Candidate(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-v3-thirty-to-five-contract")
+	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
+	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
+		Plus:  legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		Flash: legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(historical.BodyContentVersionIDs) != aiLegacyTrialSampleSizeV1 {
+		t.Fatalf("historical v3 trial body count = %d, want %d", len(historical.BodyContentVersionIDs), aiLegacyTrialSampleSizeV1)
+	}
+
+	current, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Reused || current.Plus.ID == historical.Plus.ID || current.Flash.ID == historical.Flash.ID || len(current.BodyContentVersionIDs) != aiTrialSampleSize {
+		t.Fatalf("current five-body candidate reused historical trial: current:%#v historical:%#v", current, historical)
+	}
+	var historicalPlusWork, currentPlusWork, currentAttempts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM ai_analysis_work_items WHERE ai_analysis_configuration_id = $1),
+  (SELECT count(*) FROM ai_analysis_work_items WHERE ai_analysis_configuration_id = $2),
+  (SELECT count(*) FROM ai_analysis_attempts WHERE ai_analysis_configuration_id IN ($2, $3))`,
+		historical.Plus.ID, current.Plus.ID, current.Flash.ID,
+	).Scan(&historicalPlusWork, &currentPlusWork, &currentAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if historicalPlusWork != aiLegacyTrialSampleSizeV1 || currentPlusWork != aiTrialSampleSize || currentAttempts != 0 {
+		t.Fatalf("historical/current work and attempts = %d/%d/%d, want 30/5/0", historicalPlusWork, currentPlusWork, currentAttempts)
+	}
+}
+
 func legacyByteEstimatorConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
 	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
 	input.InputContractSHA256 = sha256Hex(AIInputContractVersionV1 + "|" + AISpanContractVersionV1)
@@ -321,6 +424,34 @@ func preFixQwenBPEConfigurationInput(technologyConfigurationID string, requestPr
 func preAuditCaptureConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
 	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
 	input.InputContractSHA256 = aiInputContractSHA256(AIInputTokenEstimatorVersionV2, AIInputTokenEstimatorSHA256())
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
+func legacyV2ConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
+	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
+	input.PromptSHA256 = AISystemPromptV2SHA256()
+	input.ResponseSchemaVersion = AIResponseSchemaVersionV2
+	input.ResponseSchemaSHA256 = AIResponseSchemaV2SHA256()
+	input.InputContractSHA256 = sha256Hex(strings.Join([]string{
+		AIInputContractVersionV1,
+		AISpanContractVersionV1,
+		AIInputTokenEstimatorVersionV2,
+		aiInputTokenEstimatorSHA256(AIInputTokenEstimatorVersionV2),
+		AIOutputAuditPolicyVersionV1,
+		"retention=168h",
+		"capacity_bytes=67108864",
+		"response_reservation_bytes=1052672",
+	}, "|"))
+	input.ValidatorVersion = AIValidatorVersionV2
+	input.ValidatorSHA256 = sha256Hex(AIValidatorVersionV2)
+	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
+	return input
+}
+
+func legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID string, requestProfile QwenRequestProfile, pricingProfile AITrialPricingProfile) CandidateAIConfigurationInput {
+	input := controlledAITrialConfigurationInput(technologyConfigurationID, requestProfile, pricingProfile)
+	input.InputContractSHA256 = legacyThirtyBodyControlledAIInputContractSHA256()
 	input.ConfigurationSHA256 = candidateAIConfigurationSHA256(input)
 	return input
 }

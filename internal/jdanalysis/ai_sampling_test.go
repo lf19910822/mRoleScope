@@ -5,9 +5,12 @@ import (
 	"testing"
 )
 
-func TestSelectAITrialSampleV1FreezesThirtyNonTextBodyIDs(t *testing.T) {
-	candidates := make([]AIBodySamplingMetric, 0, 35)
-	for index := 1; index <= 35; index++ {
+func TestSelectAITrialSampleV2FreezesFiveNonTextBodyIDs(t *testing.T) {
+	if aiTrialSampleSize != 5 {
+		t.Fatalf("trial sample capacity = %d, want 5", aiTrialSampleSize)
+	}
+	candidates := make([]AIBodySamplingMetric, 0, 6)
+	for index := 1; index <= 6; index++ {
 		candidates = append(candidates, AIBodySamplingMetric{
 			BodyContentVersionID: "body-" + twoDigit(index),
 			BodyLengthCodePoints: 100 + index*75,
@@ -16,16 +19,16 @@ func TestSelectAITrialSampleV1FreezesThirtyNonTextBodyIDs(t *testing.T) {
 		})
 	}
 
-	first, err := SelectAITrialSampleV1(candidates)
+	first, err := SelectAITrialSampleV2(candidates)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := SelectAITrialSampleV1(candidates)
+	second, err := SelectAITrialSampleV2(candidates)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first) != 30 || !equalStrings(first, second) {
-		t.Fatalf("sample = %#v, want deterministic 30 IDs", first)
+	if len(first) != 5 || !equalStrings(first, second) {
+		t.Fatalf("sample = %#v, want deterministic 5 IDs", first)
 	}
 	allCandidates := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
@@ -37,8 +40,21 @@ func TestSelectAITrialSampleV1FreezesThirtyNonTextBodyIDs(t *testing.T) {
 		}
 	}
 
-	if _, err := SelectAITrialSampleV1(candidates[:29]); err == nil {
-		t.Fatal("a trial sample expanded a sub-30 candidate set")
+	if _, err := SelectAITrialSampleV2(candidates[:4]); err == nil {
+		t.Fatal("a trial sample expanded a sub-five candidate set")
+	}
+}
+
+func TestSelectAITrialSampleV1PreservesThirtyBodyHistoricalPolicy(t *testing.T) {
+	candidates := make([]AIBodySamplingMetric, 0, 30)
+	for index := 1; index <= 30; index++ {
+		candidates = append(candidates, AIBodySamplingMetric{
+			BodyContentVersionID: fmt.Sprintf("historical-body-%02d", index),
+		})
+	}
+	sample, err := SelectAITrialSampleV1(candidates)
+	if err != nil || len(sample) != aiLegacyTrialSampleSizeV1 {
+		t.Fatalf("historical v1 sample = %#v, %v; want 30 frozen IDs", sample, err)
 	}
 }
 

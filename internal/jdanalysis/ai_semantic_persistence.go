@@ -67,6 +67,9 @@ VALUES ($1, $2::ai_semantic_value_status, $3::ai_education_level)`, educationArt
 		return fmt.Errorf("insert AI minimum education summary: %w", err)
 	}
 
+	if err := repository.persistAIPendingUnresolvedSourceTerms(ctx, tx, resultID, projection.PendingUnresolvedSourceTerms); err != nil {
+		return err
+	}
 	if err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, projection.CandidateMentions); err != nil {
 		return err
 	}
@@ -99,14 +102,15 @@ WHERE id = $1
 	return nil
 }
 
-// persistAIExperienceItems stores overall and deterministically bound
-// technology experience. Domain scopes need their own controlled-domain
-// contract before they can be persisted, so they remain safely rejected.
+// persistAIExperienceItems stores overall, verified-technology, and exact
+// single-domain experience. Composite or alternative domains have already been
+// omitted by the semantic mapper because this schema has no domain operator.
 func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx pgx.Tx, resultID, experienceSummaryID, configurationID, bodyContentVersionID string, input AIModelInput, items []AIExperienceItemProjection) error {
 	for _, item := range items {
 		if item.MinimumYears < 1 {
 			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
+		var domainKey *string
 		var technologyIdentityID *string
 		switch item.SubjectKind {
 		case "overall":
@@ -119,6 +123,11 @@ func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx p
 				return err
 			}
 			technologyIdentityID = &identityID
+		case "domain":
+			if item.SubjectKey == "" {
+				return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			}
+			domainKey = &item.SubjectKey
 		default:
 			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
@@ -132,7 +141,7 @@ func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx p
 		if _, err := tx.Exec(ctx, `
 INSERT INTO ai_experience_requirement_items (
     id, experience_summary_id, subject_kind, technology_identity_id, domain_key, minimum_years
-) VALUES ($1, $2, $3, $4, NULL, $5)`, artifactID, experienceSummaryID, item.SubjectKind, technologyIdentityID, item.MinimumYears); err != nil {
+) VALUES ($1, $2, $3, $4, $5, $6)`, artifactID, experienceSummaryID, item.SubjectKind, technologyIdentityID, domainKey, item.MinimumYears); err != nil {
 			return fmt.Errorf("insert AI experience item: %w", err)
 		}
 	}
@@ -213,6 +222,12 @@ WHERE ai_configuration.id = $1`, configurationID).Scan(&dictionaryVersionID); er
 		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
 	for _, candidate := range candidates {
+		if utf8RuneCount(candidate.CandidateText) > 256 {
+			// The dictionary candidate table deliberately bounds candidate text.
+			// This is advisory model output, so an overlong value is ignored
+			// locally instead of failing unrelated semantic conclusions.
+			continue
+		}
 		var activeAlias bool
 		if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
@@ -225,7 +240,9 @@ SELECT EXISTS (
 			return fmt.Errorf("check AI candidate against active dictionary aliases: %w", err)
 		}
 		if activeAlias {
-			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			// An already governed alias is not a new dictionary candidate. Ignore
+			// it locally so this advisory field cannot fail the complete JD.
+			continue
 		}
 		var dictionaryCandidateID string
 		err := tx.QueryRow(ctx, `
@@ -252,6 +269,33 @@ VALUES ($1, $2)`, artifactID, dictionaryCandidateID); err != nil {
 		}
 	}
 	return nil
+}
+
+func (repository *Repository) persistAIPendingUnresolvedSourceTerms(ctx context.Context, tx pgx.Tx, resultID string, sourceTerms []AIPendingUnresolvedSourceTermProjection) error {
+	for _, sourceTerm := range sourceTerms {
+		if utf8RuneCount(sourceTerm.SourceTerm) > 128 {
+			// The artifact is a bounded advisory review queue. A malformed model
+			// value cannot invalidate the JD's independently validated results.
+			continue
+		}
+		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "unresolved_source_term", "uncertain", "required_review")
+		if err != nil {
+			return err
+		}
+		if err := insertAISemanticEvidence(ctx, tx, artifactID, []AISemanticEvidence{sourceTerm.Evidence}); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO ai_pending_unresolved_source_terms (id, source_term)
+VALUES ($1, $2)`, artifactID, sourceTerm.SourceTerm); err != nil {
+			return fmt.Errorf("insert AI unresolved source term: %w", err)
+		}
+	}
+	return nil
+}
+
+func utf8RuneCount(value string) int {
+	return len([]rune(value))
 }
 
 func (repository *Repository) persistAIRequirementGroups(ctx context.Context, tx pgx.Tx, configurationID, bodyContentVersionID, resultID string, input AIModelInput, groups []AIRequirementGroupProjection) error {

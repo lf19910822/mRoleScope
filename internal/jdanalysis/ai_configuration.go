@@ -162,7 +162,7 @@ RETURNING id::text, status::text`,
 	}, nil
 }
 
-// PrepareAITrial creates or resumes the one controlled 30-body comparison.
+// PrepareAITrial creates or resumes the one controlled five-body comparison.
 // Work-item membership itself is the frozen sample ledger: a later body can
 // never silently expand either trial configuration.
 func (repository *Repository) PrepareAITrial(ctx context.Context, input AITrialPreparationInput) (AITrialPreparation, error) {
@@ -198,7 +198,7 @@ func (repository *Repository) PrepareAITrial(ctx context.Context, input AITrialP
 	}
 	preparation := AITrialPreparation{BudgetGroupID: budgetGroupID, Plus: plus, Flash: flash}
 	if len(plusSample) != 0 || len(flashSample) != 0 {
-		if len(plusSample) != aiTrialSampleSize || !equalStringSlices(plusSample, flashSample) {
+		if len(plusSample) != formalAITrialSampleSize(input) || !equalStringSlices(plusSample, flashSample) {
 			return AITrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 		}
 		preparation.BodyContentVersionIDs = plusSample
@@ -208,7 +208,7 @@ func (repository *Repository) PrepareAITrial(ctx context.Context, input AITrialP
 		if err != nil {
 			return AITrialPreparation{}, err
 		}
-		sample, err := SelectAITrialSampleV1(metrics)
+		sample, err := selectFormalAITrialSample(input, metrics)
 		if err != nil {
 			return AITrialPreparation{}, err
 		}
@@ -221,7 +221,7 @@ func (repository *Repository) PrepareAITrial(ctx context.Context, input AITrialP
 		if err != nil {
 			return AITrialPreparation{}, err
 		}
-		if plusQueued != aiTrialSampleSize || flashQueued != aiTrialSampleSize {
+		if plusQueued != formalAITrialSampleSize(input) || flashQueued != formalAITrialSampleSize(input) {
 			return AITrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 		}
 		preparation.BodyContentVersionIDs = sample
@@ -233,6 +233,24 @@ func (repository *Repository) PrepareAITrial(ctx context.Context, input AITrialP
 		return AITrialPreparation{}, fmt.Errorf("commit AI trial preparation: %w", err)
 	}
 	return preparation, nil
+}
+
+// selectFormalAITrialSample keeps the only historical 30-body contract
+// reproducible without allowing the current fixed lifecycle to select it.
+// Every current or unknown internal contract receives the five-body policy.
+func selectFormalAITrialSample(input AITrialPreparationInput, metrics []AIBodySamplingMetric) ([]string, error) {
+	if formalAITrialSampleSize(input) == aiLegacyTrialSampleSizeV1 {
+		return SelectAITrialSampleV1(metrics)
+	}
+	return SelectAITrialSampleV2(metrics)
+}
+
+func formalAITrialSampleSize(input AITrialPreparationInput) int {
+	if input.Plus.InputContractSHA256 == legacyThirtyBodyControlledAIInputContractSHA256() &&
+		input.Flash.InputContractSHA256 == legacyThirtyBodyControlledAIInputContractSHA256() {
+		return aiLegacyTrialSampleSizeV1
+	}
+	return aiTrialSampleSize
 }
 
 // ensureAITrialBudgetGroupTx binds the fixed Plus and Flash configurations to

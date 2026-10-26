@@ -21,9 +21,11 @@ const (
 	// model historical configuration identity in regression tests.
 	AIInputTokenEstimatorVersionV1 = "qwen-bpe-conservative-v1"
 	// AIInputTokenEstimatorVersionV2 identifies the current immutable preflight
-	// counting contract. Changing any input to its digest requires a new
-	// candidate configuration.
+	// counting contract retained for historical candidate identities.
 	AIInputTokenEstimatorVersionV2 = "qwen-bpe-conservative-v2"
+	// AIInputTokenEstimatorVersionV3 binds preflight estimation to the reviewed
+	// v3 prompt/schema asset pair selected by the exact input contract.
+	AIInputTokenEstimatorVersionV3 = "qwen-bpe-conservative-v3"
 
 	qwenBPEVocabularySHA256  = "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186"
 	qwenBPEVocabularyEntries = 151643
@@ -44,7 +46,7 @@ var (
 // deliberately separate from the prompt/schema digests: those assets are
 // already frozen independently in every AI configuration.
 func AIInputTokenEstimatorSHA256() string {
-	return aiInputTokenEstimatorSHA256(AIInputTokenEstimatorVersionV2)
+	return aiInputTokenEstimatorSHA256(AIInputTokenEstimatorVersionV3)
 }
 
 func aiInputTokenEstimatorSHA256(version string) string {

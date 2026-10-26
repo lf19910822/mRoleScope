@@ -45,3 +45,23 @@ func TestControlledAIOutputAuditTerminalVerdictsAreFixed(t *testing.T) {
 		t.Fatal("output audit accepted a free-form verdict")
 	}
 }
+
+func TestControlledAIOutputAuditRecognizesHistoricalAndCurrentFrozenContracts(t *testing.T) {
+	for _, target := range []controlledAIOutputAuditTarget{
+		{InputContractSHA256: controlledAIInputContractSHA256(), PromptSHA256: AISystemPromptV1SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV1, ResponseSchemaSHA256: AIResponseSchemaV1SHA256()},
+		{InputContractSHA256: controlledAIOutputAuditDiagnosticInputContractSHA256(), PromptSHA256: AISystemPromptV2SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV2, ResponseSchemaSHA256: AIResponseSchemaV2SHA256()},
+		{InputContractSHA256: controlledAIInputContractSHA256(), PromptSHA256: AISystemPromptV3SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV3, ResponseSchemaSHA256: AIResponseSchemaV3SHA256()},
+	} {
+		if !validControlledAIOutputAuditContract(target) {
+			t.Fatalf("controlled output-audit contract was rejected: %#v", target)
+		}
+	}
+	if validControlledAIOutputAuditContract(controlledAIOutputAuditTarget{
+		InputContractSHA256:   controlledAIInputContractSHA256(),
+		PromptSHA256:          AISystemPromptV2SHA256(),
+		ResponseSchemaVersion: AIResponseSchemaVersionV1,
+		ResponseSchemaSHA256:  AIResponseSchemaV1SHA256(),
+	}) {
+		t.Fatal("mixed historical/current output-audit contract was accepted")
+	}
+}

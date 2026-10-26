@@ -23,6 +23,50 @@ func TestAISemanticResponseContractAcceptsMinimalValidResponse(t *testing.T) {
 	}
 }
 
+func TestAISemanticResponseContractAcceptsV2OnlyUnderV2Contract(t *testing.T) {
+	contract, err := newAISemanticResponseContract(AIResponseSchemaVersionV2,
+		"request-01", []string{"span-01"}, []string{"go"}, []string{"evidence-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Replace(validAISemanticResponseJSON(), AIResponseSchemaVersionV1, AIResponseSchemaVersionV2, 1)
+	if _, err := contract.Validate([]byte(raw)); err != nil {
+		t.Fatalf("v2 contract rejected its own valid response: %v", err)
+	}
+
+	v1 := NewAISemanticResponseContract("request-01", []string{"span-01"}, []string{"go"}, []string{"evidence-01"})
+	if _, err := v1.Validate([]byte(raw)); err == nil || !strings.Contains(err.Error(), string(AISafeErrorInvalidResponseSchema)) {
+		t.Fatalf("v1 contract accepted v2 response: %v", err)
+	}
+}
+
+func TestAISemanticResponseContractV3RequiresSourceExactCandidateTerm(t *testing.T) {
+	contract, err := newAISemanticResponseContract(AIResponseSchemaVersionV3,
+		"request-01", []string{"span-01"}, []string{"go"}, []string{"evidence-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Replace(validAISemanticResponseJSON(), AIResponseSchemaVersionV1, AIResponseSchemaVersionV3, 1)
+	raw = strings.Replace(raw, `"candidate_mentions":[]`, `"candidate_mentions":[{"candidate_text":"OriginalSDK","source_term":"OriginalSDK","span_id":"span-01","role":"qualification","necessity":"required","review_recommendation":"required_review"}]`, 1)
+	if _, err := contract.Validate([]byte(raw)); err != nil {
+		t.Fatalf("v3 contract rejected an exact source candidate: %v", err)
+	}
+
+	missingSourceTerm := strings.Replace(raw, `,"source_term":"OriginalSDK"`, "", 1)
+	if _, err := contract.Validate([]byte(missingSourceTerm)); err == nil {
+		t.Fatal("v3 contract accepted a candidate without source_term")
+	}
+
+	v2, err := newAISemanticResponseContract(AIResponseSchemaVersionV2,
+		"request-01", []string{"span-01"}, []string{"go"}, []string{"evidence-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v2.Validate([]byte(raw)); err == nil {
+		t.Fatal("v2 contract accepted a v3 candidate field")
+	}
+}
+
 func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 	contract := NewAISemanticResponseContract(
 		"request-01",
@@ -110,6 +154,38 @@ func TestV1AISemanticContractAssetsAreFrozenAndStrict(t *testing.T) {
 	}
 	if !strings.Contains(AISystemPromptV1(), "无法调和") || !strings.Contains(AISystemPromptV1(), "优先采用 jobRequire") {
 		t.Fatal("system prompt does not retain the reviewed jobRequire conflict-precedence policy")
+	}
+}
+
+func TestV2AISemanticContractAssetsFreezeCompactJSONInstruction(t *testing.T) {
+	if AISystemPromptV2SHA256() == AISystemPromptV1SHA256() {
+		t.Fatal("v2 system prompt digest must differ from the historical v1 prompt")
+	}
+	if AIResponseSchemaV2SHA256() == AIResponseSchemaV1SHA256() {
+		t.Fatal("v2 response schema digest must differ from the historical v1 schema")
+	}
+	if !json.Valid([]byte(AIResponseSchemaV2())) || !strings.Contains(AIResponseSchemaV2(), `"const": "ai-jd-result-v2"`) || !strings.Contains(AIResponseSchemaV2(), `"additionalProperties": false`) {
+		t.Fatal("v2 response schema is not a strict versioned JSON schema")
+	}
+	prompt := AISystemPromptV2()
+	if !strings.Contains(prompt, AIResponseSchemaVersionV2) || !strings.Contains(prompt, "紧凑 JSON") || !strings.Contains(prompt, "不得输出缩进、换行、空行或无意义空白") {
+		t.Fatal("v2 system prompt does not require compact JSON without formatting waste")
+	}
+	if !strings.Contains(prompt, "items=[]") || !strings.Contains(prompt, "省略所有该句的 domain items") || !strings.Contains(prompt, "不同片段中分别陈述的正向 required 资格") {
+		t.Fatal("v2 system prompt does not retain the adjudicated experience and independent-requirement rules")
+	}
+}
+
+func TestV3AISemanticContractAssetsFreezeCandidateSourceTermRules(t *testing.T) {
+	if AISystemPromptV3SHA256() == AISystemPromptV2SHA256() || AIResponseSchemaV3SHA256() == AIResponseSchemaV2SHA256() {
+		t.Fatal("v3 candidate-governance assets must have distinct frozen digests")
+	}
+	if !json.Valid([]byte(AIResponseSchemaV3())) || !strings.Contains(AIResponseSchemaV3(), `"const": "ai-jd-result-v3"`) || !strings.Contains(AIResponseSchemaV3(), `"source_term"`) {
+		t.Fatal("v3 schema does not require the source-term candidate contract")
+	}
+	prompt := AISystemPromptV3()
+	if !strings.Contains(prompt, AIResponseSchemaVersionV3) || !strings.Contains(prompt, "最多输出三个") || !strings.Contains(prompt, "source_term") || !strings.Contains(prompt, "职责") {
+		t.Fatal("v3 prompt does not contain the adjudicated candidate-governance boundary")
 	}
 }
 

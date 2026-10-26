@@ -9,10 +9,11 @@ import (
 // after schema, reference, policy, and remote-location validation. It carries
 // no raw model response and must not cross a logging or status-output seam.
 type AISemanticProjection struct {
-	CandidateMentions []AICandidateMentionProjection
-	Experience        AIExperienceProjection
-	MinimumEducation  AIMinimumEducationProjection
-	RequirementGroups []AIRequirementGroupProjection
+	CandidateMentions            []AICandidateMentionProjection
+	Experience                   AIExperienceProjection
+	MinimumEducation             AIMinimumEducationProjection
+	PendingUnresolvedSourceTerms []AIPendingUnresolvedSourceTermProjection
+	RequirementGroups            []AIRequirementGroupProjection
 }
 
 // AICandidateMentionProjection remains transient until the existing remote
@@ -23,6 +24,15 @@ type AICandidateMentionProjection struct {
 	Necessity     string
 	ReviewTier    string
 	Role          string
+}
+
+// AIPendingUnresolvedSourceTermProjection retains the exact source term only
+// when the model suggested a different normalization. It must never become a
+// dictionary candidate, technology identity, matching input, or requirement
+// option without separate human governance.
+type AIPendingUnresolvedSourceTermProjection struct {
+	Evidence   AISemanticEvidence
+	SourceTerm string
 }
 
 // AIConditionalQualificationProjection preserves one explicitly stated
@@ -114,34 +124,75 @@ func (input AIModelInput) MapValidatedResponse(response AISemanticResponse) (AIS
 	if err != nil {
 		return AISemanticProjection{}, semanticPolicyError(err)
 	}
-	candidates, err := input.mapCandidateMentions(response.CandidateMentions)
-	if err != nil {
-		return AISemanticProjection{}, semanticPolicyError(err)
-	}
+	candidates, unresolvedSourceTerms := input.mapCandidateMentions(response.CandidateMentions)
 	return AISemanticProjection{
-		CandidateMentions: candidates,
-		Experience:        experience,
-		MinimumEducation:  education,
-		RequirementGroups: groups,
+		CandidateMentions:            candidates,
+		Experience:                   experience,
+		MinimumEducation:             education,
+		PendingUnresolvedSourceTerms: unresolvedSourceTerms,
+		RequirementGroups:            groups,
 	}, nil
 }
 
-func (input AIModelInput) mapCandidateMentions(candidates []AICandidateMentionResponse) ([]AICandidateMentionProjection, error) {
-	projections := make([]AICandidateMentionProjection, 0, len(candidates))
-	for _, candidate := range candidates {
-		evidence, err := input.LocateCandidate(candidate.CandidateText, candidate.SpanID)
+func (input AIModelInput) mapCandidateMentions(candidates []AICandidateMentionResponse) ([]AICandidateMentionProjection, []AIPendingUnresolvedSourceTermProjection) {
+	const maximumModelRankedCandidates = 3
+	projections := make([]AICandidateMentionProjection, 0, min(len(candidates), maximumModelRankedCandidates))
+	unresolvedSourceTerms := make([]AIPendingUnresolvedSourceTermProjection, 0, maximumModelRankedCandidates)
+	for rank, candidate := range candidates {
+		if rank >= maximumModelRankedCandidates {
+			break
+		}
+		if candidate.Role != "qualification" || (candidate.Necessity != "required" && candidate.Necessity != "preferred") {
+			continue
+		}
+		sourceTerm := candidate.CandidateText
+		if candidate.SourceTerm != "" {
+			sourceTerm = candidate.SourceTerm
+		}
+		if !isCandidateTechnicalNameOrAbbreviation(sourceTerm) {
+			continue
+		}
+		evidence, err := input.LocateCandidate(sourceTerm, candidate.SpanID)
 		if err != nil {
-			return nil, err
+			// Candidate governance is advisory. A malformed, non-source-exact,
+			// or otherwise unrecoverable candidate cannot invalidate independent
+			// experience, education, or verified technology conclusions.
+			continue
+		}
+		if candidate.SourceTerm != "" && candidate.CandidateText != sourceTerm {
+			// A v3 normalization is not a source-exact candidate. Preserve the
+			// original term as a distinct review artifact, but never allow the
+			// suggested normalized value to enter dictionary governance.
+			unresolvedSourceTerms = append(unresolvedSourceTerms, AIPendingUnresolvedSourceTermProjection{
+				Evidence:   evidence,
+				SourceTerm: sourceTerm,
+			})
+			continue
 		}
 		projections = append(projections, AICandidateMentionProjection{
-			CandidateText: candidate.CandidateText,
+			CandidateText: sourceTerm,
 			Evidence:      evidence,
 			Necessity:     candidate.Necessity,
 			ReviewTier:    forcedRequiredReviewTier(),
 			Role:          candidate.Role,
 		})
 	}
-	return projections, nil
+	return projections, unresolvedSourceTerms
+}
+
+// isCandidateTechnicalNameOrAbbreviation deliberately uses a narrow,
+// explainable first-release boundary: candidates must contain an ASCII letter
+// or digit, which admits technical proper names/abbreviations such as DFMEA,
+// LLM, FreeRTOS, UE4/5, and ToolX while excluding ordinary Chinese concepts.
+// The model's top-three ordering and qualification role are enforced by the
+// caller; dictionary approval remains a separate human workflow.
+func isCandidateTechnicalNameOrAbbreviation(candidate string) bool {
+	for _, value := range candidate {
+		if value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' || value >= '0' && value <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperienceProjection, error) {
@@ -162,6 +213,13 @@ func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperi
 		subjectKind, subjectKey, err := mapExperienceScope(item.ScopeType, item.ScopeKey)
 		if err != nil {
 			return AIExperienceProjection{}, err
+		}
+		if subjectKind == "domain" && !input.isSingleSourceExactExperienceDomain(subjectKey, item.EvidenceSpanIDs) {
+			// The first-release domain structure has no operator. Omitting only
+			// this unrepresentable item preserves the independently evidenced
+			// overall experience requirement without turning alternatives into
+			// simultaneous hard requirements.
+			continue
 		}
 		projection.Items = append(projection.Items, AIExperienceItemProjection{
 			Evidence:     itemEvidence,
@@ -202,7 +260,7 @@ func (input AIModelInput) mapExperience(response AIExperienceResponse) (AIExperi
 
 	switch response.Status {
 	case "configured":
-		if response.BaseYear == nil || len(evidence) == 0 || maximumYears == 0 || *response.BaseYear != maximumYears {
+		if response.BaseYear == nil || len(evidence) == 0 || (maximumYears != 0 && *response.BaseYear != maximumYears) {
 			return AIExperienceProjection{}, fmt.Errorf("configured experience is incomplete")
 		}
 		projection.BaseYear = response.BaseYear
@@ -306,9 +364,137 @@ func (input AIModelInput) mapRequirementGroups(groups []AITechnologyRequirementG
 				TechnologyKey:      option.TechnologyKey,
 			})
 		}
-		projections = append(projections, projection)
+		projections = append(projections, input.splitIndependentPositiveQualificationGroup(group, projection)...)
 	}
 	return projections, nil
+}
+
+// isSingleSourceExactExperienceDomain admits only a literal domain term from
+// one cited source span. The current storage has no domain relation operator,
+// so a composite or alternative source expression must be omitted rather than
+// being presented as several simultaneous requirements.
+func (input AIModelInput) isSingleSourceExactExperienceDomain(domainKey string, evidenceSpanIDs []string) bool {
+	if domainKey == "" || strings.TrimSpace(domainKey) != domainKey || containsCompositeDomainMarker(domainKey) {
+		return false
+	}
+	matchCount := 0
+	for _, spanID := range evidenceSpanIDs {
+		sentenceText, err := input.sentenceTextForSpan(spanID)
+		if err != nil || containsCompositeDomainMarker(sentenceText) {
+			return false
+		}
+		if _, err := input.LocateCandidate(domainKey, spanID); err == nil {
+			matchCount++
+		}
+	}
+	return matchCount == 1
+}
+
+func containsCompositeDomainMarker(value string) bool {
+	if strings.ContainsAny(value, "/／|｜&＋+、") {
+		return true
+	}
+	for _, marker := range []string{"或", "任一", "任选", "之一", "二选一", "至少一种", "以及", "与", "和", "及"} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// sentenceTextForSpan restores only the enclosing sentence in process memory.
+// The span generator intentionally splits on commas, but a comma-separated
+// domain list can still carry an alternative relation later in that sentence.
+// This helper never persists, logs, or returns source text across a boundary.
+func (input AIModelInput) sentenceTextForSpan(spanID string) (string, error) {
+	span, found := input.spanIndex.Lookup(spanID)
+	if !found {
+		return "", NewSafeAIError(AISafeErrorInvalidEvidence, nil)
+	}
+	fieldText, found := input.fieldTextBySource[span.SourceField]
+	if !found {
+		return "", NewSafeAIError(AISafeErrorInvalidEvidence, nil)
+	}
+	runes := []rune(fieldText)
+	start, end := span.CodePointRange.Start, span.CodePointRange.End
+	for start > 0 && !aiSentenceBoundary(runes[start-1]) {
+		start--
+	}
+	for end < len(runes) && !aiSentenceBoundary(runes[end]) {
+		end++
+	}
+	return string(runes[start:end]), nil
+}
+
+func aiSentenceBoundary(value rune) bool {
+	switch value {
+	case '\n', '\r', '。', '！', '？', '；', ';', '!', '?':
+		return true
+	default:
+		return false
+	}
+}
+
+// splitIndependentPositiveQualificationGroup corrects the specific lossy
+// model shape where separately evidenced, positive requirements are placed in
+// one multi-option group. Each option must have its own cited source span;
+// same-span alternatives remain the model's single explicit at_least group.
+func (input AIModelInput) splitIndependentPositiveQualificationGroup(response AITechnologyRequirementGroupResponse, projection AIRequirementGroupProjection) []AIRequirementGroupProjection {
+	if projection.Role != "qualification" || projection.Necessity != "required" || projection.Operator != "at_least" || len(projection.Options) < 2 || len(response.EvidenceSpanIDs) != len(projection.Options) {
+		return []AIRequirementGroupProjection{projection}
+	}
+	evidenceSpanIDs := make(map[string]struct{}, len(response.EvidenceSpanIDs))
+	for _, spanID := range response.EvidenceSpanIDs {
+		if _, duplicate := evidenceSpanIDs[spanID]; duplicate {
+			return []AIRequirementGroupProjection{projection}
+		}
+		evidenceSpanIDs[spanID] = struct{}{}
+	}
+
+	optionsBySpanID := make(map[string]AIRequirementOptionProjection, len(projection.Options))
+	for _, option := range projection.Options {
+		spanID := ""
+		for _, mentionEvidenceID := range option.MentionEvidenceIDs {
+			reference, exists := input.responseContract.knownMentionReferences[mentionEvidenceID]
+			if !exists || reference.technologyKey != option.TechnologyKey {
+				return []AIRequirementGroupProjection{projection}
+			}
+			if spanID == "" {
+				spanID = reference.spanID
+			} else if spanID != reference.spanID {
+				return []AIRequirementGroupProjection{projection}
+			}
+		}
+		if _, found := evidenceSpanIDs[spanID]; !found {
+			return []AIRequirementGroupProjection{projection}
+		}
+		if _, duplicate := optionsBySpanID[spanID]; duplicate {
+			return []AIRequirementGroupProjection{projection}
+		}
+		optionsBySpanID[spanID] = option
+	}
+	if len(optionsBySpanID) != len(projection.Options) {
+		return []AIRequirementGroupProjection{projection}
+	}
+
+	split := make([]AIRequirementGroupProjection, 0, len(projection.Options))
+	for position, spanID := range response.EvidenceSpanIDs {
+		option, found := optionsBySpanID[spanID]
+		if !found {
+			return []AIRequirementGroupProjection{projection}
+		}
+		evidence, err := input.ResolveSpanIDs([]string{spanID})
+		if err != nil {
+			return []AIRequirementGroupProjection{projection}
+		}
+		part := projection
+		part.Evidence = evidence
+		part.LocalID = fmt.Sprintf("%s-part-%02d", projection.LocalID, position+1)
+		part.MinSatisfied = 1
+		part.Options = []AIRequirementOptionProjection{option}
+		split = append(split, part)
+	}
+	return split
 }
 
 func mapExperienceScope(scopeType, scopeKey string) (string, string, error) {

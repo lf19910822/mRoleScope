@@ -2,6 +2,7 @@ package jdanalysis
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,10 @@ func TestRepositoryBuildsAIModelInputFromPublishedDeterministicEvidenceOnly(t *t
 	if _, err := repository.PromoteCandidateConfiguration(ctx, technologyConfigurationID); err != nil {
 		t.Fatal(err)
 	}
-	aiConfiguration, err := repository.PrepareCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-model-input"))
+	configurationInput := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-model-input")
+	configurationInput.ResponseSchemaVersion = AIResponseSchemaVersionV2
+	configurationInput.ResponseSchemaSHA256 = AIResponseSchemaV2SHA256()
+	aiConfiguration, err := repository.PrepareCandidateAIConfiguration(ctx, configurationInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,5 +47,8 @@ func TestRepositoryBuildsAIModelInputFromPublishedDeterministicEvidenceOnly(t *t
 	}
 	if len(input.Fields) != 1 || input.Fields[0].SourceField != SourceFieldDescription || len(input.Fields[0].Spans) != 2 {
 		t.Fatalf("model fields = %#v, want only non-empty approved description spans", input.Fields)
+	}
+	if _, err := input.ValidateAndMapResponse([]byte(strings.Replace(validAISemanticResponseJSON(), AIResponseSchemaVersionV1, AIResponseSchemaVersionV2, 1))); err != nil {
+		t.Fatalf("model input did not bind its configured v2 response contract: %v", err)
 	}
 }

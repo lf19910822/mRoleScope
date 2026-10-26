@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mrolescope://schemas/ai-jd-result-v3.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["response_schema_version", "request_id", "experience", "minimum_education", "technology_requirement_groups", "candidate_mentions"],
+  "properties": {
+    "response_schema_version": {"const": "ai-jd-result-v3"},
+    "request_id": {"type": "string", "minLength": 1},
+    "experience": {"$ref": "#/$defs/experience"},
+    "minimum_education": {"$ref": "#/$defs/minimum_education"},
+    "technology_requirement_groups": {"type": "array", "items": {"$ref": "#/$defs/technology_requirement_group"}},
+    "candidate_mentions": {"type": "array", "items": {"$ref": "#/$defs/candidate_mention"}}
+  },
+  "$defs": {
+    "status": {"type": "string", "enum": ["configured", "not_configured", "uncertain"]},
+    "review_recommendation": {"type": "string", "enum": ["routine", "spot_check", "required_review"]},
+    "span_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "experience": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "base_year", "items", "conditional_qualifications", "evidence_span_ids", "review_recommendation"],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "base_year": {"type": ["integer", "null"], "minimum": 1},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/experience_item"}},
+        "conditional_qualifications": {"type": "array", "items": {"$ref": "#/$defs/conditional_qualification"}},
+        "evidence_span_ids": {"$ref": "#/$defs/span_ids"},
+        "review_recommendation": {"$ref": "#/$defs/review_recommendation"}
+      }
+    },
+    "experience_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_type", "scope_key", "min_years", "evidence_span_ids", "review_recommendation"],
+      "properties": {
+        "scope_type": {"type": "string", "enum": ["base", "technology", "domain"]},
+        "scope_key": {"type": "string", "minLength": 1},
+        "min_years": {"type": "integer", "minimum": 1},
+        "evidence_span_ids": {"$ref": "#/$defs/span_ids"},
+        "review_recommendation": {"$ref": "#/$defs/review_recommendation"}
+      }
+    },
+    "conditional_qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when_education", "experience_scope", "experience_scope_key", "min_years", "evidence_span_ids", "review_recommendation"],
+      "properties": {
+        "when_education": {"type": "string", "enum": ["junior_college_or_below", "bachelor", "master", "doctor"]},
+        "experience_scope": {"type": "string", "enum": ["base", "technology", "domain"]},
+        "experience_scope_key": {"type": "string", "minLength": 1},
+        "min_years": {"type": "integer", "minimum": 1},
+        "evidence_span_ids": {"$ref": "#/$defs/span_ids"},
+        "review_recommendation": {"$ref": "#/$defs/review_recommendation"}
+      }
+    },
+    "minimum_education": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "level", "level_code", "evidence_span_ids", "review_recommendation"],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "level": {"type": ["string", "null"], "enum": ["junior_college_or_below", "bachelor", "master", "doctor", null]},
+        "level_code": {"type": ["integer", "null"], "enum": [1, 2, 3, 4, null]},
+        "evidence_span_ids": {"$ref": "#/$defs/span_ids"},
+        "review_recommendation": {"$ref": "#/$defs/review_recommendation"}
+      }
+    },
+    "technology_requirement_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_id", "role", "necessity", "operator", "min_satisfied", "options", "evidence_span_ids", "review_recommendation"],
+      "properties": {
+        "local_id": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "enum": ["qualification", "responsibility", "mention", "unspecified"]},
+        "necessity": {"type": "string", "enum": ["required", "preferred", "unspecified"]},
+        "operator": {"type": ["string", "null"], "enum": ["at_least", null]},
+        "min_satisfied": {"type": ["integer", "null"], "minimum": 1},
+        "options": {"type": "array", "items": {"$ref": "#/$defs/technology_option"}},
+        "evidence_span_ids": {"$ref": "#/$defs/span_ids"},
+        "review_recommendation": {"$ref": "#/$defs/review_recommendation"}
+      }
+    },
+    "technology_option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["technology_key", "proficiency", "mention_evidence_ids"],
+      "properties": {
+        "technology_key": {"type": "string", "minLength": 1},
+        "proficiency": {"type": ["string", "null"], "enum": ["P1", "P2", "P3", "P4", null]},
+        "mention_evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "candidate_mention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_text", "source_term", "span_id", "role", "necessity", "review_recommendation"],
+      "properties": {
+        "candidate_text": {"type": "string", "minLength": 1},
+        "source_term": {"type": "string", "minLength": 1},
+        "span_id": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "enum": ["qualification", "responsibility", "mention", "unspecified"]},
+        "necessity": {"type": "string", "enum": ["required", "preferred", "unspecified"]},
+        "review_recommendation": {"const": "required_review"}
+      }
+    }
+  }
+}
