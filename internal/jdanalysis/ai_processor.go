@@ -211,6 +211,9 @@ func (processor AISemanticProcessor) processWork(ctx context.Context, configurat
 	if err := processor.Repository.recordAIAttempts(ctx, configuration.ID, runID, work, attempts, response, true); err != nil {
 		return err
 	}
+	if response.CompletionSignal == AIProviderCompletionSignalLength {
+		return NewSafeAIError(AISafeErrorInvalidResponseSchema, nil)
+	}
 	projection, err := input.ValidateAndMapResponse(response.Content)
 	if err != nil {
 		return err
@@ -351,7 +354,7 @@ ORDER BY reservation.work_item_id, reservation.attempt_number`, configurationID)
 INSERT INTO ai_analysis_attempts (
     ai_analysis_configuration_id, work_item_id, run_id, attempt_number, status,
     input_token_limit, output_token_limit, safe_error_code, provider_request_id, completed_at
-) VALUES ($1, $2, $3, $4, 'failed', 10000, 2500, $5::ai_safe_error_code, $6::uuid, now())`,
+) VALUES ($1, $2, $3, $4, 'failed', 10000, 5000, $5::ai_safe_error_code, $6::uuid, now())`,
 			configurationID, reservation.workItemID, reservation.runID, reservation.attemptNumber,
 			AISafeErrorProviderTimeout, deterministicAIProviderRequestID(reservation.workItemID, reservation.attemptNumber)); err != nil {
 			return fmt.Errorf("record unfinished reserved AI trial attempt: %w", err)
@@ -527,15 +530,21 @@ func (repository *Repository) recordAIAttempts(ctx context.Context, configuratio
 		if code == "" && status == "failed" {
 			code = AISafeErrorConfigurationInvalid
 		}
+		completionSignal, responseLengthBytes, err := boundedAIProviderCompletionMetadata(response, succeeded && index == len(attempts)-1)
+		if err != nil {
+			return err
+		}
 		var attemptID string
 		if err := tx.QueryRow(ctx, `
 INSERT INTO ai_analysis_attempts (
     ai_analysis_configuration_id, work_item_id, run_id, attempt_number, status,
-    input_token_limit, output_token_limit, safe_error_code, provider_request_id, completed_at
+    input_token_limit, output_token_limit, safe_error_code, provider_request_id,
+    provider_completion_signal, provider_response_length_bytes, completed_at
 ) VALUES ($1, $2, $3, $4, $5::ai_analysis_attempt_status,
-          10000, 2500, NULLIF($6, '')::ai_safe_error_code, $7::uuid, now())
+          10000, 5000, NULLIF($6, '')::ai_safe_error_code, $7::uuid,
+          NULLIF($8, ''), NULLIF($9, 0), now())
 RETURNING id::text`, configurationID, work.ID, runID, number, status, code,
-			deterministicAIProviderRequestID(work.ID, number)).Scan(&attemptID); err != nil {
+			deterministicAIProviderRequestID(work.ID, number), completionSignal, responseLengthBytes).Scan(&attemptID); err != nil {
 			return fmt.Errorf("record AI attempt: %w", err)
 		}
 		if status == "succeeded" {
@@ -555,6 +564,16 @@ WHERE id = $1
 		return fmt.Errorf("commit AI attempt recording: %w", err)
 	}
 	return nil
+}
+
+func boundedAIProviderCompletionMetadata(response AIModelResponse, include bool) (string, int, error) {
+	if !include || (response.CompletionSignal == "" && response.ResponseLengthBytes == 0) {
+		return "", 0, nil
+	}
+	if !response.CompletionSignal.valid() || response.ResponseLengthBytes < 1 || response.ResponseLengthBytes > aiOutputAuditMaxResponseBytes || response.ResponseLengthBytes != len(response.Content) {
+		return "", 0, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	return string(response.CompletionSignal), response.ResponseLengthBytes, nil
 }
 
 // recordPersistentAIUsageIfPresent writes returned usage only when the
@@ -697,7 +716,7 @@ func semanticStatusForProjection(projection AISemanticProjection) string {
 		return "uncertain"
 	}
 	if projection.Experience.Status == "configured" || projection.MinimumEducation.Status == "configured" ||
-		len(projection.RequirementGroups) > 0 || len(projection.CandidateMentions) > 0 {
+		len(projection.RequirementGroups) > 0 {
 		return "configured"
 	}
 	return "not_configured"

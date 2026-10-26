@@ -78,6 +78,9 @@ WHERE ai_analysis_configuration_id = $1
 		return newAIPersistenceStageError(aiPersistenceStageEducation, fmt.Errorf("insert AI minimum education summary: %w", err))
 	}
 
+	if err := repository.persistAIPendingUnresolvedSourceTerms(ctx, tx, resultID, projection.PendingUnresolvedSourceTerms); err != nil {
+		return newAIPersistenceStageError(aiPersistenceStageCandidateMention, err)
+	}
 	candidateOutcome, err := repository.persistAICandidateMentions(ctx, tx, configurationID, resultID, input, projection.CandidateMentions)
 	if err != nil {
 		return newAIPersistenceStageError(aiPersistenceStageCandidateMention, err)
@@ -88,7 +91,7 @@ WHERE ai_analysis_configuration_id = $1
 		// not a transient claim that was safely omitted.
 		projection.CandidateMentions = nil
 	}
-	projection.CandidateMentionsUncertain = projection.CandidateMentionsUncertain || candidateOutcome.HasUnresolvedCandidate
+	projection.CandidateMentionsUncertain = projection.CandidateMentionsUncertain || candidateOutcome.HasUnresolvedCandidate || len(projection.PendingUnresolvedSourceTerms) != 0
 	if err := repository.persistAIRequirementGroups(ctx, tx, configurationID, bodyContentVersionID, resultID, input, projection.RequirementGroups); err != nil {
 		return newAIPersistenceStageError(aiPersistenceStageRequirementGroup, err)
 	}
@@ -250,6 +253,10 @@ FOR SHARE OF dictionary_version`, configurationID).Scan(&dictionaryVersionID, &d
 	}
 	outcome := aiCandidateMentionPersistenceOutcome{}
 	for _, candidate := range candidates {
+		if utf8RuneCount(candidate.CandidateText) > 256 {
+			outcome.HasUnresolvedCandidate = true
+			continue
+		}
 		var activeAlias bool
 		if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
@@ -265,7 +272,7 @@ SELECT EXISTS (
 			// A current dictionary alias is not a dictionary candidate. Under the
 			// tolerant validator it is a local model mistake that can be safely
 			// omitted; it must not roll back unrelated, verified JD semantics.
-			if input.validatorVersion == AIValidatorVersionV2 {
+			if input.validatorVersion == AIValidatorVersionV2 || input.validatorVersion == AIValidatorVersionV3 {
 				continue
 			}
 			return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorPolicyRejected, nil)
@@ -275,7 +282,7 @@ SELECT EXISTS (
 			// external candidate cannot join its governance queue. This is local
 			// candidate uncertainty, not evidence that the other JD conclusions are
 			// unsafe. Enabled aliases above remain ordinary model misclassification.
-			if input.validatorVersion != AIValidatorVersionV2 {
+			if input.validatorVersion != AIValidatorVersionV2 && input.validatorVersion != AIValidatorVersionV3 {
 				return aiCandidateMentionPersistenceOutcome{}, NewSafeAIError(AISafeErrorPolicyRejected, nil)
 			}
 			if err := repository.persistUnresolvedAICandidateMention(ctx, tx, resultID, candidate); err != nil {
@@ -321,6 +328,31 @@ func (repository *Repository) persistUnresolvedAICandidateMention(ctx context.Co
 		return err
 	}
 	return insertAISemanticEvidence(ctx, tx, artifactID, []AISemanticEvidence{candidate.Evidence})
+}
+
+func (repository *Repository) persistAIPendingUnresolvedSourceTerms(ctx context.Context, tx pgx.Tx, resultID string, sourceTerms []AIPendingUnresolvedSourceTermProjection) error {
+	for _, sourceTerm := range sourceTerms {
+		if utf8RuneCount(sourceTerm.SourceTerm) > 128 {
+			continue
+		}
+		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "unresolved_source_term", "uncertain", "required_review")
+		if err != nil {
+			return err
+		}
+		if err := insertAISemanticEvidence(ctx, tx, artifactID, []AISemanticEvidence{sourceTerm.Evidence}); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO ai_pending_unresolved_source_terms (id, source_term)
+VALUES ($1, $2)`, artifactID, sourceTerm.SourceTerm); err != nil {
+			return fmt.Errorf("insert AI unresolved source term: %w", err)
+		}
+	}
+	return nil
+}
+
+func utf8RuneCount(value string) int {
+	return len([]rune(value))
 }
 
 func (repository *Repository) persistAIRequirementGroups(ctx context.Context, tx pgx.Tx, configurationID, bodyContentVersionID, resultID string, input AIModelInput, groups []AIRequirementGroupProjection) error {

@@ -29,7 +29,7 @@ The system SHALL send only normalized `description`, `jobRequire`, and `addition
 - **THEN** the system does not truncate or send it, records a safe `input_too_large` outcome, and represents the semantic result as not analyzed
 
 ### Requirement: Strict structured model response
-The system SHALL accept an external model response only when it is one JSON object conforming to the frozen strict response schema. The response SHALL contain no prose, Markdown, unrecognized fields, raw text evidence, or model-supplied character coordinates.
+The system SHALL send the frozen strict JSON Schema and a prompt that requires compact JSON without Markdown, prose, indentation, blank lines, or avoidable whitespace. It SHALL accept a result only when one complete JSON object conforms to that schema, and SHALL record only a bounded provider completion/length signal rather than provider text.
 
 #### Scenario: Valid structured response
 - **WHEN** the response matches the schema and all required opaque request identifiers
@@ -38,6 +38,10 @@ The system SHALL accept an external model response only when it is one JSON obje
 #### Scenario: Invalid or mixed response
 - **WHEN** the response contains explanatory text, schema violations, unknown fields, or a mismatched request identifier
 - **THEN** the system rejects it as a valid result, stores only a safe error category, and does not persist the raw response
+
+#### Scenario: Output limit interrupts an object
+- **WHEN** the provider reports a completion-limit signal or the returned JSON object is incomplete
+- **THEN** the system does not repair or persist the partial conclusion, records a bounded safe outcome, and preserves the other work items' independent execution
 
 ### Requirement: Program-owned semantic evidence locations
 The system SHALL map model-referenced span identifiers and verified technology-evidence identifiers to the body’s source field, normalization version, field hash, and Unicode code-point half-open interval. The system SHALL reject unsupported, unknown, cross-body, or invalid references.
@@ -51,7 +55,7 @@ The system SHALL map model-referenced span identifiers and verified technology-e
 - **THEN** the associated conclusion is not persisted as valid and is marked for required review or safely rejected according to the configuration policy
 
 ### Requirement: Conservative semantic extraction
-The system SHALL record experience lower bounds, one minimum-education outcome, optional education/experience condition branches, and technology relationship groups only when they are supported by valid spans. It SHALL keep `not_analyzed`, `not_configured`, and `uncertain` distinct. For irreconcilable explicit qualification conflicts, the first release SHALL use the explicit `jobRequire` qualification condition.
+The system SHALL record semantic conclusions only when supported by valid spans. A supported overall `base_year` SHALL remain configured without detailed experience items. It SHALL keep `not_analyzed`, `not_configured`, and `uncertain` distinct, and use explicit `jobRequire` conditions for irreconcilable qualification conflicts.
 
 #### Scenario: No explicit experience requirement
 - **WHEN** a completed analysis finds no explicit candidate experience lower bound or finds an explicit no-experience condition
@@ -65,8 +69,16 @@ The system SHALL record experience lower bounds, one minimum-education outcome, 
 - **WHEN** the model or validator cannot reliably determine a qualification’s meaning
 - **THEN** the relevant field is `uncertain` with required-review status and is not represented as `not_configured`
 
+#### Scenario: Supported base year without detailed items
+- **WHEN** a valid response supplies an overall experience lower bound and valid summary evidence but no `items`
+- **THEN** the system persists the configured `base_year` with an empty item list and does not force required review solely for that omission
+
+#### Scenario: Alternative domain experience
+- **WHEN** one experience statement names multiple domains connected by an alternative or composite separator and the first-release contract cannot express their relation
+- **THEN** the system persists the supported overall `base_year` and `overall` item but omits all domain items
+
 ### Requirement: Technology requirement semantics
-The system SHALL distinguish `qualification`, `responsibility`, `mention`, and `unspecified` roles. Only qualification groups SHALL affect candidate requirement matching. It SHALL use `required` for positive non-optional qualifications, `preferred` for explicit preference/bonus conditions, and `unspecified` when necessity cannot be determined. Proficiency SHALL be null unless explicitly supported by the configured P1–P4 mapping.
+The system SHALL distinguish `qualification`, `responsibility`, `mention`, and `unspecified` roles. Only qualifications affect matching. It SHALL use `required` for positive qualifications and `preferred` for explicit bonuses. Independently stated positive qualifications SHALL remain independent single-option requirements unless text explicitly joins them. Proficiency SHALL be null unless explicitly supported by P1–P4.
 
 #### Scenario: Responsibility is not a hard requirement
 - **WHEN** a span describes work to be performed with a technology but does not state a candidate qualification
@@ -80,16 +92,27 @@ The system SHALL distinguish `qualification`, `responsibility`, `mention`, and `
 - **WHEN** a multi-technology list has no unambiguous conjunction, alternative, or quantity relation
 - **THEN** the system does not infer a usable hard-requirement group and routes the relation to required review
 
+#### Scenario: Separate positive requirements
+- **WHEN** two verified technologies occur in separate positive qualification statements without an alternative connector
+- **THEN** the system records two independent required single-option groups and does not combine them into an `at_least=1` alternative group
+
 ### Requirement: Governed candidate technology mentions
-The system SHALL accept a dictionary-external technology candidate only when its candidate text and referenced span can be revalidated against the remote normalized body and it is not an active dictionary alias. Candidates SHALL remain pending review and SHALL NOT create a formal technology identifier, active alias, published statistic, or valid requirement-group option.
+The system SHALL admit at most three model-ranked external candidates from explicit required or preferred qualifications. Each candidate SHALL be a source-exact technical name or abbreviation with valid span evidence, remain pending review, and SHALL NOT create a formal technology identifier, active alias, statistic, or valid requirement option.
 
 #### Scenario: Verified external candidate
-- **WHEN** a model returns a candidate string that is exactly recoverable from its valid span and is not an active alias
+- **WHEN** a model returns one of its first three ranked, source-exact technical candidates from an explicit required or preferred qualification and it is not an active alias
 - **THEN** the system creates or reuses a remote pending dictionary candidate with required-review status
 
-#### Scenario: Hallucinated candidate
-- **WHEN** the candidate text cannot be recovered from the referenced span
-- **THEN** the system rejects the candidate and does not modify dictionary state
+#### Scenario: Candidate is invalid or beyond the cap
+- **WHEN** a candidate is generic, unsupported, ineligible by role, cannot be recovered from its span, or appears after the first three ranked candidates
+- **THEN** the system ignores that candidate without modifying dictionary state or invalidating the JD's independently valid semantic conclusions
+
+### Requirement: Pending unresolved source terms
+The system SHALL preserve a source-exact term from valid evidence as a distinct pending-review artifact when a model returns an unsupported normalization for it. The artifact SHALL not be a technology candidate, valid experience domain, or matching input until separately governed.
+
+#### Scenario: Unsupported normalization with valid evidence
+- **WHEN** a model maps a source term to a non-source-exact normalized value while referencing a valid span
+- **THEN** the system records the original source term for manual review and continues processing independently valid conclusions
 
 ### Requirement: Bounded external execution and safe failure
 The system SHALL run AI work independently of source synchronization. A trial logical task SHALL allow at most three physical attempts, retrying only transient transport, rate-limit, or provider-server failures. Every attempt SHALL count toward request, token, and monetary limits; non-transient failures and budget exhaustion SHALL stop safely without retrying or exposing text.
@@ -118,10 +141,14 @@ The system SHALL construct every Qwen trial request origin solely as `https://{W
 - **THEN** the derived request-profile digest and immutable candidate configuration identity change; prior results remain unmodified
 
 ### Requirement: Trial and production cost gates
-The initial two-model trial SHALL use 30 remotely selected body-content versions, at most 60 logical tasks, at most 180 physical attempts, per-task trial limits of 10,000 input and 2,500 output tokens, and a 2.00 RMB total hard limit. The system SHALL stop before an attempt that would exceed any active limit and SHALL not silently truncate input or output.
+The initial two-model trial SHALL use five remotely selected body-content versions, at most 10 logical tasks, at most 30 physical attempts, per-task trial limits of 10,000 input and 5,000 output tokens, and a 2.50 RMB total hard limit. The system SHALL stop before an attempt that would exceed any active limit and SHALL not silently truncate input or output.
+
+#### Scenario: Frozen five-body trial membership
+- **WHEN** a current controlled trial is prepared
+- **THEN** it deterministically freezes exactly five body-content versions for each model and never queues a sixth body under either trial configuration
 
 #### Scenario: Trial budget precheck
-- **WHEN** the estimated worst-case charge for a next attempt would exceed the 2.00 RMB trial limit
+- **WHEN** the estimated worst-case charge for a next attempt would exceed the 2.50 RMB trial limit
 - **THEN** the system does not send the attempt and leaves the affected work not analyzed
 
 #### Scenario: Trial price cannot be verified
@@ -130,10 +157,10 @@ The initial two-model trial SHALL use 30 remotely selected body-content versions
 
 #### Scenario: First baseline reuses the trial request profile
 - **WHEN** the first `qwen-plus` configuration advances from its reviewed trial bodies to the remaining eligible bodies
-- **THEN** it retains the identical 10,000-input and 2,500-output token limits, and any limit or segmentation change requires a new candidate configuration and renewed trial validation
+- **THEN** it retains the identical 10,000-input and 5,000-output token limits, and any limit or segmentation change requires a new candidate configuration and renewed trial validation
 
 ### Requirement: Review-gated AI configuration publication
-The system SHALL publish an AI configuration only through a controlled operation after all eligible work is complete and the configured release gate passes. The first `qwen-plus` baseline SHALL require 30 fully reviewed trial bodies, zero major semantic errors, and complete mechanical validation. `qwen-flash` SHALL remain a comparison result and SHALL NOT be selected through automatic routing.
+The system SHALL publish an AI configuration only through a controlled operation after all eligible work is complete and the configured release gate passes. The first `qwen-plus` baseline SHALL require all five trial bodies fully reviewed, zero major semantic errors, and complete mechanical validation. `qwen-flash` SHALL remain a comparison result and SHALL NOT be selected through automatic routing.
 
 #### Scenario: Terminal-only semantic review
 - **WHEN** a human reviews an unreviewed semantic artifact

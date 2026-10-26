@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -62,6 +63,59 @@ WHERE result.ai_analysis_configuration_id = $1
 	}
 	if second.Claimed != 0 || second.Completed != 0 || second.Failed != 0 {
 		t.Fatalf("duplicate AI process summary = %#v", second)
+	}
+}
+
+func TestAISemanticProcessorPersistsOnlyBoundedProviderCompletionMetadata(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-provider-metadata-reference")
+	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-provider-metadata-candidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.EnsureAISemanticResult(ctx, bodyID, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_version_id, trigger)
+VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
+		t.Fatal(err)
+	}
+
+	const providerOutput = "PROVIDER_OUTPUT_MUST_NOT_PERSIST"
+	processor := AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: completionMetadataAIModelClient{response: []byte(providerOutput)}}}
+	if _, err := processor.ProcessPending(ctx, aiConfiguration.ID); !errors.Is(err, ErrAISemanticWorkFailed) {
+		t.Fatalf("ProcessPending() error = %v, want safe schema failure", err)
+	} else if strings.Contains(err.Error(), providerOutput) {
+		t.Fatalf("processor error leaked provider output: %q", err)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "failed_safely", "failed_safely", "not_analyzed")
+
+	var completionSignal string
+	var responseLengthBytes int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT provider_completion_signal, provider_response_length_bytes
+FROM ai_analysis_attempts
+WHERE ai_analysis_configuration_id = $1`, aiConfiguration.ID).Scan(&completionSignal, &responseLengthBytes); err != nil {
+		t.Fatal(err)
+	}
+	if completionSignal != string(AIProviderCompletionSignalLength) || responseLengthBytes != len(providerOutput) {
+		t.Fatalf("persisted completion metadata = signal:%q bytes:%d, want length/%d", completionSignal, responseLengthBytes, len(providerOutput))
+	}
+
+	var rawOutputColumns int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'ai_analysis_attempts'
+  AND column_name IN ('provider_response', 'provider_response_text', 'provider_content')`).Scan(&rawOutputColumns); err != nil {
+		t.Fatal(err)
+	}
+	if rawOutputColumns != 0 {
+		t.Fatalf("attempt ledger exposes %d raw provider-output column(s)", rawOutputColumns)
 	}
 }
 
@@ -300,7 +354,7 @@ WHERE item.subject_kind = 'domain'`).Scan(&subjectKind, &domainKey, &minimumYear
 	}
 }
 
-func TestAISemanticProcessorRejectsDomainExperienceWithoutExactEvidence(t *testing.T) {
+func TestAISemanticProcessorOmitsUnboundDomainExperienceButKeepsOverallEvidence(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -319,19 +373,23 @@ VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
 	}
 
 	summary, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: domainExperienceAIModelClient{domainKey: "invented-domain"}}}).ProcessPending(ctx, aiConfiguration.ID)
-	if !errors.Is(err, ErrAISemanticWorkFailed) || summary.Failed != 1 {
-		t.Fatalf("ProcessPending() = summary:%#v err:%v, want one safe failure", summary, err)
+	if err != nil || summary.Completed != 1 || summary.Failed != 0 {
+		t.Fatalf("ProcessPending() = summary:%#v err:%v, want one completed item", summary, err)
 	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "failed_safely", "failed_safely", "not_analyzed")
-	var safeCode string
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "configured")
+	var status string
+	var baseYear, domainItems, overallItems int
 	if err := repository.pool.QueryRow(ctx, `
-SELECT last_safe_error_code::text
-FROM ai_analysis_work_items
-WHERE ai_analysis_configuration_id = $1 AND body_content_version_id = $2`, aiConfiguration.ID, bodyID).Scan(&safeCode); err != nil {
+SELECT summary.status::text, summary.base_year::integer,
+       (SELECT count(*) FROM ai_experience_requirement_items AS item
+        WHERE item.experience_summary_id = summary.id AND item.subject_kind = 'domain'),
+       (SELECT count(*) FROM ai_experience_requirement_items AS item
+        WHERE item.experience_summary_id = summary.id AND item.subject_kind = 'overall')
+FROM ai_experience_summaries AS summary`).Scan(&status, &baseYear, &domainItems, &overallItems); err != nil {
 		t.Fatal(err)
 	}
-	if safeCode != string(AISafeErrorPolicyRejected) {
-		t.Fatalf("safe error code = %q, want %q", safeCode, AISafeErrorPolicyRejected)
+	if status != "configured" || baseYear != 3 || domainItems != 0 || overallItems != 0 {
+		t.Fatalf("unbound domain experience = status:%s base:%d domain:%d overall:%d, want configured/3/0/0", status, baseYear, domainItems, overallItems)
 	}
 }
 
@@ -468,6 +526,19 @@ type failingAIModelClient struct{}
 
 func (failingAIModelClient) Analyze(context.Context, AIModelInput) (AIModelResponse, error) {
 	return AIModelResponse{}, AIProviderFailure{Code: AISafeErrorProviderAuthentication}
+}
+
+type completionMetadataAIModelClient struct {
+	response []byte
+}
+
+func (client completionMetadataAIModelClient) Analyze(context.Context, AIModelInput) (AIModelResponse, error) {
+	return AIModelResponse{
+		CompletionSignal:    AIProviderCompletionSignalLength,
+		Content:             client.response,
+		ResponseLengthBytes: len(client.response),
+		Usage:               AIModelUsage{InputTokens: 10, OutputTokens: 10, TotalTokens: 20},
+	}, nil
 }
 
 type oneVerifiedRequirementAIModelClient struct{}

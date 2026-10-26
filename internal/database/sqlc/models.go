@@ -717,13 +717,14 @@ func (ns NullAiSafeErrorCode) Value() (driver.Value, error) {
 type AiSemanticArtifactKind string
 
 const (
-	AiSemanticArtifactKindExperienceSummary   AiSemanticArtifactKind = "experience_summary"
-	AiSemanticArtifactKindExperienceItem      AiSemanticArtifactKind = "experience_item"
-	AiSemanticArtifactKindEducationSummary    AiSemanticArtifactKind = "education_summary"
-	AiSemanticArtifactKindConditionBranch     AiSemanticArtifactKind = "condition_branch"
-	AiSemanticArtifactKindRequirementGroup    AiSemanticArtifactKind = "requirement_group"
-	AiSemanticArtifactKindRequirementOption   AiSemanticArtifactKind = "requirement_option"
-	AiSemanticArtifactKindCandidateTechnology AiSemanticArtifactKind = "candidate_technology"
+	AiSemanticArtifactKindExperienceSummary    AiSemanticArtifactKind = "experience_summary"
+	AiSemanticArtifactKindExperienceItem       AiSemanticArtifactKind = "experience_item"
+	AiSemanticArtifactKindEducationSummary     AiSemanticArtifactKind = "education_summary"
+	AiSemanticArtifactKindConditionBranch      AiSemanticArtifactKind = "condition_branch"
+	AiSemanticArtifactKindRequirementGroup     AiSemanticArtifactKind = "requirement_group"
+	AiSemanticArtifactKindRequirementOption    AiSemanticArtifactKind = "requirement_option"
+	AiSemanticArtifactKindCandidateTechnology  AiSemanticArtifactKind = "candidate_technology"
+	AiSemanticArtifactKindUnresolvedSourceTerm AiSemanticArtifactKind = "unresolved_source_term"
 )
 
 func (e *AiSemanticArtifactKind) Scan(src interface{}) error {
@@ -1560,18 +1561,20 @@ type AggregateSnapshot struct {
 }
 
 type AiAnalysisAttempt struct {
-	ID                        pgtype.UUID
-	AiAnalysisConfigurationID pgtype.UUID
-	WorkItemID                pgtype.UUID
-	RunID                     pgtype.UUID
-	AttemptNumber             int32
-	Status                    AiAnalysisAttemptStatus
-	InputTokenLimit           int32
-	OutputTokenLimit          int32
-	SafeErrorCode             pgtype.Text
-	ProviderRequestID         pgtype.UUID
-	StartedAt                 pgtype.Timestamptz
-	CompletedAt               pgtype.Timestamptz
+	ID                          pgtype.UUID
+	AiAnalysisConfigurationID   pgtype.UUID
+	WorkItemID                  pgtype.UUID
+	RunID                       pgtype.UUID
+	AttemptNumber               int32
+	Status                      AiAnalysisAttemptStatus
+	InputTokenLimit             int32
+	OutputTokenLimit            int32
+	SafeErrorCode               pgtype.Text
+	ProviderRequestID           pgtype.UUID
+	StartedAt                   pgtype.Timestamptz
+	CompletedAt                 pgtype.Timestamptz
+	ProviderCompletionSignal    pgtype.Text
+	ProviderResponseLengthBytes pgtype.Int4
 }
 
 type AiAnalysisAuditEvent struct {
@@ -1735,6 +1738,11 @@ type AiOutputAuditReview struct {
 	OutputSha256              string
 	Verdict                   AiOutputAuditVerdict
 	ReviewedAt                pgtype.Timestamptz
+}
+
+type AiPendingUnresolvedSourceTerm struct {
+	ID         pgtype.UUID
+	SourceTerm string
 }
 
 type AiSemanticArtifact struct {

@@ -449,7 +449,7 @@ VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err == nil {
 INSERT INTO ai_analysis_attempts (
     ai_analysis_configuration_id, work_item_id, run_id, attempt_number,
     input_token_limit, output_token_limit
-) VALUES ($1, $2, $3, 1, 10000, 2500)
+) VALUES ($1, $2, $3, 1, 10000, 5000)
 RETURNING id::text`, aiConfiguration.ID, workID, runID).Scan(&attemptID); err != nil {
 		t.Fatal(err)
 	}
@@ -623,10 +623,10 @@ func testCandidateAIConfigurationInput(technologyConfigurationID, configurationS
 		Model:                     "qwen-plus",
 		ConfigurationSHA256:       testSHA256(configurationSeed),
 		RequestProfileSHA256:      testSHA256("candidate-ai-request-profile"),
-		PromptSHA256:              AISystemPromptV2SHA256(),
+		PromptSHA256:              AISystemPromptV1SHA256(),
 		ResponseSchemaVersion:     AIResponseSchemaVersionV1,
 		ResponseSchemaSHA256:      AIResponseSchemaV1SHA256(),
-		InputContractVersion:      AIInputContractVersionV1,
+		InputContractVersion:      "jd-ai-input-contract-v1",
 		InputContractSHA256:       testSHA256("candidate-ai-input-contract"),
 		ValidatorVersion:          AIValidatorVersionV1,
 		ValidatorSHA256:           sha256Hex(AIValidatorVersionV1),

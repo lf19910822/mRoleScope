@@ -64,8 +64,7 @@ func RunControlledAIOutputAuditSession(ctx context.Context, repository *Reposito
 		}
 		return false, nil
 	}
-	if !validControlledAIOutputAuditInputContractSHA256(target.InputContractSHA256) || !validControlledAIOutputAuditPromptSHA256(target.PromptSHA256) ||
-		target.ResponseSchemaVersion != AIResponseSchemaVersionV1 || target.ResponseSchemaSHA256 != AIResponseSchemaV1SHA256() {
+	if !validControlledAIOutputAuditContract(target) {
 		return false, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	artifact, rawOutput, err := store.Load(AIOutputAuditIdentity{
@@ -347,9 +346,22 @@ func validAIOutputAuditVerdict(verdict string) bool {
 
 func validControlledAIOutputAuditInputContractSHA256(inputContractSHA256 string) bool {
 	return inputContractSHA256 == controlledAIInputContractSHA256() ||
-		inputContractSHA256 == controlledAIOutputAuditDiagnosticInputContractSHA256()
+		inputContractSHA256 == controlledAIOutputAuditDiagnosticInputContractSHA256() ||
+		inputContractSHA256 == legacyThirtyBodyControlledAIInputContractSHA256() ||
+		inputContractSHA256 == legacyThirtyBodyControlledAIOutputAuditDiagnosticInputContractSHA256()
 }
 
-func validControlledAIOutputAuditPromptSHA256(promptSHA256 string) bool {
-	return promptSHA256 == AISystemPromptV1SHA256() || promptSHA256 == AISystemPromptV2SHA256() || promptSHA256 == AISystemPromptV3SHA256()
+func validControlledAIOutputAuditContract(target controlledAIOutputAuditTarget) bool {
+	if !validControlledAIOutputAuditInputContractSHA256(target.InputContractSHA256) {
+		return false
+	}
+	return (target.PromptSHA256 == AISystemPromptV1SHA256() &&
+		target.ResponseSchemaVersion == AIResponseSchemaVersionV1 &&
+		target.ResponseSchemaSHA256 == AIResponseSchemaV1SHA256()) ||
+		(target.PromptSHA256 == AISystemPromptV2SHA256() &&
+			target.ResponseSchemaVersion == AIResponseSchemaVersionV2 &&
+			target.ResponseSchemaSHA256 == AIResponseSchemaV2SHA256()) ||
+		(target.PromptSHA256 == AISystemPromptV3SHA256() &&
+			target.ResponseSchemaVersion == AIResponseSchemaVersionV3 &&
+			target.ResponseSchemaSHA256 == AIResponseSchemaV3SHA256())
 }

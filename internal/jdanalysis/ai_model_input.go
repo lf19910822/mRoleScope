@@ -68,6 +68,13 @@ type VerifiedTechnologyMention struct {
 // exact body version. It rejects any evidence not tied to the supplied body,
 // normalized field hash, and CVM-generated span map.
 func BuildAIModelInput(requestID string, body AIInputBody, spanIndex AISpanIndex, mentions []VerifiedTechnologyMention) (AIModelInput, error) {
+	return buildAIModelInputForResponseSchemaVersion(AIResponseSchemaVersionV1, requestID, body, spanIndex, mentions)
+}
+
+func buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID string, body AIInputBody, spanIndex AISpanIndex, mentions []VerifiedTechnologyMention) (AIModelInput, error) {
+	if !knownAIResponseSchemaVersion(responseSchemaVersion) {
+		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
 	if requestID == "" || spanIndex.bodyContentVersionID != body.BodyContentVersionID {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorInvalidEvidence, nil)
 	}
@@ -127,7 +134,11 @@ func BuildAIModelInput(requestID string, body AIInputBody, spanIndex AISpanIndex
 	for mentionEvidenceID := range mentionReferences {
 		mentionEvidenceIDs = append(mentionEvidenceIDs, mentionEvidenceID)
 	}
-	input.responseContract = NewAISemanticResponseContract(requestID, spanIDs, technologyKeys, mentionEvidenceIDs)
+	responseContract, err := newAISemanticResponseContract(responseSchemaVersion, requestID, spanIDs, technologyKeys, mentionEvidenceIDs)
+	if err != nil {
+		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+	}
+	input.responseContract = responseContract
 	input.responseContract.knownMentionReferences = mentionReferences
 	return input, nil
 }
@@ -140,9 +151,10 @@ func (repository *Repository) BuildAIModelInput(ctx context.Context, requestID, 
 	if requestID == "" || aiConfigurationID == "" || bodyContentVersionID == "" {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
-	var technologyConfigurationID, validatorVersion, validatorSHA256, promptSHA256 string
+	var technologyConfigurationID, responseSchemaVersion, validatorVersion, validatorSHA256, promptSHA256 string
 	err := repository.pool.QueryRow(ctx, `
 SELECT technology_configuration.id::text,
+	     ai_configuration.response_schema_version,
        ai_configuration.validator_version,
        ai_configuration.validator_sha256,
        ai_configuration.prompt_sha256
@@ -150,7 +162,7 @@ FROM ai_analysis_configurations AS ai_configuration
 JOIN technology_analysis_configurations AS technology_configuration
   ON technology_configuration.id = ai_configuration.technology_analysis_configuration_id
 WHERE ai_configuration.id = $1
-  AND technology_configuration.status = 'published'`, aiConfigurationID).Scan(&technologyConfigurationID, &validatorVersion, &validatorSHA256, &promptSHA256)
+	  AND technology_configuration.status = 'published'`, aiConfigurationID).Scan(&technologyConfigurationID, &responseSchemaVersion, &validatorVersion, &validatorSHA256, &promptSHA256)
 	if err != nil {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
@@ -176,7 +188,7 @@ WHERE ai_configuration.id = $1
 	if err != nil {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorInvalidEvidence, err)
 	}
-	input, err := BuildAIModelInput(requestID, body, spanIndex, mentions)
+	input, err := buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID, body, spanIndex, mentions)
 	if err != nil {
 		return AIModelInput{}, err
 	}
@@ -193,7 +205,7 @@ func (input *AIModelInput) applyFrozenExecutionContract(validatorVersion, valida
 	if input == nil {
 		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
-	if validatorVersion != AIValidatorVersionV1 && validatorVersion != AIValidatorVersionV2 {
+	if validatorVersion != AIValidatorVersionV1 && validatorVersion != AIValidatorVersionV2 && validatorVersion != AIValidatorVersionV3 {
 		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	if validatorSHA256 != sha256Hex(validatorVersion) {
