@@ -15,19 +15,33 @@ const (
 	AIInputContractVersionV1 = "ai-jd-input-v1"
 	// AIResponseSchemaVersionV1 identifies the reviewed, strict response contract.
 	AIResponseSchemaVersionV1 = "ai-jd-result-v1"
+	// AIResponseSchemaVersionV2 identifies the compact reviewed response
+	// contract introduced after the controlled output-audit findings.
+	AIResponseSchemaVersionV2 = "ai-jd-result-v2"
+	// AIResponseSchemaVersionV3 identifies the candidate-governance contract
+	// that separates a source-exact term from an optional model normalization.
+	// The separation lets the program retain only the original term for review
+	// when the suggested normalization cannot safely enter dictionary governance.
+	AIResponseSchemaVersionV3 = "ai-jd-result-v3"
 )
 
 //go:embed assets/ai_system_prompt_v1.txt
 var aiSystemPromptV1 string
 
+//go:embed assets/ai_response_schema_v1.json
+var aiResponseSchemaV1 string
+
 //go:embed assets/ai_system_prompt_v2.txt
 var aiSystemPromptV2 string
+
+//go:embed assets/ai_response_schema_v2.json
+var aiResponseSchemaV2 string
 
 //go:embed assets/ai_system_prompt_v3.txt
 var aiSystemPromptV3 string
 
-//go:embed assets/ai_response_schema_v1.json
-var aiResponseSchemaV1 string
+//go:embed assets/ai_response_schema_v3.json
+var aiResponseSchemaV3 string
 
 // AISemanticResponse is the in-memory result allowed by the v0.1 response
 // contract. It intentionally contains only structured fields and opaque input
@@ -48,7 +62,11 @@ type AICandidateMentionResponse struct {
 	Necessity            string `json:"necessity"`
 	ReviewRecommendation string `json:"review_recommendation"`
 	Role                 string `json:"role"`
-	SpanID               string `json:"span_id"`
+	// SourceTerm is required by v3 only. It must be the exact original term
+	// from SpanID, rather than a normalization or translation suggested by the
+	// model. V1/v2 historical responses intentionally leave it empty.
+	SourceTerm string `json:"source_term,omitempty"`
+	SpanID     string `json:"span_id"`
 }
 
 // AIConditionalQualificationResponse is an explicit education/experience
@@ -120,18 +138,32 @@ type AISemanticResponseContract struct {
 	knownSpanIDs            map[string]struct{}
 	knownTechnologyKeys     map[string]struct{}
 	requestID               string
+	responseSchemaVersion   string
 }
 
 // NewAISemanticResponseContract makes the public validation seam for one
 // prebuilt model request. Identifiers not supplied here cannot be accepted from
 // the model response.
 func NewAISemanticResponseContract(requestID string, spanIDs, technologyKeys, mentionEvidenceIDs []string) AISemanticResponseContract {
+	contract, _ := newAISemanticResponseContract(AIResponseSchemaVersionV1, requestID, spanIDs, technologyKeys, mentionEvidenceIDs)
+	return contract
+}
+
+func newAISemanticResponseContract(responseSchemaVersion, requestID string, spanIDs, technologyKeys, mentionEvidenceIDs []string) (AISemanticResponseContract, error) {
+	if !knownAIResponseSchemaVersion(responseSchemaVersion) {
+		return AISemanticResponseContract{}, fmt.Errorf("unsupported response schema version")
+	}
 	return AISemanticResponseContract{
 		knownMentionEvidenceIDs: toIdentifierSet(mentionEvidenceIDs),
 		knownSpanIDs:            toIdentifierSet(spanIDs),
 		knownTechnologyKeys:     toIdentifierSet(technologyKeys),
 		requestID:               requestID,
-	}
+		responseSchemaVersion:   responseSchemaVersion,
+	}, nil
+}
+
+func knownAIResponseSchemaVersion(version string) bool {
+	return version == AIResponseSchemaVersionV1 || version == AIResponseSchemaVersionV2 || version == AIResponseSchemaVersionV3
 }
 
 type aiMentionReference struct {
@@ -163,34 +195,77 @@ func AISystemPromptV1SHA256() string {
 	return sha256Hex(aiSystemPromptV1)
 }
 
-// AISystemPromptV2 returns the active reviewed prompt. It keeps the v1 asset
-// available for immutable historic configurations and their CVM-only audits.
+// AIResponseSchemaV2 returns the versioned strict JSON Schema for the compact
+// response contract. It remains separate from v1 so historical configurations
+// retain their original frozen asset digests.
+func AIResponseSchemaV2() string {
+	return aiResponseSchemaV2
+}
+
+// AIResponseSchemaV2SHA256 returns the frozen v2 schema digest.
+func AIResponseSchemaV2SHA256() string {
+	return sha256Hex(aiResponseSchemaV2)
+}
+
+// AISystemPromptV2 returns the versioned prompt that requires compact JSON.
 func AISystemPromptV2() string {
 	return aiSystemPromptV2
 }
 
-// AISystemPromptV2SHA256 returns the digest frozen into newly prepared AI
-// configurations that use the active prompt.
+// AISystemPromptV2SHA256 returns the frozen v2 prompt digest.
 func AISystemPromptV2SHA256() string {
 	return sha256Hex(aiSystemPromptV2)
 }
 
-// AISystemPromptV3 returns the active reviewed prompt. V1 and V2 remain
-// available to verify immutable historic configurations and CVM-only audits.
+// AIResponseSchemaV3 returns the strict candidate-governance response schema.
+// It remains separate from earlier versions so their immutable configuration
+// digests and historic records remain reproducible.
+func AIResponseSchemaV3() string {
+	return aiResponseSchemaV3
+}
+
+// AIResponseSchemaV3SHA256 returns the frozen v3 schema digest.
+func AIResponseSchemaV3SHA256() string {
+	return sha256Hex(aiResponseSchemaV3)
+}
+
+// AISystemPromptV3 returns the prompt that requires source-exact candidate
+// terms and allows a normalization only as a non-governing suggestion.
 func AISystemPromptV3() string {
 	return aiSystemPromptV3
 }
 
-// AISystemPromptV3SHA256 identifies the prompt frozen into new candidates.
+// AISystemPromptV3SHA256 returns the frozen v3 prompt digest.
 func AISystemPromptV3SHA256() string {
 	return sha256Hex(aiSystemPromptV3)
+}
+
+type aiResponseContractAssets struct {
+	prompt string
+	schema string
+}
+
+// responseContractAssets returns only reviewed in-image assets for a known
+// immutable response-schema version. Provider code must resolve through this
+// function rather than receive a caller-provided prompt or schema.
+func responseContractAssets(responseSchemaVersion string) (aiResponseContractAssets, error) {
+	switch responseSchemaVersion {
+	case AIResponseSchemaVersionV1:
+		return aiResponseContractAssets{prompt: AISystemPromptV1(), schema: AIResponseSchemaV1()}, nil
+	case AIResponseSchemaVersionV2:
+		return aiResponseContractAssets{prompt: AISystemPromptV2(), schema: AIResponseSchemaV2()}, nil
+	case AIResponseSchemaVersionV3:
+		return aiResponseContractAssets{prompt: AISystemPromptV3(), schema: AIResponseSchemaV3()}, nil
+	default:
+		return aiResponseContractAssets{}, fmt.Errorf("unsupported response schema version")
+	}
 }
 
 // Validate accepts only one strict v0.1 JSON response whose opaque references
 // belong to this exact request. Raw response text is deliberately discarded on
 // every error path.
 func (contract AISemanticResponseContract) Validate(raw []byte) (AISemanticResponse, error) {
-	if err := validateAISemanticResponseShape(raw); err != nil {
+	if err := validateAISemanticResponseShapeForVersion(raw, contract.responseSchemaVersion); err != nil {
 		return AISemanticResponse{}, NewSafeAIError(AISafeErrorInvalidResponseSchema, err)
 	}
 
@@ -200,7 +275,7 @@ func (contract AISemanticResponseContract) Validate(raw []byte) (AISemanticRespo
 	if err := decoder.Decode(&response); err != nil {
 		return AISemanticResponse{}, NewSafeAIError(AISafeErrorInvalidResponseSchema, err)
 	}
-	if response.ResponseSchemaVersion != AIResponseSchemaVersionV1 || response.RequestID != contract.requestID {
+	if response.ResponseSchemaVersion != contract.responseSchemaVersion || response.RequestID != contract.requestID {
 		return AISemanticResponse{}, NewSafeAIError(AISafeErrorInvalidResponseSchema, nil)
 	}
 	if err := contract.validateReferences(response); err != nil {
@@ -273,13 +348,20 @@ func (contract AISemanticResponseContract) validateSpanIDs(spanIDs []string) err
 }
 
 func validateAISemanticResponseShape(raw []byte) error {
+	return validateAISemanticResponseShapeForVersion(raw, AIResponseSchemaVersionV1)
+}
+
+func validateAISemanticResponseShapeForVersion(raw []byte, responseSchemaVersion string) error {
+	if !knownAIResponseSchemaVersion(responseSchemaVersion) {
+		return fmt.Errorf("unsupported response schema version")
+	}
 	root, err := strictObject(raw, []string{
 		"candidate_mentions", "experience", "minimum_education", "request_id", "response_schema_version", "technology_requirement_groups",
 	})
 	if err != nil {
 		return err
 	}
-	if err := strictString(root["response_schema_version"], AIResponseSchemaVersionV1); err != nil {
+	if err := strictString(root["response_schema_version"], responseSchemaVersion); err != nil {
 		return err
 	}
 	if err := strictNonEmptyString(root["request_id"]); err != nil {
@@ -294,11 +376,21 @@ func validateAISemanticResponseShape(raw []byte) error {
 	if err := strictArray(root["technology_requirement_groups"], validateTechnologyRequirementGroupShape); err != nil {
 		return err
 	}
-	return strictArray(root["candidate_mentions"], validateCandidateMentionShape)
+	return strictArray(root["candidate_mentions"], func(candidate json.RawMessage) error {
+		return validateCandidateMentionShapeForVersion(candidate, responseSchemaVersion)
+	})
 }
 
 func validateCandidateMentionShape(raw json.RawMessage) error {
-	object, err := strictObject(raw, []string{"candidate_text", "necessity", "review_recommendation", "role", "span_id"})
+	return validateCandidateMentionShapeForVersion(raw, AIResponseSchemaVersionV1)
+}
+
+func validateCandidateMentionShapeForVersion(raw json.RawMessage, responseSchemaVersion string) error {
+	required := []string{"candidate_text", "necessity", "review_recommendation", "role", "span_id"}
+	if responseSchemaVersion == AIResponseSchemaVersionV3 {
+		required = append(required, "source_term")
+	}
+	object, err := strictObject(raw, required)
 	if err != nil {
 		return err
 	}
@@ -313,6 +405,11 @@ func validateCandidateMentionShape(raw json.RawMessage) error {
 	}
 	if err := strictEnum(object["role"], "qualification", "responsibility", "mention", "unspecified"); err != nil {
 		return err
+	}
+	if responseSchemaVersion == AIResponseSchemaVersionV3 {
+		if err := strictNonEmptyString(object["source_term"]); err != nil {
+			return err
+		}
 	}
 	return strictNonEmptyString(object["span_id"])
 }
@@ -380,12 +477,6 @@ func validateExperienceShape(raw json.RawMessage) error {
 	if err := strictReviewRecommendation(object["review_recommendation"]); err != nil {
 		return err
 	}
-	// Cross-field business contradictions are deliberately not a transport
-	// failure. A provider can return valid JSON and valid opaque references but
-	// omit an item, mix a status with a value, or express an unsupported
-	// relationship. V2 maps those defects per field to an uncertain,
-	// required-review projection; rejecting the entire JD would discard other
-	// independently verifiable conclusions.
 	return strictEnum(object["status"], "configured", "not_configured", "uncertain")
 }
 
@@ -439,6 +530,31 @@ func validateTechnologyRequirementGroupShape(raw json.RawMessage) error {
 		return err
 	}
 
+	var options []json.RawMessage
+	if err := json.Unmarshal(object["options"], &options); err != nil {
+		return err
+	}
+	var operator *string
+	if err := json.Unmarshal(object["operator"], &operator); err != nil {
+		return err
+	}
+	var minSatisfied *int
+	if err := json.Unmarshal(object["min_satisfied"], &minSatisfied); err != nil {
+		return err
+	}
+	var role string
+	if err := json.Unmarshal(object["role"], &role); err != nil {
+		return err
+	}
+	if (operator == nil) != (minSatisfied == nil) {
+		return fmt.Errorf("requirement operator and minimum satisfaction must be paired")
+	}
+	if operator != nil && (*minSatisfied > len(options) || len(options) == 0) {
+		return fmt.Errorf("requirement minimum satisfaction exceeds its options")
+	}
+	if role == "qualification" && (operator == nil || minSatisfied == nil || len(options) == 0) {
+		return fmt.Errorf("qualification group is incomplete")
+	}
 	return nil
 }
 

@@ -5,9 +5,9 @@ import (
 )
 
 const (
-	aiTrialMaximumAttempts     = 180
-	aiTrialMaximumLogicalTasks = 60
-	aiTrialMaximumNanoRMB      = int64(2_000_000_000)
+	aiTrialMaximumAttempts     = 30
+	aiTrialMaximumLogicalTasks = 10
+	aiTrialMaximumNanoRMB      = int64(2_500_000_000)
 )
 
 // AIInputTokenEstimator provides a conservative pre-send estimate. It is a
@@ -103,7 +103,17 @@ func (estimator ConservativeAIInputTokenEstimator) Estimate(input AIModelInput) 
 	if err != nil {
 		return 0, err
 	}
-	promptTokens, err := conservativeQwenTokenCount(input.reviewedSystemPrompt())
+	responseSchemaVersion := input.responseContract.responseSchemaVersion
+	if responseSchemaVersion == "" {
+		// Synthetic callers that exercise only the preflight seam still model
+		// the current controlled request rather than an historical contract.
+		responseSchemaVersion = AIResponseSchemaVersionV3
+	}
+	assets, err := responseContractAssets(responseSchemaVersion)
+	if err != nil {
+		return 0, err
+	}
+	promptTokens, err := conservativeQwenTokenCount(assets.prompt)
 	if err != nil {
 		return 0, err
 	}
@@ -111,7 +121,7 @@ func (estimator ConservativeAIInputTokenEstimator) Estimate(input AIModelInput) 
 	if err != nil {
 		return 0, err
 	}
-	schemaTokens, err := conservativeQwenTokenCount(AIResponseSchemaV1())
+	schemaTokens, err := conservativeQwenTokenCount(assets.schema)
 	if err != nil {
 		return 0, err
 	}
@@ -136,9 +146,9 @@ func NewAITrialBudgetGate(profile AITrialPricingProfile) (*AITrialBudgetGate, er
 func QwenFlashComparisonPricingProfile() AITrialPricingProfile {
 	return AITrialPricingProfile{
 		MaxInputTokens:        10000,
-		MaxOutputTokens:       2500,
+		MaxOutputTokens:       5000,
 		Model:                 "qwen-flash",
-		Version:               "bailian-beijing-short-context-2026-10-23-v1",
+		Version:               "bailian-beijing-short-context-2026-10-23-v2",
 		inputNanoRMBPerToken:  150,
 		outputNanoRMBPerToken: 1500,
 		usageSupported:        true,
@@ -150,9 +160,9 @@ func QwenFlashComparisonPricingProfile() AITrialPricingProfile {
 func QwenPlusTrialPricingProfile() AITrialPricingProfile {
 	return AITrialPricingProfile{
 		MaxInputTokens:        10000,
-		MaxOutputTokens:       2500,
+		MaxOutputTokens:       5000,
 		Model:                 "qwen-plus",
-		Version:               "bailian-beijing-short-context-2026-10-23-v1",
+		Version:               "bailian-beijing-short-context-2026-10-23-v2",
 		inputNanoRMBPerToken:  800,
 		outputNanoRMBPerToken: 2000,
 		usageSupported:        true,
@@ -238,6 +248,6 @@ func (usage AIModelUsage) valid() bool {
 func validAITrialPricingProfile(profile AITrialPricingProfile) bool {
 	return profile.verified && profile.usageSupported && profile.Version != "" &&
 		(profile.Model == "qwen-plus" || profile.Model == "qwen-flash") &&
-		profile.MaxInputTokens == 10000 && profile.MaxOutputTokens == 2500 &&
+		profile.MaxInputTokens == 10000 && profile.MaxOutputTokens == 5000 &&
 		profile.inputNanoRMBPerToken > 0 && profile.outputNanoRMBPerToken > 0
 }

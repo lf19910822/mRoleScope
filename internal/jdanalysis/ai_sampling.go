@@ -7,8 +7,11 @@ import (
 )
 
 const (
+	aiLegacyTrialSampleSizeV1         = 30
 	aiOutputAuditDiagnosticSampleSize = 5
-	aiTrialSampleSize                 = 30
+	aiTrialSampleSize                 = 5
+	aiTrialSamplingVersionV1          = "ai-trial-sample-v1"
+	aiTrialSamplingVersionV2          = "ai-trial-sample-v2"
 )
 
 // AIBodySamplingMetric is a non-text body metric used to freeze a trial
@@ -20,16 +23,23 @@ type AIBodySamplingMetric struct {
 	VerifiedMentionCount int
 }
 
-// SelectAITrialSampleV1 deterministically selects exactly 30 body-version IDs
+// SelectAITrialSampleV1 preserves the historical 30-body selection policy so
+// existing trial configurations remain interpretable after the formal trial
+// capacity changed.
+func SelectAITrialSampleV1(candidates []AIBodySamplingMetric) ([]string, error) {
+	return selectAIBodySampleV1(candidates, aiLegacyTrialSampleSizeV1, aiTrialSamplingVersionV1)
+}
+
+// SelectAITrialSampleV2 deterministically selects exactly five body-version IDs
 // using non-text length, completeness, and mention-density strata. It never
 // silently expands a small candidate set or returns source content.
-func SelectAITrialSampleV1(candidates []AIBodySamplingMetric) ([]string, error) {
-	return selectAIBodySampleV1(candidates, aiTrialSampleSize, "ai-trial-sample-v1")
+func SelectAITrialSampleV2(candidates []AIBodySamplingMetric) ([]string, error) {
+	return selectAIBodySampleV1(candidates, aiTrialSampleSize, aiTrialSamplingVersionV2)
 }
 
 // SelectAIOutputAuditDiagnosticSampleV1 freezes exactly five non-text body
 // IDs for the one fixed Plus-only contract diagnostic. It is deliberately a
-// separate sample identity from the 30-body release trial.
+// separate sample identity from the formal release trial.
 func SelectAIOutputAuditDiagnosticSampleV1(candidates []AIBodySamplingMetric) ([]string, error) {
 	return selectAIBodySampleV1(candidates, aiOutputAuditDiagnosticSampleSize, "ai-output-audit-diagnostic-sample-v1")
 }
@@ -84,7 +94,7 @@ func selectAIBodySampleV1(candidates []AIBodySamplingMetric, sampleSize int, sam
 }
 
 func aiSamplingRank(bodyContentVersionID string) string {
-	return aiSamplingRankForVersion("ai-trial-sample-v1", bodyContentVersionID)
+	return aiSamplingRankForVersion(aiTrialSamplingVersionV1, bodyContentVersionID)
 }
 
 func aiSamplingRankForVersion(samplingVersion, bodyContentVersionID string) string {

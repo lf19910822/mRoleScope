@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
 // AIModelInput is the only in-memory payload allowed to cross from the CVM to
@@ -21,9 +20,7 @@ type AIModelInput struct {
 
 	fieldTextBySource map[string]string
 	responseContract  AISemanticResponseContract
-	systemPrompt      string
 	spanIndex         AISpanIndex
-	validatorVersion  string
 }
 
 // AIModelInputField contains the model-visible text for one approved field.
@@ -68,6 +65,13 @@ type VerifiedTechnologyMention struct {
 // exact body version. It rejects any evidence not tied to the supplied body,
 // normalized field hash, and CVM-generated span map.
 func BuildAIModelInput(requestID string, body AIInputBody, spanIndex AISpanIndex, mentions []VerifiedTechnologyMention) (AIModelInput, error) {
+	return buildAIModelInputForResponseSchemaVersion(AIResponseSchemaVersionV1, requestID, body, spanIndex, mentions)
+}
+
+func buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID string, body AIInputBody, spanIndex AISpanIndex, mentions []VerifiedTechnologyMention) (AIModelInput, error) {
+	if !knownAIResponseSchemaVersion(responseSchemaVersion) {
+		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
 	if requestID == "" || spanIndex.bodyContentVersionID != body.BodyContentVersionID {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorInvalidEvidence, nil)
 	}
@@ -85,11 +89,6 @@ func BuildAIModelInput(requestID string, body AIInputBody, spanIndex AISpanIndex
 			SourceFieldAddition:    body.Addition,
 		},
 		spanIndex: spanIndex,
-		// Direct construction is used by unit tests and cannot be associated
-		// with a historical database configuration. It uses the current prompt
-		// while retaining the original strict mapper by default.
-		systemPrompt:     AISystemPromptV3(),
-		validatorVersion: AIValidatorVersionV1,
 	}
 	input.Fields = buildAIModelInputFields(body, spanIndex)
 	input.VerifiedTechnologyMentions = make([]VerifiedTechnologyMention, 0, len(mentions))
@@ -127,7 +126,11 @@ func BuildAIModelInput(requestID string, body AIInputBody, spanIndex AISpanIndex
 	for mentionEvidenceID := range mentionReferences {
 		mentionEvidenceIDs = append(mentionEvidenceIDs, mentionEvidenceID)
 	}
-	input.responseContract = NewAISemanticResponseContract(requestID, spanIDs, technologyKeys, mentionEvidenceIDs)
+	responseContract, err := newAISemanticResponseContract(responseSchemaVersion, requestID, spanIDs, technologyKeys, mentionEvidenceIDs)
+	if err != nil {
+		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+	}
+	input.responseContract = responseContract
 	input.responseContract.knownMentionReferences = mentionReferences
 	return input, nil
 }
@@ -140,17 +143,14 @@ func (repository *Repository) BuildAIModelInput(ctx context.Context, requestID, 
 	if requestID == "" || aiConfigurationID == "" || bodyContentVersionID == "" {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
-	var technologyConfigurationID, validatorVersion, validatorSHA256, promptSHA256 string
+	var technologyConfigurationID, responseSchemaVersion string
 	err := repository.pool.QueryRow(ctx, `
-SELECT technology_configuration.id::text,
-       ai_configuration.validator_version,
-       ai_configuration.validator_sha256,
-       ai_configuration.prompt_sha256
+SELECT technology_configuration.id::text, ai_configuration.response_schema_version
 FROM ai_analysis_configurations AS ai_configuration
 JOIN technology_analysis_configurations AS technology_configuration
   ON technology_configuration.id = ai_configuration.technology_analysis_configuration_id
 WHERE ai_configuration.id = $1
-  AND technology_configuration.status = 'published'`, aiConfigurationID).Scan(&technologyConfigurationID, &validatorVersion, &validatorSHA256, &promptSHA256)
+	  AND technology_configuration.status = 'published'`, aiConfigurationID).Scan(&technologyConfigurationID, &responseSchemaVersion)
 	if err != nil {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
@@ -176,56 +176,7 @@ WHERE ai_configuration.id = $1
 	if err != nil {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorInvalidEvidence, err)
 	}
-	input, err := BuildAIModelInput(requestID, body, spanIndex, mentions)
-	if err != nil {
-		return AIModelInput{}, err
-	}
-	if err := input.applyFrozenExecutionContract(validatorVersion, validatorSHA256, promptSHA256); err != nil {
-		return AIModelInput{}, err
-	}
-	return input, nil
-}
-
-// applyFrozenExecutionContract binds model execution to the exact validator
-// and prompt identities stored with an immutable AI configuration. This keeps
-// historical candidates from silently acquiring a newer interpretation.
-func (input *AIModelInput) applyFrozenExecutionContract(validatorVersion, validatorSHA256, promptSHA256 string) error {
-	if input == nil {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
-	}
-	if validatorVersion != AIValidatorVersionV1 && validatorVersion != AIValidatorVersionV2 {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
-	}
-	if validatorSHA256 != sha256Hex(validatorVersion) {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
-	}
-	prompt, exists := reviewedAISystemPromptBySHA256(promptSHA256)
-	if !exists {
-		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
-	}
-	input.systemPrompt = prompt
-	input.validatorVersion = validatorVersion
-	return nil
-}
-
-func reviewedAISystemPromptBySHA256(promptSHA256 string) (string, bool) {
-	switch promptSHA256 {
-	case AISystemPromptV1SHA256():
-		return AISystemPromptV1(), true
-	case AISystemPromptV2SHA256():
-		return AISystemPromptV2(), true
-	case AISystemPromptV3SHA256():
-		return AISystemPromptV3(), true
-	default:
-		return "", false
-	}
-}
-
-func (input AIModelInput) reviewedSystemPrompt() string {
-	if input.systemPrompt == "" {
-		return AISystemPromptV3()
-	}
-	return input.systemPrompt
+	return buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID, body, spanIndex, mentions)
 }
 
 // LocateCandidate finds a candidate exactly once in its approved span and
@@ -259,37 +210,6 @@ func (input AIModelInput) LocateCandidate(candidateText, spanID string) (AISeman
 		SourceField:           span.SourceField,
 		SpanID:                span.ID,
 	}, nil
-}
-
-// validateEvidenceBoundDomainScope permits a domain key only when it is a
-// bounded verbatim term in exactly one of the cited model-visible spans. This
-// prevents a model from turning a supported experience statement into an
-// invented or translated domain taxonomy key.
-func (input AIModelInput) validateEvidenceBoundDomainScope(domainKey string, spanIDs []string) error {
-	if domainKey == "" || utf8.RuneCountInString(domainKey) > 128 || len(spanIDs) == 0 {
-		return fmt.Errorf("domain scope is invalid")
-	}
-
-	matches := 0
-	for _, spanID := range spanIDs {
-		span, found := input.spanIndex.Lookup(spanID)
-		if !found {
-			return fmt.Errorf("domain scope evidence is invalid")
-		}
-		fieldText, found := input.fieldTextBySource[span.SourceField]
-		if !found {
-			return fmt.Errorf("domain scope evidence is invalid")
-		}
-		spanText, err := CodePointSlice(fieldText, span.CodePointRange)
-		if err != nil {
-			return fmt.Errorf("domain scope evidence is invalid")
-		}
-		matches += strings.Count(spanText, domainKey)
-	}
-	if matches != 1 {
-		return fmt.Errorf("domain scope is not uniquely supported")
-	}
-	return nil
 }
 
 // ResolveSpanIDs converts response references into persistence-ready,

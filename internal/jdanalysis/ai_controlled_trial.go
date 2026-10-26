@@ -12,14 +12,10 @@ import (
 const (
 	AIControlledConfigurationCreator         = "FAN"
 	AIControlledOutputAuditDiagnosticCreator = "FAN/audit-diagnostic"
-	// AIOutputAuditDiagnosticExecutionContractV1 records the first execution
-	// environment that can durably reserve and capture diagnostic output in the
-	// root-only CVM audit mount. It deliberately gives post-fix diagnostics a
-	// new immutable candidate identity rather than retrying prior safe failures.
-	AIOutputAuditDiagnosticExecutionContractV1 = "diagnostic_output_audit_execution=ai-output-audit-root-mount-v1"
-	AIValidatorVersionV1                       = "ai-semantic-validator-v1"
-	AIValidatorVersionV2                       = "ai-semantic-validator-v2"
-	AISpanContractVersionV1                    = "ai-span-contract-v1"
+	AIValidatorVersionV1                     = "ai-semantic-validator-v1"
+	AIValidatorVersionV2                     = "ai-semantic-validator-v2"
+	AIValidatorVersionV3                     = "ai-semantic-validator-v3"
+	AISpanContractVersionV1                  = "ai-span-contract-v1"
 )
 
 // AIOutputAuditDiagnosticPreparation exposes only the Plus candidate and its
@@ -57,7 +53,7 @@ func (repository *Repository) PrepareControlledAITrial(ctx context.Context, work
 }
 
 // PrepareControlledAIOutputAuditDiagnostic freezes a fresh, Plus-only
-// five-body diagnostic. It is intentionally separate from the 30-body
+// five-body diagnostic. It is intentionally separate from the formal
 // baseline trial and has no caller-controlled sample, model, prompt, or body
 // selection.
 func (repository *Repository) PrepareControlledAIOutputAuditDiagnostic(ctx context.Context, workspaceID string) (AIOutputAuditDiagnosticPreparation, error) {
@@ -110,7 +106,7 @@ func (repository *Repository) ControlledAITrialConfigurationID(ctx context.Conte
 
 // ControlledAIOutputAuditDiagnosticConfigurationID resolves only the fixed
 // Plus diagnostic identity. It cannot resolve an arbitrary candidate or the
-// 30-body baseline trial.
+// formal baseline trial.
 func (repository *Repository) ControlledAIOutputAuditDiagnosticConfigurationID(ctx context.Context, workspaceID string) (string, error) {
 	technologyConfigurationID, err := repository.PublishedConfigurationID(ctx)
 	if err != nil {
@@ -211,12 +207,12 @@ func controlledAIConfigurationInput(technologyConfigurationID string, requestPro
 		Model:                     requestProfile.Model(),
 		RequestProfileSHA256:      requestProfile.SHA256(),
 		PromptSHA256:              AISystemPromptV3SHA256(),
-		ResponseSchemaVersion:     AIResponseSchemaVersionV1,
-		ResponseSchemaSHA256:      AIResponseSchemaV1SHA256(),
+		ResponseSchemaVersion:     AIResponseSchemaVersionV3,
+		ResponseSchemaSHA256:      AIResponseSchemaV3SHA256(),
 		InputContractVersion:      AIInputContractVersionV1,
 		InputContractSHA256:       inputContractSHA256,
-		ValidatorVersion:          AIValidatorVersionV2,
-		ValidatorSHA256:           sha256Hex(AIValidatorVersionV2),
+		ValidatorVersion:          AIValidatorVersionV3,
+		ValidatorSHA256:           sha256Hex(AIValidatorVersionV3),
 		PricingProfileVersion:     pricingProfile.Version,
 		PricingProfileSHA256:      pricingProfile.SHA256(),
 		CreatedBy:                 createdBy,
@@ -316,7 +312,27 @@ func controlledAIInputContractSHA256() string {
 	components := []string{
 		AIInputContractVersionV1,
 		AISpanContractVersionV1,
-		AIInputTokenEstimatorVersionV2,
+		AIInputTokenEstimatorVersionV3,
+		AIInputTokenEstimatorSHA256(),
+		"formal_trial_sampling_version=" + aiTrialSamplingVersionV2,
+		"formal_trial_sample_size=5",
+		"formal_trial_max_logical_tasks=10",
+		"formal_trial_max_attempts=30",
+	}
+	components = append(components, aiOutputAuditInputContractComponents()...)
+	return sha256Hex(strings.Join(components, "|"))
+}
+
+// legacyThirtyBodyControlledAIInputContractSHA256 preserves the exact input
+// contract digest used by the already-created v3 30-body trials. It is kept
+// only so their CVM-resident audit artifacts remain readable; fixed lifecycle
+// operations resolve the current five-body digest and therefore cannot reuse
+// that historical candidate.
+func legacyThirtyBodyControlledAIInputContractSHA256() string {
+	components := []string{
+		AIInputContractVersionV1,
+		AISpanContractVersionV1,
+		AIInputTokenEstimatorVersionV3,
 		AIInputTokenEstimatorSHA256(),
 	}
 	components = append(components, aiOutputAuditInputContractComponents()...)
@@ -328,7 +344,14 @@ func controlledAIOutputAuditDiagnosticInputContractSHA256() string {
 		controlledAIInputContractSHA256(),
 		"diagnostic_execution=plus_only",
 		"diagnostic_sample_size=5",
-		AIOutputAuditDiagnosticExecutionContractV1,
+	}, "|"))
+}
+
+func legacyThirtyBodyControlledAIOutputAuditDiagnosticInputContractSHA256() string {
+	return sha256Hex(strings.Join([]string{
+		legacyThirtyBodyControlledAIInputContractSHA256(),
+		"diagnostic_execution=plus_only",
+		"diagnostic_sample_size=5",
 	}, "|"))
 }
 

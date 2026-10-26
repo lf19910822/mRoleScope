@@ -29,11 +29,51 @@ type ControlledAIModelClient interface {
 	Analyze(context.Context, AIModelInput) (AIModelResponse, error)
 }
 
+// AIProviderCompletionSignal is the bounded, provider-neutral completion
+// indicator retained with an attempt. It deliberately cannot hold a provider
+// supplied value or provider text.
+type AIProviderCompletionSignal string
+
+const (
+	AIProviderCompletionSignalUnknown AIProviderCompletionSignal = "unknown"
+	AIProviderCompletionSignalStop    AIProviderCompletionSignal = "stop"
+	AIProviderCompletionSignalLength  AIProviderCompletionSignal = "length"
+	AIProviderCompletionSignalOther   AIProviderCompletionSignal = "other"
+)
+
+func (signal AIProviderCompletionSignal) valid() bool {
+	switch signal {
+	case AIProviderCompletionSignalUnknown,
+		AIProviderCompletionSignalStop,
+		AIProviderCompletionSignalLength,
+		AIProviderCompletionSignalOther:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeQwenCompletionSignal(value string) AIProviderCompletionSignal {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return AIProviderCompletionSignalUnknown
+	case "stop":
+		return AIProviderCompletionSignalStop
+	case "length":
+		return AIProviderCompletionSignalLength
+	default:
+		return AIProviderCompletionSignalOther
+	}
+}
+
 // AIModelResponse is transient provider output. Content remains in memory only
-// until the strict response validator consumes it.
+// until the strict response validator consumes it. The completion signal and
+// byte length are bounded redacted metadata suitable for the durable ledger.
 type AIModelResponse struct {
-	Content []byte
-	Usage   AIModelUsage
+	CompletionSignal    AIProviderCompletionSignal
+	Content             []byte
+	ResponseLengthBytes int
+	Usage               AIModelUsage
 }
 
 // AIModelUsage is the bounded, redacted token accounting returned by a model.
@@ -166,7 +206,7 @@ func QwenFlashComparisonProfileForBeijingWorkspace(workspaceID string) (QwenRequ
 		baseURL:         baseURL,
 		enableThinking:  false,
 		maxInputTokens:  10000,
-		maxOutputTokens: 2500,
+		maxOutputTokens: 5000,
 		model:           "qwen-flash",
 	}, nil
 }
@@ -183,7 +223,7 @@ func QwenPlusTrialProfileForBeijingWorkspace(workspaceID string) (QwenRequestPro
 		baseURL:         baseURL,
 		enableThinking:  false,
 		maxInputTokens:  10000,
-		maxOutputTokens: 2500,
+		maxOutputTokens: 5000,
 		model:           "qwen-plus",
 	}, nil
 }
@@ -194,6 +234,10 @@ func (client *QwenClient) Analyze(ctx context.Context, input AIModelInput) (AIMo
 	if client == nil || client.apiKey == "" || client.httpClient == nil || input.RequestID == "" || input.InputContractVersion != AIInputContractVersionV1 {
 		return AIModelResponse{}, AIProviderFailure{Code: AISafeErrorConfigurationInvalid}
 	}
+	assets, err := responseContractAssets(input.responseContract.responseSchemaVersion)
+	if err != nil {
+		return AIModelResponse{}, AIProviderFailure{Code: AISafeErrorConfigurationInvalid}
+	}
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
 		return AIModelResponse{}, AIProviderFailure{Code: AISafeErrorConfigurationInvalid}
@@ -202,14 +246,14 @@ func (client *QwenClient) Analyze(ctx context.Context, input AIModelInput) (AIMo
 		EnableThinking: client.profile.enableThinking,
 		MaxTokens:      client.profile.maxOutputTokens,
 		Messages: []qwenChatMessage{
-			{Content: input.reviewedSystemPrompt(), Role: "system"},
+			{Content: assets.prompt, Role: "system"},
 			{Content: string(inputJSON), Role: "user"},
 		},
 		Model: client.profile.model,
 		ResponseFormat: qwenResponseFormat{
 			JSONSchema: qwenJSONSchema{
-				Name:   AIResponseSchemaVersionV1,
-				Schema: json.RawMessage(AIResponseSchemaV1()),
+				Name:   input.responseContract.responseSchemaVersion,
+				Schema: json.RawMessage(assets.schema),
 				Strict: true,
 			},
 			Type: "json_schema",
@@ -243,7 +287,9 @@ func (client *QwenClient) Analyze(ctx context.Context, input AIModelInput) (AIMo
 		return AIModelResponse{}, AIProviderFailure{Code: AISafeErrorInvalidResponseSchema}
 	}
 	return AIModelResponse{
-		Content: []byte(payload.Choices[0].Message.Content),
+		CompletionSignal:    normalizeQwenCompletionSignal(payload.Choices[0].FinishReason),
+		Content:             []byte(payload.Choices[0].Message.Content),
+		ResponseLengthBytes: len([]byte(payload.Choices[0].Message.Content)),
 		Usage: AIModelUsage{
 			InputTokens:  payload.Usage.PromptTokens,
 			OutputTokens: payload.Usage.CompletionTokens,
@@ -300,7 +346,7 @@ func parseRetryAfter(value string, now time.Time) time.Duration {
 
 func validQwenProfile(profile QwenRequestProfile) bool {
 	baseURL, err := QwenBeijingWorkspaceCompatibleBaseURL(strings.TrimSuffix(strings.TrimPrefix(profile.baseURL, "https://"), qwenBeijingWorkspaceCompatibleSuffix+qwenBeijingWorkspaceCompatiblePath))
-	return err == nil && profile.baseURL == baseURL && !profile.enableThinking && profile.maxInputTokens == 10000 && profile.maxOutputTokens == 2500 && (profile.model == "qwen-plus" || profile.model == "qwen-flash")
+	return err == nil && profile.baseURL == baseURL && !profile.enableThinking && profile.maxInputTokens == 10000 && profile.maxOutputTokens == 5000 && (profile.model == "qwen-plus" || profile.model == "qwen-flash")
 }
 
 type qwenChatMessage struct {
@@ -319,7 +365,8 @@ type qwenChatRequest struct {
 
 type qwenChatResponse struct {
 	Choices []struct {
-		Message struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`

@@ -1560,18 +1560,20 @@ type AggregateSnapshot struct {
 }
 
 type AiAnalysisAttempt struct {
-	ID                        pgtype.UUID
-	AiAnalysisConfigurationID pgtype.UUID
-	WorkItemID                pgtype.UUID
-	RunID                     pgtype.UUID
-	AttemptNumber             int32
-	Status                    AiAnalysisAttemptStatus
-	InputTokenLimit           int32
-	OutputTokenLimit          int32
-	SafeErrorCode             pgtype.Text
-	ProviderRequestID         pgtype.UUID
-	StartedAt                 pgtype.Timestamptz
-	CompletedAt               pgtype.Timestamptz
+	ID                          pgtype.UUID
+	AiAnalysisConfigurationID   pgtype.UUID
+	WorkItemID                  pgtype.UUID
+	RunID                       pgtype.UUID
+	AttemptNumber               int32
+	Status                      AiAnalysisAttemptStatus
+	InputTokenLimit             int32
+	OutputTokenLimit            int32
+	SafeErrorCode               pgtype.Text
+	ProviderRequestID           pgtype.UUID
+	StartedAt                   pgtype.Timestamptz
+	CompletedAt                 pgtype.Timestamptz
+	ProviderCompletionSignal    pgtype.Text
+	ProviderResponseLengthBytes pgtype.Int4
 }
 
 type AiAnalysisAuditEvent struct {

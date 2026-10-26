@@ -12,7 +12,7 @@ import (
 )
 
 const getAIAnalysisAttempt = `-- name: GetAIAnalysisAttempt :one
-SELECT id, ai_analysis_configuration_id, work_item_id, run_id, attempt_number, status, input_token_limit, output_token_limit, safe_error_code, provider_request_id, started_at, completed_at
+SELECT id, ai_analysis_configuration_id, work_item_id, run_id, attempt_number, status, input_token_limit, output_token_limit, safe_error_code, provider_request_id, started_at, completed_at, provider_completion_signal, provider_response_length_bytes
 FROM ai_analysis_attempts
 WHERE id = $1
 `
@@ -33,6 +33,8 @@ func (q *Queries) GetAIAnalysisAttempt(ctx context.Context, id pgtype.UUID) (AiA
 		&i.ProviderRequestID,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.ProviderCompletionSignal,
+		&i.ProviderResponseLengthBytes,
 	)
 	return i, err
 }
