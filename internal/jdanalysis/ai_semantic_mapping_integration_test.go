@@ -118,7 +118,7 @@ ORDER BY identity.technology_key`)
 	}
 }
 
-func TestAISemanticProcessorCandidateIssuesDoNotBlockVerifiedSemanticFacts(t *testing.T) {
+func TestAISemanticProcessorCandidateIssuesKeepVerifiedFactsAndMarkUncertain(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -162,7 +162,7 @@ WHERE id = $1`, bodyID, description, jobRequire, addition,
 	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: candidateIssueTolerantAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
 		t.Fatal(err)
 	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "configured")
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "uncertain")
 
 	var baseYear, educationCount, requirementOptionCount, dictionaryCandidateCount, unresolvedCount int
 	var sourceTerm string

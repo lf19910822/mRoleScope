@@ -354,7 +354,7 @@ WHERE item.subject_kind = 'domain'`).Scan(&subjectKind, &domainKey, &minimumYear
 	}
 }
 
-func TestAISemanticProcessorRejectsDomainExperienceWithoutExactEvidence(t *testing.T) {
+func TestAISemanticProcessorOmitsUnboundDomainExperienceButKeepsOverallEvidence(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -373,19 +373,23 @@ VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
 	}
 
 	summary, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: domainExperienceAIModelClient{domainKey: "invented-domain"}}}).ProcessPending(ctx, aiConfiguration.ID)
-	if !errors.Is(err, ErrAISemanticWorkFailed) || summary.Failed != 1 {
-		t.Fatalf("ProcessPending() = summary:%#v err:%v, want one safe failure", summary, err)
+	if err != nil || summary.Completed != 1 || summary.Failed != 0 {
+		t.Fatalf("ProcessPending() = summary:%#v err:%v, want one completed item", summary, err)
 	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "failed_safely", "failed_safely", "not_analyzed")
-	var safeCode string
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "configured")
+	var status string
+	var baseYear, domainItems, overallItems int
 	if err := repository.pool.QueryRow(ctx, `
-SELECT last_safe_error_code::text
-FROM ai_analysis_work_items
-WHERE ai_analysis_configuration_id = $1 AND body_content_version_id = $2`, aiConfiguration.ID, bodyID).Scan(&safeCode); err != nil {
+SELECT summary.status::text, summary.base_year::integer,
+       (SELECT count(*) FROM ai_experience_requirement_items AS item
+        WHERE item.experience_summary_id = summary.id AND item.subject_kind = 'domain'),
+       (SELECT count(*) FROM ai_experience_requirement_items AS item
+        WHERE item.experience_summary_id = summary.id AND item.subject_kind = 'overall')
+FROM ai_experience_summaries AS summary`).Scan(&status, &baseYear, &domainItems, &overallItems); err != nil {
 		t.Fatal(err)
 	}
-	if safeCode != string(AISafeErrorPolicyRejected) {
-		t.Fatalf("safe error code = %q, want %q", safeCode, AISafeErrorPolicyRejected)
+	if status != "configured" || baseYear != 3 || domainItems != 0 || overallItems != 0 {
+		t.Fatalf("unbound domain experience = status:%s base:%d domain:%d overall:%d, want configured/3/0/0", status, baseYear, domainItems, overallItems)
 	}
 }
 
