@@ -113,8 +113,8 @@ ORDER BY identity.technology_key`)
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != (requirementRow{technologyKey: "cpp", operator: "at_least", minSatisfied: 1, optionCount: 1}) || got[1] != (requirementRow{technologyKey: "python", operator: "at_least", minSatisfied: 1, optionCount: 1}) {
-		t.Fatalf("persisted independent C++/Python requirements = %#v", got)
+	if len(got) != 2 || got[0] != (requirementRow{technologyKey: "cpp", operator: "at_least", minSatisfied: 1, optionCount: 2}) || got[1] != (requirementRow{technologyKey: "python", operator: "at_least", minSatisfied: 1, optionCount: 2}) {
+		t.Fatalf("persisted model-supplied C++/Python group = %#v", got)
 	}
 }
 
@@ -180,6 +180,94 @@ SELECT
 	if baseYear != 3 || educationCount != 1 || requirementOptionCount != 1 || dictionaryCandidateCount != 0 || unresolvedCount != 1 || sourceTerm != "OriginalSDK" {
 		t.Fatalf("candidate tolerance persistence = base:%d education:%d options:%d dictionary:%d unresolved:%d source:%q", baseYear, educationCount, requirementOptionCount, dictionaryCandidateCount, unresolvedCount, sourceTerm)
 	}
+}
+
+func TestAISemanticProcessorPersistsModelRelationWithoutSemanticPolicyGate(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "model-relation-without-policy-gate-reference")
+	aiConfiguration := createV1CandidateAIConfiguration(t, repository, technologyConfigurationID, "model-relation-without-policy-gate-candidate")
+	prepareAIWork(t, repository, bodyID, aiConfiguration.ID)
+
+	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: structurallyValidModelRelationAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var role string
+	var minimumSatisfied, optionCount int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT requirement.role::text, requirement.min_satisfied, count(option.id)
+FROM ai_technology_requirement_groups AS requirement
+LEFT JOIN ai_technology_requirement_options AS option ON option.requirement_group_id = requirement.id
+GROUP BY requirement.role, requirement.min_satisfied`).Scan(&role, &minimumSatisfied, &optionCount); err != nil {
+		t.Fatal(err)
+	}
+	if role != "responsibility" || minimumSatisfied != 2 || optionCount != 1 {
+		t.Fatalf("persisted model relation = role:%s min:%d options:%d, want responsibility/2/1", role, minimumSatisfied, optionCount)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "configured")
+}
+
+func TestAISemanticProcessorSanitizesInvalidReferencesWithoutCrossBodyEvidence(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "local-reference-sanitation-reference")
+	aiConfiguration := createV1CandidateAIConfiguration(t, repository, technologyConfigurationID, "local-reference-sanitation-candidate")
+	prepareAIWork(t, repository, bodyID, aiConfiguration.ID)
+
+	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: localReferenceSanitationAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "configured")
+
+	var optionCount, foreignEvidenceCount, validEvidenceCount int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM ai_technology_requirement_options),
+  (SELECT count(*)
+     FROM ai_semantic_evidence
+    WHERE span_id = 'foreign-span'
+       OR normalized_field_sha256 <> $1),
+  (SELECT count(*)
+     FROM ai_semantic_evidence
+    WHERE normalized_field_sha256 = $1)
+`, testSHA256("Go, Go")).Scan(&optionCount, &foreignEvidenceCount, &validEvidenceCount); err != nil {
+		t.Fatal(err)
+	}
+	if optionCount != 1 || foreignEvidenceCount != 0 || validEvidenceCount == 0 {
+		t.Fatalf("local reference sanitation = options:%d foreign_evidence:%d valid_evidence:%d, want 1/0/nonzero", optionCount, foreignEvidenceCount, validEvidenceCount)
+	}
+}
+
+func TestAISemanticProcessorPersistsStructurallyValidModelStatesWithoutSemanticGate(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "model-state-without-policy-gate-reference")
+	aiConfiguration := createV1CandidateAIConfiguration(t, repository, technologyConfigurationID, "model-state-without-policy-gate-candidate")
+	prepareAIWork(t, repository, bodyID, aiConfiguration.ID)
+
+	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: structurallyValidModelStateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var experienceStatus, educationStatus, educationLevel string
+	var baseYear int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+  (SELECT status::text FROM ai_experience_summaries),
+  (SELECT base_year::integer FROM ai_experience_summaries),
+  (SELECT status::text FROM ai_minimum_education_requirements),
+  (SELECT minimum_level::text FROM ai_minimum_education_requirements)
+`).Scan(&experienceStatus, &baseYear, &educationStatus, &educationLevel); err != nil {
+		t.Fatal(err)
+	}
+	if experienceStatus != "not_configured" || baseYear != 3 || educationStatus != "uncertain" || educationLevel != "bachelor" {
+		t.Fatalf("persisted model states = experience:%s/%d education:%s/%s, want not_configured/3 uncertain/bachelor", experienceStatus, baseYear, educationStatus, educationLevel)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "uncertain")
 }
 
 func createV1CandidateAIConfiguration(t *testing.T, repository *Repository, technologyConfigurationID, seed string) AIConfiguration {
@@ -327,6 +415,77 @@ func (independentCPlusPlusPythonAIModelClient) Analyze(_ context.Context, input 
 		},
 		EvidenceSpanIDs: []string{cpp.SpanID, python.SpanID}, ReviewRecommendation: "routine",
 	}})
+}
+
+type structurallyValidModelRelationAIModelClient struct{}
+
+func (structurallyValidModelRelationAIModelClient) Analyze(_ context.Context, input AIModelInput) (AIModelResponse, error) {
+	if len(input.VerifiedTechnologyMentions) != 1 {
+		return AIModelResponse{}, NewSafeAIError(AISafeErrorInvalidEvidence, nil)
+	}
+	minimumTwo := 2
+	atLeast := "at_least"
+	mention := input.VerifiedTechnologyMentions[0]
+	return syntheticSemanticAIModelResponse(input,
+		AIExperienceResponse{Status: "not_configured", Items: []AIExperienceItemResponse{}, ConditionalQualifications: []AIConditionalQualificationResponse{}, EvidenceSpanIDs: []string{}, ReviewRecommendation: "routine"},
+		[]AITechnologyRequirementGroupResponse{{
+			LocalID: "model-relation", Role: "responsibility", Necessity: "required", Operator: &atLeast, MinSatisfied: &minimumTwo,
+			Options:         []AITechnologyRequirementOptionResponse{{TechnologyKey: mention.TechnologyKey, MentionEvidenceIDs: []string{mention.MentionEvidenceID}}},
+			EvidenceSpanIDs: []string{mention.SpanID}, ReviewRecommendation: "routine",
+		}},
+	)
+}
+
+type localReferenceSanitationAIModelClient struct{}
+
+func (localReferenceSanitationAIModelClient) Analyze(_ context.Context, input AIModelInput) (AIModelResponse, error) {
+	if len(input.Fields) == 0 || len(input.Fields[0].Spans) == 0 || len(input.VerifiedTechnologyMentions) != 1 {
+		return AIModelResponse{}, NewSafeAIError(AISafeErrorInvalidEvidence, nil)
+	}
+	baseYear, minimumOne := 3, 1
+	atLeast := "at_least"
+	spanID := input.Fields[0].Spans[0].SpanID
+	mention := input.VerifiedTechnologyMentions[0]
+	return syntheticSemanticAIModelResponse(input,
+		AIExperienceResponse{
+			Status: "configured", BaseYear: &baseYear,
+			Items: []AIExperienceItemResponse{}, ConditionalQualifications: []AIConditionalQualificationResponse{},
+			EvidenceSpanIDs: []string{"foreign-span", spanID}, ReviewRecommendation: "routine",
+		},
+		[]AITechnologyRequirementGroupResponse{{
+			LocalID: "locally-sanitized", Role: "qualification", Necessity: "required", Operator: &atLeast, MinSatisfied: &minimumOne,
+			Options: []AITechnologyRequirementOptionResponse{{
+				TechnologyKey: mention.TechnologyKey, MentionEvidenceIDs: []string{"foreign-evidence", mention.MentionEvidenceID},
+			}},
+			EvidenceSpanIDs: []string{"foreign-span", spanID}, ReviewRecommendation: "routine",
+		}},
+	)
+}
+
+type structurallyValidModelStateAIModelClient struct{}
+
+func (structurallyValidModelStateAIModelClient) Analyze(_ context.Context, input AIModelInput) (AIModelResponse, error) {
+	baseYear, bachelorCode := 3, 2
+	bachelor := "bachelor"
+	raw, err := json.Marshal(AISemanticResponse{
+		CandidateMentions: []AICandidateMentionResponse{},
+		Experience: AIExperienceResponse{
+			Status: "not_configured", BaseYear: &baseYear,
+			Items: []AIExperienceItemResponse{}, ConditionalQualifications: []AIConditionalQualificationResponse{},
+			EvidenceSpanIDs: []string{}, ReviewRecommendation: "routine",
+		},
+		MinimumEducation: AIMinimumEducationResponse{
+			Status: "uncertain", Level: &bachelor, LevelCode: &bachelorCode,
+			EvidenceSpanIDs: []string{}, ReviewRecommendation: "routine",
+		},
+		RequestID:                   input.RequestID,
+		ResponseSchemaVersion:       AIResponseSchemaVersionV1,
+		TechnologyRequirementGroups: []AITechnologyRequirementGroupResponse{},
+	})
+	if err != nil {
+		return AIModelResponse{}, err
+	}
+	return AIModelResponse{Content: raw, Usage: AIModelUsage{InputTokens: 10, OutputTokens: 10, TotalTokens: 20}}, nil
 }
 
 type candidateIssueTolerantAIModelClient struct{}

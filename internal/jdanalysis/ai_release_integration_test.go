@@ -52,7 +52,7 @@ func TestPublishAIConfigurationPublishesFullyReviewedPlusTrialAndWritesAttestati
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.AIConfigurationID != aiConfiguration.ID || summary.Publisher != AIReleasePublisher || summary.TrialBodyCount != aiTrialSampleSize || summary.FullyReviewedTrialBodyCount != aiTrialSampleSize || summary.MajorErrorCount != 0 {
+	if summary.AIConfigurationID != aiConfiguration.ID || summary.Publisher != AIReleasePublisher || summary.TrialBodyCount != aiTrialSampleSize || summary.TotalWorkCount != aiTrialSampleSize || summary.TerminalWorkCount != aiTrialSampleSize || summary.StructuralSuccessCount != aiTrialSampleSize || summary.SafeFailureCount != 0 {
 		t.Fatalf("AI release summary = %#v", summary)
 	}
 
@@ -72,7 +72,7 @@ SELECT
 	}
 }
 
-func TestPublishAIConfigurationRejectsMajorTrialErrorWithoutMovingDefault(t *testing.T) {
+func TestPublishAIConfigurationAllowsMajorTrialReviewErrorAndWritesMechanicalAttestation(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -83,8 +83,9 @@ func TestPublishAIConfigurationRejectsMajorTrialErrorWithoutMovingDefault(t *tes
 	}
 	seedCompletedAITrialForRelease(t, repository, aiConfiguration.ID, aiTrialSampleSize, 0)
 
-	if _, err := repository.PublishAIConfiguration(ctx, aiConfiguration.ID); !errors.Is(err, ErrAIReleaseGateFailed) {
-		t.Fatalf("publish major-error AI candidate error = %v, want ErrAIReleaseGateFailed", err)
+	summary, err := repository.PublishAIConfiguration(ctx, aiConfiguration.ID)
+	if err != nil {
+		t.Fatalf("major review error must not gate mechanical publication: %v", err)
 	}
 	var configurationStatus string
 	var defaultConfigurationID *string
@@ -97,8 +98,44 @@ SELECT
 `, aiConfiguration.ID).Scan(&configurationStatus, &defaultConfigurationID, &attestations); err != nil {
 		t.Fatal(err)
 	}
-	if configurationStatus != "candidate" || defaultConfigurationID != nil || attestations != 0 {
-		t.Fatalf("major-error AI publication mutated state = status:%s default:%v attestations:%d", configurationStatus, defaultConfigurationID, attestations)
+	if configurationStatus != "published" || defaultConfigurationID == nil || *defaultConfigurationID != aiConfiguration.ID || attestations != 1 || summary.StructuralSuccessCount != aiTrialSampleSize || summary.SafeFailureCount != 0 {
+		t.Fatalf("major-error mechanical publication = status:%s default:%v attestations:%d summary:%#v", configurationStatus, defaultConfigurationID, attestations, summary)
+	}
+}
+
+func TestPublishAIConfigurationAllowsTerminalSafeFailureWithoutSemanticReviews(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-release-safe-failure-reference")
+	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-release-safe-failure-candidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedTerminalAITrialForMechanicalPublication(t, repository, aiConfiguration.ID, aiTrialSampleSize, true)
+
+	summary, err := repository.PublishAIConfiguration(ctx, aiConfiguration.ID)
+	if err != nil {
+		t.Fatalf("terminal safe failure must remain attestable, not block publication: %v", err)
+	}
+	if summary.TrialBodyCount != aiTrialSampleSize {
+		t.Fatalf("mechanical publication summary = %#v", summary)
+	}
+	var totalWork, terminalWork, structuralSuccess, safeFailures, attempts int
+	var inputTokens, outputTokens, chargeNanoRMB int64
+	if err := repository.pool.QueryRow(ctx, `
+SELECT total_work_count, terminal_work_count, structural_success_count,
+       safe_failure_count, attempt_count, input_token_count,
+       output_token_count, charge_nano_rmb
+FROM ai_analysis_release_attestations
+WHERE ai_analysis_configuration_id = $1`, aiConfiguration.ID).Scan(
+		&totalWork, &terminalWork, &structuralSuccess, &safeFailures,
+		&attempts, &inputTokens, &outputTokens, &chargeNanoRMB,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if totalWork != aiTrialSampleSize || terminalWork != aiTrialSampleSize || structuralSuccess != aiTrialSampleSize-1 || safeFailures != 1 || attempts != 0 || inputTokens != 0 || outputTokens != 0 || chargeNanoRMB != 0 {
+		t.Fatalf("mechanical release attestation = work:%d/%d success:%d failure:%d attempts:%d usage:%d/%d/%d", totalWork, terminalWork, structuralSuccess, safeFailures, attempts, inputTokens, outputTokens, chargeNanoRMB)
 	}
 }
 
@@ -159,6 +196,48 @@ VALUES ($1, 'not_configured', NULL)`, artifactID); err != nil {
 INSERT INTO ai_semantic_reviews (
     ai_semantic_result_id, semantic_artifact_id, reviewer, verdict, error_category
 ) VALUES ($1, $2, 'FAN', $3::ai_semantic_review_verdict, $4::ai_semantic_review_error_category)`, resultID, artifactID, verdict, errorCategory); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func seedTerminalAITrialForMechanicalPublication(t *testing.T, repository *Repository, configurationID string, count int, includeSafeFailure bool) {
+	t.Helper()
+	ctx := context.Background()
+	for index := 0; index < count; index++ {
+		jobID := fmt.Sprintf("00000000-0000-4000-8101-%012d", index+1)
+		bodyID := fmt.Sprintf("00000000-0000-4000-8102-%012d", index+1)
+		if _, err := repository.pool.Exec(ctx, `
+INSERT INTO jobs (id, source_company, source_job_id)
+VALUES ($1, 'synthetic-mechanical-release-source', $2)`, jobID, fmt.Sprintf("synthetic-mechanical-release-job-%d", index+1)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repository.pool.Exec(ctx, `
+INSERT INTO job_body_content_versions (
+    id, job_id, body_sha256, normalization_version,
+    description_text, job_require_text, addition_text,
+    description_sha256, job_require_sha256, addition_sha256
+) VALUES ($1, $2, $3, 'jd-body-v1', '', '', '', $4, $4, $4)`, bodyID, jobID, testSHA256("mechanical-release-body-"+bodyID), testSHA256("")); err != nil {
+			t.Fatal(err)
+		}
+		workStatus, executionStatus, semanticStatus, safeError := "complete", "complete", "not_configured", any(nil)
+		if includeSafeFailure && index == 0 {
+			workStatus, executionStatus, semanticStatus, safeError = "failed_safely", "failed_safely", "not_analyzed", "provider_timeout"
+		}
+		if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_semantic_results (
+    body_content_version_id, ai_analysis_configuration_id, execution_status,
+    semantic_status, safe_error_code, completed_at
+) VALUES ($1, $2, $3::ai_semantic_execution_status, $4::ai_semantic_value_status,
+          NULLIF($5, '')::ai_safe_error_code, now())`, bodyID, configurationID, executionStatus, semanticStatus, safeError); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_work_items (
+    ai_analysis_configuration_id, body_content_version_id, trigger, status,
+    last_safe_error_code, completed_at
+) VALUES ($1, $2, 'trial', $3::ai_analysis_work_status,
+          NULLIF($4, '')::ai_safe_error_code, now())`, configurationID, bodyID, workStatus, safeError); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -7,9 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// PersistentAITrialBudget is the database-backed pre-send gate for one member
-// of a frozen Plus/Flash trial. Separate worker processes obtain independent
-// values of this type but resolve to the same immutable budget group.
+// PersistentAITrialBudget is the database-backed pre-send gate for the one
+// current Qwen Plus trial. Separate worker processes obtain independent values
+// of this type but resolve to the same immutable budget group.
 type PersistentAITrialBudget struct {
 	configurationID string
 	groupID         string
@@ -26,34 +26,34 @@ type PersistentAITrialBudgetReservation struct {
 	attemptNumber   int
 }
 
-// NewPersistentAITrialBudget validates that an immutable candidate/comparison
-// configuration belongs to one frozen two-model trial and that its stored
-// pricing digest equals the reviewed in-image profile. A missing or changed
-// profile blocks external work before any request can be sent.
+// NewPersistentAITrialBudget validates that an immutable Qwen Plus candidate
+// belongs to the frozen five-body trial and that its stored pricing digest
+// equals the reviewed in-image profile. Historical Flash comparisons are
+// deliberately unreadable through this execution path.
 func (repository *Repository) NewPersistentAITrialBudget(ctx context.Context, configurationID string) (*PersistentAITrialBudget, error) {
 	if repository == nil || configurationID == "" {
 		return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
-	var groupID, model, pricingVersion, pricingSHA256, status string
+	var groupID, pricingVersion, pricingSHA256 string
 	err := repository.pool.QueryRow(ctx, `
 SELECT budget_group.id::text,
-       configuration.model,
        configuration.pricing_profile_version,
-       configuration.pricing_profile_sha256,
-       configuration.status::text
+       configuration.pricing_profile_sha256
 FROM ai_analysis_configurations AS configuration
 JOIN ai_analysis_trial_budget_group_members AS member
   ON member.ai_analysis_configuration_id = configuration.id
 JOIN ai_analysis_trial_budget_groups AS budget_group
   ON budget_group.id = member.ai_analysis_trial_budget_group_id
-WHERE configuration.id = $1`, configurationID).Scan(
-		&groupID, &model, &pricingVersion, &pricingSHA256, &status,
+WHERE configuration.id = $1
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status = 'candidate'`, configurationID).Scan(
+		&groupID, &pricingVersion, &pricingSHA256,
 	)
-	if err != nil || (status != "candidate" && status != "comparison") {
+	if err != nil {
 		return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
-	profile, ok := aiTrialPricingProfileForModel(model)
-	if !ok || pricingVersion != profile.Version || pricingSHA256 != profile.SHA256() || !validAITrialPricingProfile(profile) {
+	profile := QwenPlusTrialPricingProfile()
+	if pricingVersion != profile.Version || pricingSHA256 != profile.SHA256() || !validAITrialPricingProfile(profile) {
 		return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	return &PersistentAITrialBudget{
@@ -240,15 +240,4 @@ FOR UPDATE`, groupID).Scan(&maximumLogicalTasks, &maximumAttempts, &maximumCharg
 		return 0, 0, 0, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
 	return maximumLogicalTasks, maximumAttempts, maximumCharge, nil
-}
-
-func aiTrialPricingProfileForModel(model string) (AITrialPricingProfile, bool) {
-	switch model {
-	case "qwen-plus":
-		return QwenPlusTrialPricingProfile(), true
-	case "qwen-flash":
-		return QwenFlashComparisonPricingProfile(), true
-	default:
-		return AITrialPricingProfile{}, false
-	}
 }

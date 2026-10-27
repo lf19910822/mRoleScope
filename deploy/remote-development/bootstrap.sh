@@ -25,7 +25,6 @@ readonly CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolesc
 readonly BACKFILL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-backfill-versioned-content.service'
 readonly AI_TRIAL_PREPARE_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-trial-prepare.service'
 readonly AI_PLUS_TRIAL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-trial.service'
-readonly AI_FLASH_TRIAL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-flash-trial.service'
 readonly AI_PLUS_EXPAND_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-expand.service'
 readonly AI_PLUS_PUBLISH_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-publish.service'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
@@ -150,7 +149,6 @@ download_asset 'deploy/remote-development/mrolescope-candidate-analysis-v0.2.ser
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content.service' "$staging_dir/mrolescope-backfill-versioned-content.service"
 download_asset 'deploy/remote-development/mrolescope-ai-trial-prepare.service' "$staging_dir/mrolescope-ai-trial-prepare.service"
 download_asset 'deploy/remote-development/mrolescope-ai-plus-trial.service' "$staging_dir/mrolescope-ai-plus-trial.service"
-download_asset 'deploy/remote-development/mrolescope-ai-flash-trial.service' "$staging_dir/mrolescope-ai-flash-trial.service"
 download_asset 'deploy/remote-development/mrolescope-ai-plus-expand.service' "$staging_dir/mrolescope-ai-plus-expand.service"
 download_asset 'deploy/remote-development/mrolescope-ai-plus-publish.service' "$staging_dir/mrolescope-ai-plus-publish.service"
 bash -n "$staging_dir/mrolescope-deploy"
@@ -189,10 +187,14 @@ install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis-v0.2
 install -o root -g root -m 0644 "$staging_dir/mrolescope-backfill-versioned-content.service" "$BACKFILL_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-trial-prepare.service" "$AI_TRIAL_PREPARE_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-trial.service" "$AI_PLUS_TRIAL_SERVICE_DESTINATION"
-install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-flash-trial.service" "$AI_FLASH_TRIAL_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-expand.service" "$AI_PLUS_EXPAND_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-publish.service" "$AI_PLUS_PUBLISH_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
+
+# Retire only the obsolete future-Flash service definition. This does not
+# touch immutable Flash database history or output-audit artifacts.
+systemctl disable --now mrolescope-ai-flash-trial.service >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/mrolescope-ai-flash-trial.service
 
 sudoers_candidate="$staging_dir/mrolescope-deploy.sudoers"
 printf '%s\n' \

@@ -233,6 +233,33 @@ func (input AIModelInput) ResolveSpanIDs(spanIDs []string) ([]AISemanticEvidence
 	return evidence, nil
 }
 
+// resolveKnownSpanIDs returns only program-owned evidence for spans belonging
+// to this exact model input. A model may name an unknown span, but that must
+// neither create cross-body evidence nor discard an otherwise representable
+// conclusion.
+func (input AIModelInput) resolveKnownSpanIDs(spanIDs []string) []AISemanticEvidence {
+	evidence := make([]AISemanticEvidence, 0, len(spanIDs))
+	seen := make(map[string]struct{}, len(spanIDs))
+	for _, spanID := range spanIDs {
+		if _, duplicate := seen[spanID]; duplicate {
+			continue
+		}
+		seen[spanID] = struct{}{}
+		span, found := input.spanIndex.Lookup(spanID)
+		if !found {
+			continue
+		}
+		evidence = append(evidence, AISemanticEvidence{
+			CodePointRange:        span.CodePointRange,
+			NormalizedFieldSHA256: span.NormalizedFieldSHA256,
+			NormalizationVersion:  span.NormalizationVersion,
+			SourceField:           span.SourceField,
+			SpanID:                span.ID,
+		})
+	}
+	return evidence
+}
+
 // ValidateResponse validates an in-memory provider response against this exact
 // input request. It never stores or includes the raw response in an error.
 func (input AIModelInput) ValidateResponse(raw []byte) (AISemanticResponse, error) {

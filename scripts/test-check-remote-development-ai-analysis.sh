@@ -22,7 +22,6 @@ cp "$source_dir/compose.yaml" "$copied_dir/compose.yaml"
 for unit in \
   mrolescope-ai-trial-prepare.service \
   mrolescope-ai-plus-trial.service \
-  mrolescope-ai-flash-trial.service \
   mrolescope-ai-plus-expand.service \
   mrolescope-ai-plus-publish.service; do
   cp "$source_dir/$unit" "$copied_dir/$unit"
@@ -116,7 +115,7 @@ if bash "$checker" \
 fi
 
 cp "$source_dir/compose.yaml" "$copied_dir/no-review-tty-compose.yaml"
-sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ {
+sed -i '/^  ai-plus-review:/,/^  ai-plus-contract-audit:/ {
 /^    tty: true$/d
 }' "$copied_dir/no-review-tty-compose.yaml"
 
@@ -128,6 +127,20 @@ if bash "$checker" \
   "$copied_dir/no-review-tty-compose.yaml" >"$temporary_dir/no-review-tty.log" 2>&1; then
   cat "$temporary_dir/no-review-tty.log" >&2
   printf '%s\n' 'AI deployment checker accepted a terminal review service without TTY output.' >&2
+  exit 1
+fi
+
+cp "$source_dir/compose.yaml" "$copied_dir/flash-compose.yaml"
+printf '%s\n' '# qwen-flash must never be reintroduced as a future execution path' >>"$copied_dir/flash-compose.yaml"
+
+if bash "$checker" \
+  "$source_dir/mrolescope-ai-analysis" \
+  "$source_dir/mrolescope-operations" \
+  "$repository_root/.github/workflows/remote-development-operations.yml" \
+  "$source_dir/bootstrap.sh" \
+  "$copied_dir/flash-compose.yaml" >"$temporary_dir/flash-compose.log" 2>&1; then
+  cat "$temporary_dir/flash-compose.log" >&2
+  printf '%s\n' 'AI deployment checker accepted a future Flash Compose path.' >&2
   exit 1
 fi
 

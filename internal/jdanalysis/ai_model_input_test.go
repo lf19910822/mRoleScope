@@ -65,7 +65,7 @@ func TestAIModelInputBuildsOnlyVerifiedMentionsAndResolvesProgramOwnedEvidence(t
 	}
 }
 
-func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *testing.T) {
+func TestAIModelInputRejectsCrossBodyMentionsAndKeepsModelRequirementCounts(t *testing.T) {
 	body := syntheticAISpanBody("Use Go.", "", "")
 	spans, err := NewAISpanIndex(body)
 	if err != nil {
@@ -99,9 +99,12 @@ func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = input.ValidateResponse([]byte(validAIModelResponseWithGoOption(2)))
-	if err == nil || !strings.Contains(err.Error(), string(AISafeErrorInvalidResponseSchema)) {
-		t.Fatalf("invalid min_satisfied error = %v, want redacted schema error", err)
+	response, err := input.ValidateAndMapResponse([]byte(validAIModelResponseWithGoOption(2)))
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want model relation retained", err)
+	}
+	if len(response.RequirementGroups) != 1 || response.RequirementGroups[0].MinSatisfied != 2 || len(response.RequirementGroups[0].Options) != 1 {
+		t.Fatalf("requirement groups = %#v, want the model-supplied at_least=2 relation", response.RequirementGroups)
 	}
 }
 

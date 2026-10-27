@@ -40,25 +40,20 @@ type CandidateAIConfigurationPreparation struct {
 	Reused        bool
 }
 
-// AITrialPreparationInput binds the fixed Plus baseline candidate and the
-// fixed Flash comparison to one published deterministic configuration. Both
-// configurations retain their own request and pricing profiles, while sharing
-// the semantic prompt, schema, input, and validator contracts.
-type AITrialPreparationInput struct {
-	Plus  CandidateAIConfigurationInput
-	Flash CandidateAIConfigurationInput
+// AIPlusTrialPreparationInput freezes the only model that new trial work may
+// create. Historical Flash comparison configurations remain readable through
+// their existing identities, but are deliberately absent from this input.
+type AIPlusTrialPreparationInput struct {
+	Plus CandidateAIConfigurationInput
 }
 
-// AITrialPreparation exposes only opaque identities and safe counts. The body
-// IDs are the durable, frozen membership of the remote trial set; it has no
-// source text, metadata, spans, or provider payloads.
-type AITrialPreparation struct {
+// AIPlusTrialPreparation exposes the frozen membership and single persistent
+// budget group for a new Plus-only trial. It contains no Flash identity.
+type AIPlusTrialPreparation struct {
 	BudgetGroupID         string
-	Plus                  AIConfiguration
-	Flash                 AIConfiguration
 	BodyContentVersionIDs []string
+	Plus                  AIConfiguration
 	PlusQueued            int
-	FlashQueued           int
 	Reused                bool
 }
 
@@ -162,153 +157,118 @@ RETURNING id::text, status::text`,
 	}, nil
 }
 
-// PrepareAITrial creates or resumes the one controlled five-body comparison.
-// Work-item membership itself is the frozen sample ledger: a later body can
-// never silently expand either trial configuration.
-func (repository *Repository) PrepareAITrial(ctx context.Context, input AITrialPreparationInput) (AITrialPreparation, error) {
-	if !validAITrialPreparationInput(input) {
-		return AITrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+// PrepareAIPlusTrial creates or resumes a five-body Qwen Plus trial. It is
+// the sole production creation path for current trial work. Historical
+// comparison records remain readable but no new comparison can be prepared.
+func (repository *Repository) PrepareAIPlusTrial(ctx context.Context, input AIPlusTrialPreparationInput) (AIPlusTrialPreparation, error) {
+	if !validAIConfigurationInput(input.Plus, "qwen-plus") {
+		return AIPlusTrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return AITrialPreparation{}, fmt.Errorf("begin AI trial preparation: %w", err)
+		return AIPlusTrialPreparation{}, fmt.Errorf("begin AI Plus trial preparation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	plus, plusReused, err := prepareAITrialConfigurationTx(ctx, tx, input.Plus, "candidate")
 	if err != nil {
-		return AITrialPreparation{}, err
+		return AIPlusTrialPreparation{}, err
 	}
-	flash, flashReused, err := prepareAITrialConfigurationTx(ctx, tx, input.Flash, "comparison")
+	budgetGroupID, err := ensureAIPlusTrialBudgetGroupTx(ctx, tx, plus.ID)
 	if err != nil {
-		return AITrialPreparation{}, err
+		return AIPlusTrialPreparation{}, err
 	}
-	budgetGroupID, err := ensureAITrialBudgetGroupTx(ctx, tx, plus.ID, flash.ID)
-	if err != nil {
-		return AITrialPreparation{}, err
-	}
-
 	plusSample, err := loadAITrialWorkSample(ctx, tx, plus.ID)
 	if err != nil {
-		return AITrialPreparation{}, err
+		return AIPlusTrialPreparation{}, err
 	}
-	flashSample, err := loadAITrialWorkSample(ctx, tx, flash.ID)
-	if err != nil {
-		return AITrialPreparation{}, err
-	}
-	preparation := AITrialPreparation{BudgetGroupID: budgetGroupID, Plus: plus, Flash: flash}
-	if len(plusSample) != 0 || len(flashSample) != 0 {
-		if len(plusSample) != formalAITrialSampleSize(input) || !equalStringSlices(plusSample, flashSample) {
-			return AITrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	preparation := AIPlusTrialPreparation{BudgetGroupID: budgetGroupID, Plus: plus}
+	if len(plusSample) != 0 {
+		if len(plusSample) != aiTrialSampleSize {
+			return AIPlusTrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 		}
 		preparation.BodyContentVersionIDs = plusSample
-		preparation.Reused = true
+		preparation.Reused = plusReused
 	} else {
 		metrics, err := loadAITrialSamplingMetrics(ctx, tx, input.Plus.TechnologyConfigurationID)
 		if err != nil {
-			return AITrialPreparation{}, err
+			return AIPlusTrialPreparation{}, err
 		}
-		sample, err := selectFormalAITrialSample(input, metrics)
+		sample, err := SelectAITrialSampleV2(metrics)
 		if err != nil {
-			return AITrialPreparation{}, err
+			return AIPlusTrialPreparation{}, err
 		}
 		sort.Strings(sample)
-		plusQueued, err := enqueueAITrialWork(ctx, tx, plus.ID, sample, "candidate")
+		queued, err := enqueueAITrialWork(ctx, tx, plus.ID, sample)
 		if err != nil {
-			return AITrialPreparation{}, err
+			return AIPlusTrialPreparation{}, err
 		}
-		flashQueued, err := enqueueAITrialWork(ctx, tx, flash.ID, sample, "comparison")
-		if err != nil {
-			return AITrialPreparation{}, err
-		}
-		if plusQueued != formalAITrialSampleSize(input) || flashQueued != formalAITrialSampleSize(input) {
-			return AITrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+		if queued != aiTrialSampleSize {
+			return AIPlusTrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 		}
 		preparation.BodyContentVersionIDs = sample
-		preparation.PlusQueued = plusQueued
-		preparation.FlashQueued = flashQueued
-		preparation.Reused = plusReused && flashReused
+		preparation.PlusQueued = queued
+		preparation.Reused = plusReused
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return AITrialPreparation{}, fmt.Errorf("commit AI trial preparation: %w", err)
+		return AIPlusTrialPreparation{}, fmt.Errorf("commit AI Plus trial preparation: %w", err)
 	}
 	return preparation, nil
 }
 
-// selectFormalAITrialSample keeps the only historical 30-body contract
-// reproducible without allowing the current fixed lifecycle to select it.
-// Every current or unknown internal contract receives the five-body policy.
-func selectFormalAITrialSample(input AITrialPreparationInput, metrics []AIBodySamplingMetric) ([]string, error) {
-	if formalAITrialSampleSize(input) == aiLegacyTrialSampleSizeV1 {
-		return SelectAITrialSampleV1(metrics)
-	}
-	return SelectAITrialSampleV2(metrics)
-}
-
-func formalAITrialSampleSize(input AITrialPreparationInput) int {
-	if input.Plus.InputContractSHA256 == legacyThirtyBodyControlledAIInputContractSHA256() &&
-		input.Flash.InputContractSHA256 == legacyThirtyBodyControlledAIInputContractSHA256() {
-		return aiLegacyTrialSampleSizeV1
-	}
-	return aiTrialSampleSize
-}
-
-// ensureAITrialBudgetGroupTx binds the fixed Plus and Flash configurations to
-// one immutable accounting boundary. Every subsequent pre-send reservation
-// must resolve through this membership instead of receiving a per-process
-// allowance. The group contains no prompt, text, response, price input, or
-// credential.
-func ensureAITrialBudgetGroupTx(ctx context.Context, tx pgx.Tx, plusConfigurationID, flashConfigurationID string) (string, error) {
-	if plusConfigurationID == "" || flashConfigurationID == "" || plusConfigurationID == flashConfigurationID {
+func ensureAIPlusTrialBudgetGroupTx(ctx context.Context, tx pgx.Tx, plusConfigurationID string) (string, error) {
+	if plusConfigurationID == "" {
 		return "", NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	if _, err := tx.Exec(ctx, `
 SELECT id
 FROM ai_analysis_configurations
-WHERE id IN ($1, $2)
-ORDER BY id
-FOR UPDATE`, plusConfigurationID, flashConfigurationID); err != nil {
-		return "", fmt.Errorf("lock AI trial configurations for budget group: %w", err)
+WHERE id = $1
+FOR UPDATE`, plusConfigurationID); err != nil {
+		return "", fmt.Errorf("lock AI Plus trial configuration for budget group: %w", err)
 	}
-	var existingGroupID string
+	var groupID string
 	err := tx.QueryRow(ctx, `
 SELECT budget_group.id::text
 FROM ai_analysis_trial_budget_groups AS budget_group
-JOIN ai_analysis_trial_budget_group_members AS plus_member
-  ON plus_member.ai_analysis_trial_budget_group_id = budget_group.id
- AND plus_member.ai_analysis_configuration_id = $1
-JOIN ai_analysis_trial_budget_group_members AS flash_member
-  ON flash_member.ai_analysis_trial_budget_group_id = budget_group.id
- AND flash_member.ai_analysis_configuration_id = $2`, plusConfigurationID, flashConfigurationID).Scan(&existingGroupID)
+JOIN ai_analysis_trial_budget_group_members AS member
+  ON member.ai_analysis_trial_budget_group_id = budget_group.id
+WHERE member.ai_analysis_configuration_id = $1
+  AND budget_group.maximum_logical_task_count = 5
+  AND budget_group.maximum_physical_attempt_count = 15
+  AND budget_group.maximum_charge_nano_rmb = 2500000000`, plusConfigurationID).Scan(&groupID)
 	if err == nil {
-		return existingGroupID, nil
+		return groupID, nil
 	}
 	if err != pgx.ErrNoRows {
-		return "", fmt.Errorf("load AI trial budget group: %w", err)
+		return "", fmt.Errorf("load AI Plus trial budget group: %w", err)
 	}
-
-	var alreadyBound int
+	var alreadyBound bool
 	if err := tx.QueryRow(ctx, `
-SELECT count(*)
-FROM ai_analysis_trial_budget_group_members
-WHERE ai_analysis_configuration_id IN ($1, $2)`, plusConfigurationID, flashConfigurationID).Scan(&alreadyBound); err != nil {
-		return "", fmt.Errorf("inspect AI trial budget membership: %w", err)
+SELECT EXISTS (
+    SELECT 1
+    FROM ai_analysis_trial_budget_group_members
+    WHERE ai_analysis_configuration_id = $1
+)`, plusConfigurationID).Scan(&alreadyBound); err != nil {
+		return "", fmt.Errorf("inspect AI Plus trial budget membership: %w", err)
 	}
-	if alreadyBound != 0 {
+	if alreadyBound {
 		return "", NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	if err := tx.QueryRow(ctx, `
-INSERT INTO ai_analysis_trial_budget_groups DEFAULT VALUES
-RETURNING id::text`).Scan(&existingGroupID); err != nil {
-		return "", fmt.Errorf("create AI trial budget group: %w", err)
+INSERT INTO ai_analysis_trial_budget_groups (
+    maximum_logical_task_count, maximum_physical_attempt_count, maximum_charge_nano_rmb
+) VALUES (5, 15, 2500000000)
+RETURNING id::text`).Scan(&groupID); err != nil {
+		return "", fmt.Errorf("create AI Plus trial budget group: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO ai_analysis_trial_budget_group_members (
     ai_analysis_trial_budget_group_id, ai_analysis_configuration_id
-) VALUES ($1, $2), ($1, $3)`, existingGroupID, plusConfigurationID, flashConfigurationID); err != nil {
-		return "", fmt.Errorf("bind AI trial budget group members: %w", err)
+) VALUES ($1, $2)`, groupID, plusConfigurationID); err != nil {
+		return "", fmt.Errorf("bind AI Plus trial budget member: %w", err)
 	}
-	return existingGroupID, nil
+	return groupID, nil
 }
 
 func prepareAITrialConfigurationTx(ctx context.Context, tx pgx.Tx, input CandidateAIConfigurationInput, expectedStatus string) (AIConfiguration, bool, error) {
@@ -420,7 +380,9 @@ ORDER BY body_content_version_id`, configurationID)
 	return sample, nil
 }
 
-func enqueueAITrialWork(ctx context.Context, tx pgx.Tx, configurationID string, bodyContentVersionIDs []string, expectedConfigurationStatus string) (int, error) {
+// enqueueAITrialWork is deliberately limited to a current Plus candidate.
+// Historical comparison rows remain immutable and cannot obtain new work.
+func enqueueAITrialWork(ctx context.Context, tx pgx.Tx, configurationID string, bodyContentVersionIDs []string) (int, error) {
 	queued := 0
 	for _, bodyContentVersionID := range bodyContentVersionIDs {
 		if _, err := tx.Exec(ctx, `
@@ -428,9 +390,10 @@ INSERT INTO ai_semantic_results (body_content_version_id, ai_analysis_configurat
 SELECT $1, configuration.id
 FROM ai_analysis_configurations AS configuration
 WHERE configuration.id = $2
-  AND configuration.status = $3::ai_analysis_configuration_status
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status = 'candidate'
 ON CONFLICT (body_content_version_id, ai_analysis_configuration_id) DO NOTHING`,
-			bodyContentVersionID, configurationID, expectedConfigurationStatus); err != nil {
+			bodyContentVersionID, configurationID); err != nil {
 			return 0, fmt.Errorf("create AI trial semantic result: %w", err)
 		}
 		command, err := tx.Exec(ctx, `
@@ -440,9 +403,10 @@ INSERT INTO ai_analysis_work_items (
 SELECT configuration.id, $1, 'trial'::ai_analysis_trigger
 FROM ai_analysis_configurations AS configuration
 WHERE configuration.id = $2
-  AND configuration.status = $3::ai_analysis_configuration_status
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status = 'candidate'
 ON CONFLICT (body_content_version_id, ai_analysis_configuration_id) DO NOTHING`,
-			bodyContentVersionID, configurationID, expectedConfigurationStatus)
+			bodyContentVersionID, configurationID)
 		if err != nil {
 			return 0, fmt.Errorf("queue AI trial work: %w", err)
 		}
@@ -571,7 +535,8 @@ INSERT INTO ai_semantic_results (body_content_version_id, ai_analysis_configurat
 SELECT $1, configuration.id
 FROM ai_analysis_configurations AS configuration
 WHERE configuration.id = $2
-  AND configuration.status IN ('candidate', 'comparison', 'published')
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status IN ('candidate', 'published')
 ON CONFLICT (body_content_version_id, ai_analysis_configuration_id) DO NOTHING
 RETURNING id::text, execution_status::text, semantic_status::text`,
 		bodyContentVersionID, aiConfigurationID,
@@ -603,23 +568,6 @@ func validCandidateAIConfigurationInput(input CandidateAIConfigurationInput) boo
 	return validAIConfigurationInput(input, "qwen-plus")
 }
 
-func validAITrialPreparationInput(input AITrialPreparationInput) bool {
-	if !validAIConfigurationInput(input.Plus, "qwen-plus") || !validAIConfigurationInput(input.Flash, "qwen-flash") ||
-		input.Plus.ConfigurationSHA256 == input.Flash.ConfigurationSHA256 {
-		return false
-	}
-	return input.Plus.TechnologyConfigurationID == input.Flash.TechnologyConfigurationID &&
-		input.Plus.Provider == input.Flash.Provider &&
-		input.Plus.PromptSHA256 == input.Flash.PromptSHA256 &&
-		input.Plus.ResponseSchemaVersion == input.Flash.ResponseSchemaVersion &&
-		input.Plus.ResponseSchemaSHA256 == input.Flash.ResponseSchemaSHA256 &&
-		input.Plus.InputContractVersion == input.Flash.InputContractVersion &&
-		input.Plus.InputContractSHA256 == input.Flash.InputContractSHA256 &&
-		input.Plus.ValidatorVersion == input.Flash.ValidatorVersion &&
-		input.Plus.ValidatorSHA256 == input.Flash.ValidatorSHA256 &&
-		input.Plus.CreatedBy == input.Flash.CreatedBy
-}
-
 func validAIConfigurationInput(input CandidateAIConfigurationInput, expectedModel string) bool {
 	if input.TechnologyConfigurationID == "" || input.Provider != "bailian" || input.Model != expectedModel ||
 		!validSHA256(input.ConfigurationSHA256) || !validSHA256(input.RequestProfileSHA256) ||
@@ -633,18 +581,6 @@ func validAIConfigurationInput(input CandidateAIConfigurationInput, expectedMode
 		validBoundedLabel(input.ValidatorVersion, 128) &&
 		validBoundedLabel(input.PricingProfileVersion, 128) &&
 		validBoundedLabel(input.CreatedBy, 256)
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func validSHA256(value string) bool {

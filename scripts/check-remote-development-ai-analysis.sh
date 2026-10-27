@@ -31,7 +31,7 @@ fi
 grep -Fq 'qwenBeijingWorkspaceCompatibleSuffix = ".cn-beijing.maas.aliyuncs.com"' "$qwen_client" \
   || die 'Qwen client must use the fixed Beijing Workspace endpoint suffix'
 
-grep -Fqx "  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|run-flash-trial|expand-plus|publish-plus|review-plus|review-flash|audit-plus-contract|audit-flash-contract|audit-status|status|logs>'" "$helper" \
+grep -Fqx "  || die 'usage: mrolescope-ai-analysis <prepare-trial|prepare-output-audit-diagnostic|run-plus-trial|run-plus-output-audit-diagnostic|expand-plus|publish-plus|review-plus|audit-plus-contract|audit-status|status|logs>'" "$helper" \
   || die 'AI helper must expose only fixed AI lifecycle operations'
 grep -Fqx "readonly QWEN_WORKSPACE_ID_PATTERN='^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'" "$helper" \
   || die 'AI helper must define the reviewed Workspace ID format'
@@ -41,15 +41,15 @@ grep -Fqx '  [[ "$workspace_id" =~ $QWEN_WORKSPACE_ID_PATTERN ]] || die '\''AI m
   || die 'AI helper must reject malformed Workspace IDs before Compose starts'
 grep -Fqx '  [[ "${SUDO_USER:-}" == "$AUDIT_OPERATOR" ]] || die '\''AI output audit is restricted to FAN direct terminal'\''' "$helper" \
   || die 'AI helper must require the approved FAN operator for raw-output audit'
-[[ "$(grep -Fc '    require_audit_operator' "$helper")" -eq 2 ]] \
-  || die 'both terminal audit operations must require the approved FAN operator'
-for action in prepare-trial prepare-output-audit-diagnostic run-plus-trial run-plus-output-audit-diagnostic run-flash-trial expand-plus publish-plus review-plus review-flash audit-plus-contract audit-flash-contract audit-status status; do
+[[ "$(grep -Fc '    require_audit_operator' "$helper")" -eq 1 ]] \
+  || die 'the Plus terminal audit operation must require the approved FAN operator'
+for action in prepare-trial prepare-output-audit-diagnostic run-plus-trial run-plus-output-audit-diagnostic expand-plus publish-plus review-plus audit-plus-contract audit-status status; do
   grep -Fqx "  ${action})" "$helper" \
     || die "AI helper must allowlist ${action}"
 done
 grep -Fqx "if [[ \"\$1\" == 'logs' ]]; then" "$helper" \
   || die 'AI helper must handle logs as a fixed journal-only operation'
-for service in ai-trial-prepare ai-plus-trial ai-flash-trial ai-plus-expand ai-plus-publish ai-status; do
+for service in ai-trial-prepare ai-plus-trial ai-plus-expand ai-plus-publish ai-status; do
   grep -Fqx "    compose --profile ai-analysis run --rm --no-deps ${service}" "$helper" \
     || die "AI helper must invoke only fixed ${service} Compose service"
 done
@@ -61,18 +61,18 @@ grep -Fqx '    compose --profile ai-output-audit-diagnostic run --rm --no-deps a
 grep -Fqx '    compose --profile ai-output-audit run --rm --no-deps ai-output-audit-status' "$helper" \
   || die 'AI helper must invoke only the fixed text-free output-audit status reader'
 
-for operation in prepare-ai-trial run-ai-plus-trial run-ai-flash-trial expand-ai-plus publish-ai-plus ai-status ai-logs; do
+for operation in prepare-ai-trial run-ai-plus-trial expand-ai-plus publish-ai-plus ai-status ai-logs; do
   grep -Fqx "  ${operation})" "$operations" \
     || die "operations helper must allowlist ${operation}"
   grep -Fqx "          - ${operation}" "$workflow" \
     || die "workflow must expose fixed ${operation} choice"
 done
-for review_action in review-plus review-flash audit-plus-contract audit-flash-contract audit-status prepare-output-audit-diagnostic run-plus-output-audit-diagnostic; do
+for review_action in review-plus audit-plus-contract audit-status prepare-output-audit-diagnostic run-plus-output-audit-diagnostic; do
   if grep -Fq "$review_action" "$operations" || grep -Fq "$review_action" "$workflow"; then
     die "terminal-only ${review_action} must not be exposed through operations or GitHub Actions"
   fi
 done
-for confirmation in PREPARE_AI_TRIAL RUN_AI_PLUS_TRIAL RUN_AI_FLASH_TRIAL EXPAND_AI_PLUS PUBLISH_AI_PLUS; do
+for confirmation in PREPARE_AI_TRIAL RUN_AI_PLUS_TRIAL EXPAND_AI_PLUS PUBLISH_AI_PLUS; do
   grep -Fqx "              expected='${confirmation}'" "$workflow" \
     || die "workflow must require ${confirmation} confirmation"
 done
@@ -110,9 +110,14 @@ check_ai_systemd_unit() {
 
 check_ai_systemd_unit mrolescope-ai-trial-prepare prepare-trial AI_TRIAL_PREPARE_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases'
 check_ai_systemd_unit mrolescope-ai-plus-trial run-plus-trial AI_PLUS_TRIAL_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases /var/lib/mrolescope/ai-output-audit'
-check_ai_systemd_unit mrolescope-ai-flash-trial run-flash-trial AI_FLASH_TRIAL_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases /var/lib/mrolescope/ai-output-audit'
 check_ai_systemd_unit mrolescope-ai-plus-expand expand-plus AI_PLUS_EXPAND_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases'
 check_ai_systemd_unit mrolescope-ai-plus-publish publish-plus AI_PLUS_PUBLISH_SERVICE_DESTINATION 'ReadWritePaths=/var/lib/mrolescope/releases'
+[[ ! -e "$unit_directory/mrolescope-ai-flash-trial.service" ]] \
+  || die 'a future Flash trial systemd unit must not be shipped'
+grep -Fqx 'systemctl disable --now mrolescope-ai-flash-trial.service >/dev/null 2>&1 || true' "$bootstrap" \
+  || die 'bootstrap must retire the obsolete Flash trial unit without touching history'
+grep -Fqx 'rm -f /etc/systemd/system/mrolescope-ai-flash-trial.service' "$bootstrap" \
+  || die 'bootstrap must remove only the obsolete Flash trial unit definition'
 
 grep -Fqx "readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'" "$bootstrap" \
   || die 'bootstrap must define the root-only AI output audit directory'
@@ -164,7 +169,7 @@ if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge|MR
   die 'diagnostic preparation must not receive a provider key, COS, edge-network, ports, or volumes'
 fi
 
-for service in ai-plus-trial ai-flash-trial; do
+for service in ai-plus-trial; do
   block=$(service_block "$service")
   [[ -n "$block" ]] || die "${service} Compose service was not found"
   grep -Fqx '    profiles: [ai-analysis]' <<<"$block" \
@@ -206,7 +211,7 @@ if grep -Eq '^[[:space:]]+(COS_|ports:)' <<<"$block"; then
   die 'five-body diagnostic caller must not receive COS or a host port'
 fi
 
-for service in ai-plus-review ai-flash-review; do
+for service in ai-plus-review; do
   block=$(service_block "$service")
   [[ -n "$block" ]] || die "${service} Compose service was not found"
   grep -Fqx '    profiles: [ai-review]' <<<"$block" \
@@ -250,7 +255,14 @@ check_output_audit_terminal() {
 }
 
 check_output_audit_terminal ai-plus-contract-audit plus
-check_output_audit_terminal ai-flash-contract-audit flash
+
+# Future execution assets are Plus-only. Bootstrap's two explicit retirement
+# commands above are intentionally the only Flash references in this check.
+for path in "$helper" "$operations" "$workflow" "$compose_file"; do
+  if grep -Eiq 'flash' "$path"; then
+    die "future AI execution asset must not expose Flash: ${path}"
+  fi
+done
 
 block=$(service_block ai-output-audit-status)
 [[ -n "$block" ]] || die 'ai-output-audit-status Compose service was not found'

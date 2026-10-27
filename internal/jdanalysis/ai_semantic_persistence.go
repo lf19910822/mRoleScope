@@ -108,28 +108,31 @@ WHERE id = $1
 func (repository *Repository) persistAIExperienceItems(ctx context.Context, tx pgx.Tx, resultID, experienceSummaryID, configurationID, bodyContentVersionID string, input AIModelInput, items []AIExperienceItemProjection) error {
 	for _, item := range items {
 		if item.MinimumYears < 1 {
-			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			continue
 		}
 		var domainKey *string
 		var technologyIdentityID *string
 		switch item.SubjectKind {
 		case "overall":
 			if item.SubjectKey != "" {
-				return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+				continue
 			}
 		case "technology":
 			identityID, err := loadVerifiedTechnologyIdentityForExperienceScope(ctx, tx, configurationID, bodyContentVersionID, input, item.SubjectKey)
 			if err != nil {
+				if safeAIErrorCode(err) == AISafeErrorInvalidEvidence {
+					continue
+				}
 				return err
 			}
 			technologyIdentityID = &identityID
 		case "domain":
 			if item.SubjectKey == "" {
-				return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+				continue
 			}
 			domainKey = &item.SubjectKey
 		default:
-			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			continue
 		}
 		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "experience_item", "configured", item.ReviewTier)
 		if err != nil {
@@ -188,7 +191,7 @@ WHERE ai_configuration.id = $1
 func (repository *Repository) persistAIConditionalQualifications(ctx context.Context, tx pgx.Tx, resultID, experienceSummaryID string, branches []AIConditionalQualificationProjection) error {
 	for index, branch := range branches {
 		if branch.SubjectKind != "overall" || branch.SubjectKey != "" || branch.EducationLevel == "" || branch.MinimumYears < 1 {
-			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
+			continue
 		}
 		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "condition_branch", "configured", branch.ReviewTier)
 		if err != nil {
@@ -244,16 +247,14 @@ SELECT EXISTS (
 			// it locally so this advisory field cannot fail the complete JD.
 			continue
 		}
-		var dictionaryCandidateID string
-		err := tx.QueryRow(ctx, `
-INSERT INTO technology_dictionary_candidates (
-    dictionary_version_id, candidate_text, state, candidate_summary
-) VALUES ($1, $2, 'candidate', 'AI semantic candidate requires human approval')
-ON CONFLICT (dictionary_version_id, candidate_text)
-DO UPDATE SET candidate_text = EXCLUDED.candidate_text
-RETURNING id::text`, dictionaryVersionID, candidate.CandidateText).Scan(&dictionaryCandidateID)
+		dictionaryCandidateID, accepted, err := reservePendingDictionaryCandidateTx(ctx, tx, dictionaryVersionID, candidate.CandidateText)
 		if err != nil {
-			return NewSafeAIError(AISafeErrorPolicyRejected, err)
+			return err
+		}
+		if !accepted {
+			// Capacity is intentionally local to the candidate term. It cannot
+			// invalidate independently representable semantic conclusions.
+			continue
 		}
 		artifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "candidate_technology", "configured", "required_review")
 		if err != nil {
@@ -302,19 +303,11 @@ func (repository *Repository) persistAIRequirementGroups(ctx context.Context, tx
 	for _, group := range groups {
 		var operator *string
 		var minSatisfied *int
-		switch group.Role {
-		case "qualification":
-			if group.Operator != "at_least" || group.MinSatisfied < 1 || group.MinSatisfied > len(group.Options) {
-				return NewSafeAIError(AISafeErrorPolicyRejected, nil)
-			}
+		if group.Operator != "" {
 			operator = &group.Operator
+		}
+		if group.MinSatisfied > 0 {
 			minSatisfied = &group.MinSatisfied
-		case "responsibility", "mention", "unspecified":
-			if group.Operator != "" || group.MinSatisfied != 0 {
-				return NewSafeAIError(AISafeErrorPolicyRejected, nil)
-			}
-		default:
-			return NewSafeAIError(AISafeErrorPolicyRejected, nil)
 		}
 		groupArtifactID, err := insertAISemanticArtifact(ctx, tx, resultID, "requirement_group", "configured", group.ReviewTier)
 		if err != nil {

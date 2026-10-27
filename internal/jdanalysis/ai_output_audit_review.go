@@ -133,8 +133,8 @@ JOIN ai_analysis_attempts AS attempt
  AND attempt.status = 'succeeded'
 WHERE configuration.id = ANY($1::uuid[])
   AND configuration.model = $2
-  AND ((configuration.model = 'qwen-plus' AND configuration.status = 'candidate')
-       OR (configuration.model = 'qwen-flash' AND configuration.status = 'comparison'))
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status = 'candidate'
   AND work.status = 'failed_safely'
   AND work.last_safe_error_code IN ('invalid_response_schema', 'invalid_evidence_reference', 'policy_rejected')
   AND NOT EXISTS (
@@ -241,8 +241,8 @@ JOIN ai_analysis_attempts AS attempt
   ON attempt.work_item_id = work.id
  AND attempt.status = 'succeeded'
 WHERE configuration.id = ANY($1::uuid[])
-  AND ((configuration.model = 'qwen-plus' AND configuration.status = 'candidate')
-       OR (configuration.model = 'qwen-flash' AND configuration.status = 'comparison'))
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status = 'candidate'
   AND work.status = 'failed_safely'
   AND work.last_safe_error_code IN ('invalid_response_schema', 'invalid_evidence_reference', 'policy_rejected')
   AND NOT EXISTS (
@@ -363,5 +363,8 @@ func validControlledAIOutputAuditContract(target controlledAIOutputAuditTarget) 
 			target.ResponseSchemaSHA256 == AIResponseSchemaV2SHA256()) ||
 		(target.PromptSHA256 == AISystemPromptV3SHA256() &&
 			target.ResponseSchemaVersion == AIResponseSchemaVersionV3 &&
-			target.ResponseSchemaSHA256 == AIResponseSchemaV3SHA256())
+			target.ResponseSchemaSHA256 == AIResponseSchemaV3SHA256()) ||
+		(target.PromptSHA256 == AISystemPromptV4SHA256() &&
+			target.ResponseSchemaVersion == AIResponseSchemaVersionV4 &&
+			target.ResponseSchemaSHA256 == AIResponseSchemaV4SHA256())
 }

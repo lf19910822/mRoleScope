@@ -22,6 +22,11 @@
 - [x] 4.1 运行 Go 单元与 PostgreSQL 集成测试、部署静态检查及 `openspec validate add-cvm-ai-output-audit --strict`；确认测试和 CI 不访问真实 CVM、百炼或真实 JD。
 - [ ] 4.2 在代码审查、CI、受控部署完成后，仅在单独授权下提供 CVM agent prompt：准备新候选并对 5 个冻结诊断样本执行 Plus；由 `FAN` 在直连终端审计，不运行 Flash、扩展或发布。
 
+## 5. 与首期仅 Plus 交付策略对齐
+
+- [x] 5.1 先编写并通过静态部署/operation 红测：新的审计捕获、终端审计和受控操作只接受 Qwen Plus candidate；不得创建新的 Flash comparison、Flash writer 或 Flash TTY 会话。验证已有 Flash 配置、审计工件和审计结论保持只读历史，不迁移、不删除。
+- [x] 5.2 更新审计运行指引和相关 AI 变更，明确输出审计仅用于受控契约/开发诊断，语义审阅结论不能阻断结构合格结果的持久化、Plus 扩展或人工发布；运行 `openspec validate --strict` 与不访问真实模型的测试。
+
 ## Workflow follow-up
 
 - 在受控诊断、契约修订及相关 AI 变更的复核完成后归档本变更。

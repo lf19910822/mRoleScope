@@ -13,8 +13,9 @@ func TestControlledAIInputContractBindsCVMOutputAuditPolicy(t *testing.T) {
 		AIInputTokenEstimatorSHA256(),
 		"formal_trial_sampling_version=" + aiTrialSamplingVersionV2,
 		"formal_trial_sample_size=5",
-		"formal_trial_max_logical_tasks=10",
-		"formal_trial_max_attempts=30",
+		"formal_trial_max_logical_tasks=5",
+		"formal_trial_max_attempts=15",
+		"formal_trial_max_charge_nano_rmb=2500000000",
 		AIOutputAuditPolicyVersionV1,
 		"retention=168h",
 		"capacity_bytes=67108864",
@@ -57,17 +58,17 @@ func TestControlledAITrialConfigurationDigestChangesFromThirtyBodyTrialPolicy(t 
 	}
 }
 
-func TestControlledAITrialConfigurationInputUsesV3FrozenContract(t *testing.T) {
+func TestControlledAITrialConfigurationInputUsesV4FrozenContract(t *testing.T) {
 	profile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
 	}
 	input := controlledAITrialConfigurationInput("technology-configuration-id", profile, QwenPlusTrialPricingProfile())
-	if input.PromptSHA256 != AISystemPromptV3SHA256() || input.ResponseSchemaVersion != AIResponseSchemaVersionV3 || input.ResponseSchemaSHA256 != AIResponseSchemaV3SHA256() || input.ValidatorVersion != AIValidatorVersionV3 {
-		t.Fatalf("controlled trial input = %#v, want the frozen v3 contract", input)
+	if input.PromptSHA256 != AISystemPromptV4SHA256() || input.ResponseSchemaVersion != AIResponseSchemaVersionV4 || input.ResponseSchemaSHA256 != AIResponseSchemaV4SHA256() || input.ValidatorVersion != AIValidatorVersionV4 {
+		t.Fatalf("controlled trial input = %#v, want the frozen v4 contract", input)
 	}
 	if input.RequestProfileSHA256 != profile.SHA256() || input.PricingProfileSHA256 != QwenPlusTrialPricingProfile().SHA256() {
-		t.Fatal("controlled trial input did not bind v3 request/pricing profile digests")
+		t.Fatal("controlled trial input did not bind v4 request/pricing profile digests")
 	}
 }
 

@@ -25,7 +25,6 @@ on:
           - run-v0.2-candidate-analysis
           - prepare-ai-trial
           - run-ai-plus-trial
-          - run-ai-flash-trial
           - expand-ai-plus
           - publish-ai-plus
           - ai-status
@@ -111,9 +110,6 @@ jobs:
               ;;
             run-ai-plus-trial)
               expected='RUN_AI_PLUS_TRIAL'
-              ;;
-            run-ai-flash-trial)
-              expected='RUN_AI_FLASH_TRIAL'
               ;;
             expand-ai-plus)
               expected='EXPAND_AI_PLUS'

@@ -42,3 +42,23 @@ WHERE ai_analysis_configuration_id = $1 AND trigger = 'expansion'`, aiConfigurat
 		t.Fatalf("repeat AI expansion summary = %#v", second)
 	}
 }
+
+func TestExpandAIPlusCandidateAllowsTerminalTrialWithoutSemanticReviews(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-expansion-mechanical-reference")
+	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-expansion-mechanical-candidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedTerminalAITrialForMechanicalPublication(t, repository, aiConfiguration.ID, aiTrialSampleSize, false)
+
+	summary, err := repository.ExpandAIPlusCandidate(ctx, aiConfiguration.ID)
+	if err != nil {
+		t.Fatalf("mechanically terminal Plus trial must expand without semantic reviews: %v", err)
+	}
+	if summary.Queued != 1 || summary.ExistingExpansionWorkCount != 0 {
+		t.Fatalf("mechanical AI expansion summary = %#v", summary)
+	}
+}

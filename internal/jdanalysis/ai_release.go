@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	AIReleaseGateVersion = "ai-semantic-release-gate-v1"
+	AIReleaseGateVersion = "ai-semantic-release-gate-v2"
 	AIReleasePublisher   = "FAN"
 )
 
@@ -19,16 +19,23 @@ var ErrAIReleaseGateFailed = errors.New("AI semantic release gate failed")
 // gate counts. It deliberately excludes JD text, semantic values, prompts,
 // provider payloads, and credentials.
 type AIReleaseSummary struct {
-	AIConfigurationID           string
-	FullyReviewedTrialBodyCount int
-	MajorErrorCount             int
-	Publisher                   string
-	TrialBodyCount              int
+	AIConfigurationID      string
+	Publisher              string
+	TrialBodyCount         int
+	TotalWorkCount         int
+	TerminalWorkCount      int
+	StructuralSuccessCount int
+	SafeFailureCount       int
+	AttemptCount           int
+	InputTokenCount        int64
+	OutputTokenCount       int64
+	ChargeNanoRMB          int64
 }
 
-// PublishAIConfiguration advances one fixed qwen-plus candidate only after
-// every release gate passes. Publication has no caller-controlled model,
-// prompt, query, body list, pricing or publisher argument.
+// PublishAIConfiguration advances one fixed qwen-plus candidate through the
+// manual, mechanical release boundary. It never judges semantic correctness,
+// review coverage, review tiers, or review verdicts. Publication has no
+// caller-controlled model, prompt, query, body list, pricing or publisher.
 func (repository *Repository) PublishAIConfiguration(ctx context.Context, configurationID string) (AIReleaseSummary, error) {
 	if configurationID == "" {
 		return AIReleaseSummary{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
@@ -67,8 +74,14 @@ ON CONFLICT (singleton) DO NOTHING`); err != nil {
 		return AIReleaseSummary{}, err
 	}
 	summary.TrialBodyCount = gates.TrialBodyCount
-	summary.FullyReviewedTrialBodyCount = gates.FullyReviewedTrialBodyCount
-	summary.MajorErrorCount = gates.MajorErrorCount
+	summary.TotalWorkCount = gates.AllWorkCount
+	summary.TerminalWorkCount = gates.TerminalWorkCount
+	summary.StructuralSuccessCount = gates.StructuralSuccessCount
+	summary.SafeFailureCount = gates.SafeFailureCount
+	summary.AttemptCount = gates.AttemptCount
+	summary.InputTokenCount = gates.InputTokenCount
+	summary.OutputTokenCount = gates.OutputTokenCount
+	summary.ChargeNanoRMB = gates.ChargeNanoRMB
 	if !gates.allowsPublication() {
 		return summary, ErrAIReleaseGateFailed
 	}
@@ -103,10 +116,15 @@ WHERE singleton = true`, configurationID)
 	if _, err := tx.Exec(ctx, `
 INSERT INTO ai_analysis_release_attestations (
     ai_analysis_configuration_id, gate_version, publisher, attestation_sha256,
-    trial_body_count, fully_reviewed_trial_body_count, major_error_count
-) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    trial_body_count, fully_reviewed_trial_body_count, major_error_count,
+    total_work_count, terminal_work_count, structural_success_count,
+    safe_failure_count, attempt_count, input_token_count, output_token_count,
+    charge_nano_rmb
+) VALUES ($1, $2, $3, $4, $5, 0, 0, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		configurationID, AIReleaseGateVersion, AIReleasePublisher, attestationSHA256,
-		summary.TrialBodyCount, summary.FullyReviewedTrialBodyCount, summary.MajorErrorCount); err != nil {
+		summary.TrialBodyCount, summary.TotalWorkCount, summary.TerminalWorkCount,
+		summary.StructuralSuccessCount, summary.SafeFailureCount, summary.AttemptCount,
+		summary.InputTokenCount, summary.OutputTokenCount, summary.ChargeNanoRMB); err != nil {
 		return AIReleaseSummary{}, fmt.Errorf("write AI release attestation: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -123,17 +141,15 @@ INSERT INTO ai_analysis_audit_events (
 }
 
 type aiReleaseGateCounts struct {
-	AllWorkCount                   int
-	CompleteWorkCount              int
-	FullyReviewedTrialBodyCount    int
-	MajorErrorCount                int
-	RequiredReviewArtifactCount    int
-	ReviewedRequiredArtifactCount  int
-	ReviewedRoutineArtifactCount   int
-	ReviewedSpotCheckArtifactCount int
-	RoutineArtifactCount           int
-	SpotCheckArtifactCount         int
-	TrialBodyCount                 int
+	AllWorkCount           int
+	TerminalWorkCount      int
+	StructuralSuccessCount int
+	SafeFailureCount       int
+	TrialBodyCount         int
+	AttemptCount           int
+	InputTokenCount        int64
+	OutputTokenCount       int64
+	ChargeNanoRMB          int64
 }
 
 func readAIReleaseGateCounts(ctx context.Context, tx pgx.Tx, configurationID string) (aiReleaseGateCounts, error) {
@@ -147,68 +163,35 @@ WITH scoped_work AS (
       ON result.ai_analysis_configuration_id = work.ai_analysis_configuration_id
      AND result.body_content_version_id = work.body_content_version_id
     WHERE work.ai_analysis_configuration_id = $1
-), trial_results AS (
-    SELECT DISTINCT result_id AS id
-    FROM scoped_work
-    WHERE trigger = 'trial' AND result_id IS NOT NULL
-), trial_artifacts AS (
-    SELECT artifact.id, artifact.ai_semantic_result_id
-    FROM ai_semantic_artifacts AS artifact
-    JOIN trial_results ON trial_results.id = artifact.ai_semantic_result_id
-), fully_reviewed_trial_results AS (
-    SELECT trial_results.id
-    FROM trial_results
-    WHERE EXISTS (
-        SELECT 1 FROM trial_artifacts AS artifact
-        WHERE artifact.ai_semantic_result_id = trial_results.id
-    )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM trial_artifacts AS artifact
-        WHERE artifact.ai_semantic_result_id = trial_results.id
-          AND NOT EXISTS (
-              SELECT 1 FROM ai_semantic_reviews AS review
-              WHERE review.semantic_artifact_id = artifact.id
-          )
-    )
-), all_artifacts AS (
-    SELECT artifact.id, artifact.review_tier
-    FROM ai_semantic_artifacts AS artifact
-    JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
-    WHERE result.ai_analysis_configuration_id = $1
 )
 SELECT
   (SELECT count(*) FROM scoped_work),
+  (SELECT count(*) FROM scoped_work WHERE work_status IN ('complete', 'failed_safely')),
   (SELECT count(*) FROM scoped_work WHERE work_status = 'complete' AND execution_status = 'complete'),
+  (SELECT count(*) FROM scoped_work WHERE work_status = 'failed_safely' AND execution_status = 'failed_safely'),
   (SELECT count(*) FROM scoped_work WHERE trigger = 'trial'),
-  (SELECT count(*) FROM fully_reviewed_trial_results),
-  (SELECT count(*)
-   FROM ai_semantic_reviews AS review
-   JOIN trial_artifacts AS artifact ON artifact.id = review.semantic_artifact_id
-   WHERE review.verdict = 'major_error'),
-  (SELECT count(*) FROM all_artifacts WHERE review_tier = 'required_review'),
-  (SELECT count(*) FROM all_artifacts AS artifact
-   WHERE review_tier = 'required_review'
-     AND EXISTS (SELECT 1 FROM ai_semantic_reviews AS review WHERE review.semantic_artifact_id = artifact.id)),
-  (SELECT count(*) FROM all_artifacts WHERE review_tier = 'spot_check'),
-  (SELECT count(*) FROM all_artifacts AS artifact
-   WHERE review_tier = 'spot_check'
-     AND EXISTS (SELECT 1 FROM ai_semantic_reviews AS review WHERE review.semantic_artifact_id = artifact.id)),
-  (SELECT count(*) FROM all_artifacts WHERE review_tier = 'routine'),
-  (SELECT count(*) FROM all_artifacts AS artifact
-   WHERE review_tier = 'routine'
-     AND EXISTS (SELECT 1 FROM ai_semantic_reviews AS review WHERE review.semantic_artifact_id = artifact.id))`, configurationID).Scan(
+  (SELECT count(*) FROM ai_analysis_attempts WHERE ai_analysis_configuration_id = $1),
+  (SELECT COALESCE(sum(usage.input_tokens), 0)
+   FROM ai_analysis_usage_records AS usage
+   JOIN ai_analysis_attempts AS attempt ON attempt.id = usage.attempt_id
+   WHERE attempt.ai_analysis_configuration_id = $1),
+  (SELECT COALESCE(sum(usage.output_tokens), 0)
+   FROM ai_analysis_usage_records AS usage
+   JOIN ai_analysis_attempts AS attempt ON attempt.id = usage.attempt_id
+   WHERE attempt.ai_analysis_configuration_id = $1),
+  (SELECT COALESCE(sum((usage.actual_charge_rmb * 1000000000)::bigint), 0)
+   FROM ai_analysis_usage_records AS usage
+   JOIN ai_analysis_attempts AS attempt ON attempt.id = usage.attempt_id
+   WHERE attempt.ai_analysis_configuration_id = $1)`, configurationID).Scan(
 		&gates.AllWorkCount,
-		&gates.CompleteWorkCount,
+		&gates.TerminalWorkCount,
+		&gates.StructuralSuccessCount,
+		&gates.SafeFailureCount,
 		&gates.TrialBodyCount,
-		&gates.FullyReviewedTrialBodyCount,
-		&gates.MajorErrorCount,
-		&gates.RequiredReviewArtifactCount,
-		&gates.ReviewedRequiredArtifactCount,
-		&gates.SpotCheckArtifactCount,
-		&gates.ReviewedSpotCheckArtifactCount,
-		&gates.RoutineArtifactCount,
-		&gates.ReviewedRoutineArtifactCount,
+		&gates.AttemptCount,
+		&gates.InputTokenCount,
+		&gates.OutputTokenCount,
+		&gates.ChargeNanoRMB,
 	)
 	if err != nil {
 		return aiReleaseGateCounts{}, fmt.Errorf("read AI publication gate counts: %w", err)
@@ -217,31 +200,18 @@ SELECT
 }
 
 func (gates aiReleaseGateCounts) allowsPublication() bool {
-	return gates.TrialBodyCount == aiTrialSampleSize &&
-		gates.FullyReviewedTrialBodyCount == aiTrialSampleSize &&
-		gates.MajorErrorCount == 0 &&
-		gates.AllWorkCount > 0 &&
-		gates.CompleteWorkCount == gates.AllWorkCount &&
-		gates.ReviewedRequiredArtifactCount == gates.RequiredReviewArtifactCount &&
-		gates.ReviewedSpotCheckArtifactCount >= percentageCeiling(gates.SpotCheckArtifactCount, 20) &&
-		gates.ReviewedRoutineArtifactCount >= percentageCeiling(gates.RoutineArtifactCount, 5)
-}
-
-func percentageCeiling(total, percentage int) int {
-	if total <= 0 || percentage <= 0 {
-		return 0
-	}
-	return (total*percentage + 99) / 100
+	return gates.AllWorkCount > 0 &&
+		gates.TerminalWorkCount == gates.AllWorkCount &&
+		gates.StructuralSuccessCount+gates.SafeFailureCount == gates.AllWorkCount
 }
 
 func aiReleaseAttestationSHA256(summary AIReleaseSummary, gates aiReleaseGateCounts) string {
 	return sha256Hex(fmt.Sprintf(
-		"%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+		"%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d",
 		AIReleaseGateVersion, summary.AIConfigurationID, summary.Publisher,
-		gates.AllWorkCount, gates.CompleteWorkCount, summary.TrialBodyCount,
-		summary.FullyReviewedTrialBodyCount, summary.MajorErrorCount,
-		gates.RequiredReviewArtifactCount, gates.ReviewedRequiredArtifactCount,
-		gates.SpotCheckArtifactCount, gates.ReviewedSpotCheckArtifactCount,
-		gates.RoutineArtifactCount, gates.ReviewedRoutineArtifactCount,
+		summary.TotalWorkCount, summary.TerminalWorkCount, summary.TrialBodyCount,
+		summary.StructuralSuccessCount, summary.SafeFailureCount,
+		summary.AttemptCount, summary.InputTokenCount, summary.OutputTokenCount,
+		summary.ChargeNanoRMB,
 	))
 }

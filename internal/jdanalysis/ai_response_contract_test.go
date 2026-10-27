@@ -67,6 +67,32 @@ func TestAISemanticResponseContractV3RequiresSourceExactCandidateTerm(t *testing
 	}
 }
 
+func TestAISemanticResponseContractV4CapsCandidateMentionsAtThree(t *testing.T) {
+	contract, err := newAISemanticResponseContract(AIResponseSchemaVersionV4,
+		"request-01", []string{"span-01"}, []string{"go"}, []string{"evidence-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := `[{
+"candidate_text":"ToolA","source_term":"ToolA","span_id":"span-01","role":"responsibility","necessity":"unspecified","review_recommendation":"required_review"
+},{
+"candidate_text":"ToolB","source_term":"ToolB","span_id":"span-01","role":"mention","necessity":"preferred","review_recommendation":"required_review"
+},{
+"candidate_text":"ToolC","source_term":"ToolC","span_id":"span-01","role":"qualification","necessity":"required","review_recommendation":"required_review"
+}]`
+	raw := strings.Replace(validAISemanticResponseJSON(), AIResponseSchemaVersionV1, AIResponseSchemaVersionV4, 1)
+	raw = strings.Replace(raw, `"candidate_mentions":[]`, `"candidate_mentions":`+candidates, 1)
+	if _, err := contract.Validate([]byte(raw)); err != nil {
+		t.Fatalf("v4 contract rejected three structurally valid candidates: %v", err)
+	}
+
+	fourth := `,{"candidate_text":"ToolD","source_term":"ToolD","span_id":"span-01","role":"unspecified","necessity":"unspecified","review_recommendation":"required_review"}`
+	overLimit := strings.Replace(raw, candidates, candidates[:len(candidates)-1]+fourth+`]`, 1)
+	if _, err := contract.Validate([]byte(overLimit)); err == nil || !strings.Contains(err.Error(), string(AISafeErrorInvalidResponseSchema)) {
+		t.Fatalf("v4 contract accepted a fourth candidate: %v", err)
+	}
+}
+
 func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 	contract := NewAISemanticResponseContract(
 		"request-01",
@@ -105,21 +131,6 @@ func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 			raw:           strings.Replace(validAISemanticResponseJSON(), `"request_id":"request-01"`, `"request_id":"request-unknown"`, 1),
 			wantErrorCode: AISafeErrorInvalidResponseSchema,
 		},
-		{
-			name:          "unknown span ID",
-			raw:           strings.Replace(validAISemanticResponseJSON(), `"evidence_span_ids":[]`, `"evidence_span_ids":["span-unknown"]`, 1),
-			wantErrorCode: AISafeErrorInvalidEvidence,
-		},
-		{
-			name:          "unknown technology key",
-			raw:           validAISemanticResponseWithOption(`"technology-unknown"`, `"evidence-01"`),
-			wantErrorCode: AISafeErrorInvalidEvidence,
-		},
-		{
-			name:          "unknown technology evidence ID",
-			raw:           validAISemanticResponseWithOption(`"go"`, `"evidence-unknown"`),
-			wantErrorCode: AISafeErrorInvalidEvidence,
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := contract.Validate([]byte(test.raw))
@@ -128,6 +139,39 @@ func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), string(test.wantErrorCode)) {
 				t.Fatalf("error = %q, want approved code %q", err, test.wantErrorCode)
+			}
+		})
+	}
+}
+
+func TestAISemanticResponseContractDefersReferencesToLocalSanitation(t *testing.T) {
+	contract := NewAISemanticResponseContract(
+		"request-01",
+		[]string{"span-01"},
+		[]string{"go"},
+		[]string{"evidence-01"},
+	)
+
+	for _, test := range []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "unknown span ID",
+			raw:  strings.Replace(validAISemanticResponseJSON(), `"evidence_span_ids":[]`, `"evidence_span_ids":["span-unknown"]`, 1),
+		},
+		{
+			name: "unknown technology key",
+			raw:  validAISemanticResponseWithOption(`"technology-unknown"`, `"evidence-01"`),
+		},
+		{
+			name: "unknown technology evidence ID",
+			raw:  validAISemanticResponseWithOption(`"go"`, `"evidence-unknown"`),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := contract.Validate([]byte(test.raw)); err != nil {
+				t.Fatalf("Validate() error = %v, want reference sanitation deferred to mapping", err)
 			}
 		})
 	}
@@ -186,6 +230,18 @@ func TestV3AISemanticContractAssetsFreezeCandidateSourceTermRules(t *testing.T) 
 	prompt := AISystemPromptV3()
 	if !strings.Contains(prompt, AIResponseSchemaVersionV3) || !strings.Contains(prompt, "最多输出三个") || !strings.Contains(prompt, "source_term") || !strings.Contains(prompt, "职责") {
 		t.Fatal("v3 prompt does not contain the adjudicated candidate-governance boundary")
+	}
+}
+
+func TestV4AISemanticContractAssetsFreezeCandidateCapacity(t *testing.T) {
+	if AISystemPromptV4SHA256() == AISystemPromptV3SHA256() || AIResponseSchemaV4SHA256() == AIResponseSchemaV3SHA256() {
+		t.Fatal("v4 candidate-capacity assets must have distinct frozen digests")
+	}
+	if !json.Valid([]byte(AIResponseSchemaV4())) || !strings.Contains(AIResponseSchemaV4(), `"const": "ai-jd-result-v4"`) || !strings.Contains(AIResponseSchemaV4(), `"maxItems": 3`) {
+		t.Fatal("v4 schema does not freeze the three-candidate limit")
+	}
+	if prompt := AISystemPromptV4(); !strings.Contains(prompt, AIResponseSchemaVersionV4) || !strings.Contains(prompt, "最多输出三个") || !strings.Contains(prompt, "任意 role") {
+		t.Fatal("v4 prompt does not freeze the governed candidate boundary")
 	}
 }
 

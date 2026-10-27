@@ -25,38 +25,38 @@ expect_rejected() {
   fi
 }
 
-# This is the original failure mode: the complete, valid configuration must
-# pass after both terminal-only review services are added.
+# The complete, valid configuration must pass with its Plus-only direct
+# terminal review and output-audit boundaries.
 bash "$checker" "$source_compose"
 
 cp "$source_compose" "$temporary_dir/wrong-profile.yaml"
-sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ s/    profiles: \[ai-review\]/    profiles: [ai-analysis]/' \
+sed -i '/^  ai-plus-review:/,/^  ai-plus-contract-audit:/ s/    profiles: \[ai-review\]/    profiles: [ai-analysis]/' \
   "$temporary_dir/wrong-profile.yaml"
 expect_rejected wrong-profile "$temporary_dir/wrong-profile.yaml"
 
 cp "$source_compose" "$temporary_dir/wrong-command.yaml"
-sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ s/    command: \["review-ai", "plus"\]/    command: ["analyze-ai", "run-plus-trial"]/' \
+sed -i '/^  ai-plus-review:/,/^  ai-plus-contract-audit:/ s/    command: \["review-ai", "plus"\]/    command: ["analyze-ai", "run-plus-trial"]/' \
   "$temporary_dir/wrong-command.yaml"
 expect_rejected wrong-command "$temporary_dir/wrong-command.yaml"
 
 cp "$source_compose" "$temporary_dir/no-stdin.yaml"
-sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ { /^    stdin_open: true$/d; }' \
+sed -i '/^  ai-plus-review:/,/^  ai-plus-contract-audit:/ { /^    stdin_open: true$/d; }' \
   "$temporary_dir/no-stdin.yaml"
 expect_rejected no-stdin "$temporary_dir/no-stdin.yaml"
 
 cp "$source_compose" "$temporary_dir/no-tty.yaml"
-sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ { /^    tty: true$/d; }' \
+sed -i '/^  ai-plus-review:/,/^  ai-plus-contract-audit:/ { /^    tty: true$/d; }' \
   "$temporary_dir/no-tty.yaml"
 expect_rejected no-tty "$temporary_dir/no-tty.yaml"
 
 cp "$source_compose" "$temporary_dir/key-leak.yaml"
-sed -i '/^  ai-plus-review:/,/^  ai-flash-review:/ s/      MROLESCOPE_QWEN_WORKSPACE_ID:.*/&\
+sed -i '/^  ai-plus-review:/,/^  ai-plus-contract-audit:/ s/      MROLESCOPE_QWEN_WORKSPACE_ID:.*/&\
       MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}/' \
   "$temporary_dir/key-leak.yaml"
 expect_rejected key-leak "$temporary_dir/key-leak.yaml"
 
 cp "$source_compose" "$temporary_dir/audit-writable.yaml"
-sed -i '/^  ai-plus-contract-audit:/,/^  ai-flash-contract-audit:/ { /^        read_only: true$/d; }' \
+sed -i '/^  ai-plus-contract-audit:/,/^  ai-output-audit-status:/ { /^        read_only: true$/d; }' \
   "$temporary_dir/audit-writable.yaml"
 expect_rejected audit-writable "$temporary_dir/audit-writable.yaml"
 
@@ -65,7 +65,7 @@ expect_rejected audit-writable "$temporary_dir/audit-writable.yaml"
 # as container root; removing that identity would turn a safe storage failure
 # into a zero-provider-call diagnostic failure.
 cp "$source_compose" "$temporary_dir/audit-reader-not-root.yaml"
-sed -i '/^  ai-plus-contract-audit:/,/^  ai-flash-contract-audit:/ { /^    user: "0:0"$/d; }' \
+sed -i '/^  ai-plus-contract-audit:/,/^  ai-output-audit-status:/ { /^    user: "0:0"$/d; }' \
   "$temporary_dir/audit-reader-not-root.yaml"
 expect_rejected audit-reader-not-root "$temporary_dir/audit-reader-not-root.yaml"
 
