@@ -22,8 +22,8 @@ type AISemanticProcessor struct {
 	Repository                   *Repository
 	Runner                       AIModelAttemptRunner
 	RequirePersistentTrialBudget bool
-	// OutputAudit is supplied only by the fixed candidate/comparison trial
-	// runtime. It is intentionally absent from published analysis.
+	// OutputAudit is supplied only by the fixed Plus candidate runtime. It is
+	// intentionally absent from published analysis and historical comparisons.
 	OutputAudit        *aiOutputAuditStore
 	RequireOutputAudit bool
 }
@@ -233,7 +233,7 @@ func (processor AISemanticProcessor) processWork(ctx context.Context, configurat
 }
 
 func (processor AISemanticProcessor) requiresOutputAudit(configuration aiProcessingConfiguration) bool {
-	return processor.RequireOutputAudit && (configuration.Status == "candidate" || configuration.Status == "comparison")
+	return processor.RequireOutputAudit && configuration.Model == "qwen-plus" && configuration.Status == "candidate"
 }
 
 func (repository *Repository) loadAIProcessingConfiguration(ctx context.Context, configurationID string) (aiProcessingConfiguration, error) {
@@ -242,7 +242,8 @@ func (repository *Repository) loadAIProcessingConfiguration(ctx context.Context,
 SELECT id::text, model, status::text
 FROM ai_analysis_configurations
 WHERE id = $1
-  AND status IN ('candidate', 'comparison', 'published')`, configurationID).Scan(&configuration.ID, &configuration.Model, &configuration.Status)
+  AND model = 'qwen-plus'
+  AND status IN ('candidate', 'published')`, configurationID).Scan(&configuration.ID, &configuration.Model, &configuration.Status)
 	if err != nil {
 		return aiProcessingConfiguration{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
@@ -712,7 +713,7 @@ WHERE id = $1`, runID, status, summary.Claimed, summary.Completed, summary.Faile
 }
 
 func semanticStatusForProjection(projection AISemanticProjection) string {
-	if projection.Experience.Status == "uncertain" || projection.MinimumEducation.Status == "uncertain" || projection.CandidateMentionsUncertain {
+	if projection.Experience.Status == "uncertain" || projection.MinimumEducation.Status == "uncertain" {
 		return "uncertain"
 	}
 	if projection.Experience.Status == "configured" || projection.MinimumEducation.Status == "configured" ||

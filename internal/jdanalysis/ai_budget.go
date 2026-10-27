@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	aiTrialMaximumAttempts     = 30
-	aiTrialMaximumLogicalTasks = 10
+	aiTrialMaximumAttempts     = 15
+	aiTrialMaximumLogicalTasks = 5
 	aiTrialMaximumNanoRMB      = int64(2_500_000_000)
 )
 
@@ -107,7 +107,7 @@ func (estimator ConservativeAIInputTokenEstimator) Estimate(input AIModelInput) 
 	if responseSchemaVersion == "" {
 		// Synthetic callers that exercise only the preflight seam still model
 		// the current controlled request rather than an historical contract.
-		responseSchemaVersion = AIResponseSchemaVersionV3
+		responseSchemaVersion = AIResponseSchemaVersionV4
 	}
 	assets, err := responseContractAssets(responseSchemaVersion)
 	if err != nil {

@@ -86,7 +86,7 @@ func RunControlledAIReviewSession(ctx context.Context, repository *Repository, c
 }
 
 func validControlledAIReviewModel(model string) bool {
-	return model == "qwen-plus" || model == "qwen-flash"
+	return model == "qwen-plus"
 }
 
 func (repository *Repository) nextControlledAIReviewTarget(ctx context.Context, configurationID, model string) (controlledAIReviewTarget, bool, error) {
@@ -151,8 +151,8 @@ LEFT JOIN ai_candidate_technology_mentions AS candidate_mention ON candidate_men
 LEFT JOIN technology_dictionary_candidates AS dictionary_candidate ON dictionary_candidate.id = candidate_mention.dictionary_candidate_id
 WHERE configuration.id = $1
   AND configuration.model = $2
-  AND ((configuration.model = 'qwen-plus' AND configuration.status = 'candidate')
-       OR (configuration.model = 'qwen-flash' AND configuration.status = 'comparison'))
+  AND configuration.model = 'qwen-plus'
+  AND configuration.status = 'candidate'
   AND NOT EXISTS (
       SELECT 1
       FROM ai_semantic_reviews AS review

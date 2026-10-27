@@ -16,10 +16,11 @@ type AIExpansionSummary struct {
 	Queued                     int
 }
 
-// ExpandAIPlusCandidate queues the remaining eligible body versions only for
-// the same Plus candidate that passed its fully reviewed, error-free trial.
-// It has no caller-supplied body list, model, contract, pricing, query, or
-// execution parameter.
+// ExpandAIPlusCandidate queues remaining eligible body versions only for the
+// same Plus candidate whose frozen trial is mechanically terminal. Semantic
+// review coverage and verdicts are deliberately not expansion gates. It has
+// no caller-supplied body list, model, contract, pricing, query, or execution
+// parameter.
 func (repository *Repository) ExpandAIPlusCandidate(ctx context.Context, configurationID string) (AIExpansionSummary, error) {
 	if configurationID == "" {
 		return AIExpansionSummary{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
@@ -99,9 +100,8 @@ INSERT INTO ai_analysis_audit_events (
 }
 
 func (gates aiReleaseGateCounts) allowsTrialExpansion() bool {
-	return gates.TrialBodyCount == aiTrialSampleSize &&
-		gates.FullyReviewedTrialBodyCount == aiTrialSampleSize &&
-		gates.MajorErrorCount == 0 &&
+	return gates.TrialBodyCount > 0 &&
 		gates.AllWorkCount == gates.TrialBodyCount &&
-		gates.CompleteWorkCount == gates.AllWorkCount
+		gates.TerminalWorkCount == gates.AllWorkCount &&
+		gates.StructuralSuccessCount+gates.SafeFailureCount == gates.AllWorkCount
 }

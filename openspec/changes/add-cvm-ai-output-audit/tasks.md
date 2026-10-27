@@ -25,6 +25,11 @@
 - [ ] 4.2 在代码审查、CI、受控部署完成后，仅在单独授权下提供 CVM agent prompt：准备新候选并对 5 个冻结诊断样本执行 Plus；由 `FAN` 在直连终端审计，不运行 Flash、扩展或发布。
 - [ ] 4.3 在受控部署后运行一次固定的离线 policy diagnostic，仅记录其脱敏阶段计数；根据保存回复的分类修订字段级容错与版本化提示词/校验器，禁止重跑旧样本。
 
+## 5. 与首期仅 Plus 交付策略对齐
+
+- [x] 5.1 先编写并通过静态部署/operation 红测：新的审计捕获、终端审计和受控操作只接受 Qwen Plus candidate；不得创建新的 Flash comparison、Flash writer 或 Flash TTY 会话。验证已有 Flash 配置、审计工件和审计结论保持只读历史，不迁移、不删除。
+- [x] 5.2 更新审计运行指引和相关 AI 变更，明确输出审计仅用于受控契约/开发诊断，语义审阅结论不能阻断结构合格结果的持久化、Plus 扩展或人工发布；运行 `openspec validate --strict` 与不访问真实模型的测试。
+
 ## Workflow follow-up
 
 - 在受控诊断、契约修订及相关 AI 变更的复核完成后归档本变更。

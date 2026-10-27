@@ -17,16 +17,19 @@ const (
 	// root-only CVM audit mount. It deliberately gives post-fix diagnostics a
 	// new immutable candidate identity rather than retrying prior safe failures.
 	AIOutputAuditDiagnosticExecutionContractV1 = "diagnostic_output_audit_execution=ai-output-audit-root-mount-v1"
-	AIValidatorVersionV1                     = "ai-semantic-validator-v1"
-	AIValidatorVersionV2                     = "ai-semantic-validator-v2"
-	AIValidatorVersionV3                     = "ai-semantic-validator-v3"
-	AISpanContractVersionV1                  = "ai-span-contract-v1"
+	AIValidatorVersionV1                       = "ai-semantic-validator-v1"
+	AIValidatorVersionV2                       = "ai-semantic-validator-v2"
+	AIValidatorVersionV3                       = "ai-semantic-validator-v3"
+	// AIValidatorVersionV4 identifies the current validator after candidate
+	// capacity and soft-boundary handling became part of the frozen contract.
+	// Earlier validator versions remain available only for immutable history.
+	AIValidatorVersionV4    = "ai-semantic-validator-v4"
+	AISpanContractVersionV1 = "ai-span-contract-v1"
 )
 
 // AIOutputAuditDiagnosticPreparation exposes only the Plus candidate and its
-// frozen five-body membership. The internal Flash comparison identity exists
-// solely to retain the existing shared persistent-budget invariant; no Flash
-// work is queued or callable from this diagnostic preparation.
+// frozen five-body membership. No Flash configuration is created, selected or
+// budgeted by this preparation.
 type AIOutputAuditDiagnosticPreparation struct {
 	BodyContentVersionIDs []string
 	Plus                  AIConfiguration
@@ -38,22 +41,17 @@ type AIOutputAuditDiagnosticPreparation struct {
 // remote worker. It has no model, body, prompt, schema, SQL, price, or
 // configuration arguments: every non-secret contract value is resolved from
 // reviewed in-image assets and the one published deterministic baseline.
-func (repository *Repository) PrepareControlledAITrial(ctx context.Context, workspaceID string) (AITrialPreparation, error) {
+func (repository *Repository) PrepareControlledAITrial(ctx context.Context, workspaceID string) (AIPlusTrialPreparation, error) {
 	technologyConfigurationID, err := repository.PublishedConfigurationID(ctx)
 	if err != nil {
-		return AITrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+		return AIPlusTrialPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
 	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace(workspaceID)
 	if err != nil {
-		return AITrialPreparation{}, err
+		return AIPlusTrialPreparation{}, err
 	}
-	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace(workspaceID)
-	if err != nil {
-		return AITrialPreparation{}, err
-	}
-	return repository.PrepareAITrial(ctx, AITrialPreparationInput{
-		Plus:  controlledAITrialConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		Flash: controlledAITrialConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	return repository.PrepareAIPlusTrial(ctx, AIPlusTrialPreparationInput{
+		Plus: controlledAITrialConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
 	})
 }
 
@@ -70,13 +68,8 @@ func (repository *Repository) PrepareControlledAIOutputAuditDiagnostic(ctx conte
 	if err != nil {
 		return AIOutputAuditDiagnosticPreparation{}, err
 	}
-	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace(workspaceID)
-	if err != nil {
-		return AIOutputAuditDiagnosticPreparation{}, err
-	}
 	return repository.prepareControlledAIOutputAuditDiagnostic(ctx,
 		controlledAIOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		controlledAIOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
 	)
 }
 
@@ -84,29 +77,17 @@ func (repository *Repository) PrepareControlledAIOutputAuditDiagnostic(ctx conte
 // for the current published deterministic baseline. It deliberately has no
 // "latest candidate" behavior, so an unrelated experiment cannot be executed,
 // expanded, or published by a fixed operation.
-func (repository *Repository) ControlledAITrialConfigurationID(ctx context.Context, model, workspaceID string) (string, error) {
+func (repository *Repository) ControlledAIPlusTrialConfigurationID(ctx context.Context, workspaceID string) (string, error) {
 	technologyConfigurationID, err := repository.PublishedConfigurationID(ctx)
 	if err != nil {
 		return "", NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
-	var input CandidateAIConfigurationInput
-	switch model {
-	case "qwen-plus":
-		profile, profileErr := QwenPlusTrialProfileForBeijingWorkspace(workspaceID)
-		if profileErr != nil {
-			return "", profileErr
-		}
-		input = controlledAITrialConfigurationInput(technologyConfigurationID, profile, QwenPlusTrialPricingProfile())
-	case "qwen-flash":
-		profile, profileErr := QwenFlashComparisonProfileForBeijingWorkspace(workspaceID)
-		if profileErr != nil {
-			return "", profileErr
-		}
-		input = controlledAITrialConfigurationInput(technologyConfigurationID, profile, QwenFlashComparisonPricingProfile())
-	default:
-		return "", NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	profile, err := QwenPlusTrialProfileForBeijingWorkspace(workspaceID)
+	if err != nil {
+		return "", err
 	}
-	return repository.controlledAIConfigurationID(ctx, input, model)
+	return repository.controlledAIConfigurationID(ctx,
+		controlledAITrialConfigurationInput(technologyConfigurationID, profile, QwenPlusTrialPricingProfile()), "qwen-plus")
 }
 
 // ControlledAIOutputAuditDiagnosticConfigurationID resolves only the fixed
@@ -126,40 +107,25 @@ func (repository *Repository) ControlledAIOutputAuditDiagnosticConfigurationID(c
 }
 
 // ControlledAIOutputAuditConfigurationIDs resolves the closed set of current
-// audit-capable configurations for one fixed review arm. Plus prefers the
-// five-body diagnostic, then includes the ordinary controlled candidate if it
-// exists; Flash includes only its ordinary comparison candidate. No caller can
-// select a configuration, and a missing not-yet-prepared arm is simply empty.
-func (repository *Repository) ControlledAIOutputAuditConfigurationIDs(ctx context.Context, model, workspaceID string) ([]string, error) {
+// Plus-only audit-capable configurations. It prefers the five-body diagnostic,
+// then includes the ordinary controlled candidate if it exists. No caller can
+// select a configuration, and a missing candidate is simply absent.
+func (repository *Repository) ControlledAIOutputAuditConfigurationIDs(ctx context.Context, workspaceID string) ([]string, error) {
 	technologyConfigurationID, err := repository.PublishedConfigurationID(ctx)
 	if err != nil {
 		return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
 	}
-	var inputs []CandidateAIConfigurationInput
-	switch model {
-	case "qwen-plus":
-		profile, profileErr := QwenPlusTrialProfileForBeijingWorkspace(workspaceID)
-		if profileErr != nil {
-			return nil, profileErr
-		}
-		inputs = []CandidateAIConfigurationInput{
-			controlledAIOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, profile, QwenPlusTrialPricingProfile()),
-			controlledAITrialConfigurationInput(technologyConfigurationID, profile, QwenPlusTrialPricingProfile()),
-		}
-	case "qwen-flash":
-		profile, profileErr := QwenFlashComparisonProfileForBeijingWorkspace(workspaceID)
-		if profileErr != nil {
-			return nil, profileErr
-		}
-		inputs = []CandidateAIConfigurationInput{
-			controlledAITrialConfigurationInput(technologyConfigurationID, profile, QwenFlashComparisonPricingProfile()),
-		}
-	default:
-		return nil, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	profile, err := QwenPlusTrialProfileForBeijingWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	inputs := []CandidateAIConfigurationInput{
+		controlledAIOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, profile, QwenPlusTrialPricingProfile()),
+		controlledAITrialConfigurationInput(technologyConfigurationID, profile, QwenPlusTrialPricingProfile()),
 	}
 	configurationIDs := make([]string, 0, len(inputs))
 	for _, input := range inputs {
-		configurationID, found, err := repository.findControlledAIConfigurationID(ctx, input, model)
+		configurationID, found, err := repository.findControlledAIConfigurationID(ctx, input, "qwen-plus")
 		if err != nil {
 			return nil, err
 		}
@@ -211,13 +177,13 @@ func controlledAIConfigurationInput(technologyConfigurationID string, requestPro
 		Provider:                  "bailian",
 		Model:                     requestProfile.Model(),
 		RequestProfileSHA256:      requestProfile.SHA256(),
-		PromptSHA256:              AISystemPromptV3SHA256(),
-		ResponseSchemaVersion:     AIResponseSchemaVersionV3,
-		ResponseSchemaSHA256:      AIResponseSchemaV3SHA256(),
+		PromptSHA256:              AISystemPromptV4SHA256(),
+		ResponseSchemaVersion:     AIResponseSchemaVersionV4,
+		ResponseSchemaSHA256:      AIResponseSchemaV4SHA256(),
 		InputContractVersion:      AIInputContractVersionV1,
 		InputContractSHA256:       inputContractSHA256,
-		ValidatorVersion:          AIValidatorVersionV3,
-		ValidatorSHA256:           sha256Hex(AIValidatorVersionV3),
+		ValidatorVersion:          AIValidatorVersionV4,
+		ValidatorSHA256:           sha256Hex(AIValidatorVersionV4),
 		PricingProfileVersion:     pricingProfile.Version,
 		PricingProfileSHA256:      pricingProfile.SHA256(),
 		CreatedBy:                 createdBy,
@@ -226,8 +192,8 @@ func controlledAIConfigurationInput(technologyConfigurationID string, requestPro
 	return input
 }
 
-func (repository *Repository) prepareControlledAIOutputAuditDiagnostic(ctx context.Context, plusInput, flashInput CandidateAIConfigurationInput) (AIOutputAuditDiagnosticPreparation, error) {
-	if !validAITrialPreparationInput(AITrialPreparationInput{Plus: plusInput, Flash: flashInput}) {
+func (repository *Repository) prepareControlledAIOutputAuditDiagnostic(ctx context.Context, plusInput CandidateAIConfigurationInput) (AIOutputAuditDiagnosticPreparation, error) {
+	if !validAIConfigurationInput(plusInput, "qwen-plus") {
 		return AIOutputAuditDiagnosticPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -240,11 +206,8 @@ func (repository *Repository) prepareControlledAIOutputAuditDiagnostic(ctx conte
 	if err != nil {
 		return AIOutputAuditDiagnosticPreparation{}, err
 	}
-	flash, flashReused, err := prepareAITrialConfigurationTx(ctx, tx, flashInput, "comparison")
+	budgetGroupID, err := ensureAIPlusTrialBudgetGroupTx(ctx, tx, plus.ID)
 	if err != nil {
-		return AIOutputAuditDiagnosticPreparation{}, err
-	}
-	if _, err := ensureAITrialBudgetGroupTx(ctx, tx, plus.ID, flash.ID); err != nil {
 		return AIOutputAuditDiagnosticPreparation{}, err
 	}
 
@@ -252,17 +215,13 @@ func (repository *Repository) prepareControlledAIOutputAuditDiagnostic(ctx conte
 	if err != nil {
 		return AIOutputAuditDiagnosticPreparation{}, err
 	}
-	flashSample, err := loadAITrialWorkSample(ctx, tx, flash.ID)
-	if err != nil {
-		return AIOutputAuditDiagnosticPreparation{}, err
-	}
 	preparation := AIOutputAuditDiagnosticPreparation{Plus: plus}
-	if len(plusSample) != 0 || len(flashSample) != 0 {
-		if len(plusSample) != aiOutputAuditDiagnosticSampleSize || len(flashSample) != 0 {
+	if len(plusSample) != 0 {
+		if len(plusSample) != aiOutputAuditDiagnosticSampleSize {
 			return AIOutputAuditDiagnosticPreparation{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 		}
 		preparation.BodyContentVersionIDs = plusSample
-		preparation.Reused = plusReused && flashReused
+		preparation.Reused = plusReused
 	} else {
 		metrics, err := loadAITrialSamplingMetrics(ctx, tx, plusInput.TechnologyConfigurationID)
 		if err != nil {
@@ -273,7 +232,7 @@ func (repository *Repository) prepareControlledAIOutputAuditDiagnostic(ctx conte
 			return AIOutputAuditDiagnosticPreparation{}, err
 		}
 		sort.Strings(sample)
-		queued, err := enqueueAITrialWork(ctx, tx, plus.ID, sample, "candidate")
+		queued, err := enqueueAITrialWork(ctx, tx, plus.ID, sample)
 		if err != nil {
 			return AIOutputAuditDiagnosticPreparation{}, err
 		}
@@ -282,8 +241,9 @@ func (repository *Repository) prepareControlledAIOutputAuditDiagnostic(ctx conte
 		}
 		preparation.BodyContentVersionIDs = sample
 		preparation.PlusQueued = queued
-		preparation.Reused = plusReused && flashReused
+		preparation.Reused = plusReused
 	}
+	_ = budgetGroupID // The opaque group is bound before any diagnostic work is eligible.
 	if err := tx.Commit(ctx); err != nil {
 		return AIOutputAuditDiagnosticPreparation{}, fmt.Errorf("commit AI output audit diagnostic preparation: %w", err)
 	}
@@ -321,8 +281,9 @@ func controlledAIInputContractSHA256() string {
 		AIInputTokenEstimatorSHA256(),
 		"formal_trial_sampling_version=" + aiTrialSamplingVersionV2,
 		"formal_trial_sample_size=5",
-		"formal_trial_max_logical_tasks=10",
-		"formal_trial_max_attempts=30",
+		"formal_trial_max_logical_tasks=5",
+		"formal_trial_max_attempts=15",
+		"formal_trial_max_charge_nano_rmb=2500000000",
 	}
 	components = append(components, aiOutputAuditInputContractComponents()...)
 	return sha256Hex(strings.Join(components, "|"))

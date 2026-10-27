@@ -11,7 +11,8 @@ import (
 
 func TestQwenClientSendsFrozenStrictProfileAndReadsUsage(t *testing.T) {
 	input := syntheticSemanticModelInput(t)
-	input.responseContract.responseSchemaVersion = AIResponseSchemaVersionV3
+	input.responseContract.responseSchemaVersion = AIResponseSchemaVersionV4
+	input.systemPrompt = AISystemPromptV4()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != "/chat/completions" {
 			t.Fatalf("request = %s %s, want POST /chat/completions", request.Method, request.URL.Path)
@@ -40,17 +41,17 @@ func TestQwenClientSendsFrozenStrictProfileAndReadsUsage(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.Model != "qwen-plus" || payload.MaxTokens != 5000 || payload.Temperature != 0 || !payload.ResponseFormat.JSONSchema.Strict || payload.ResponseFormat.JSONSchema.Name != AIResponseSchemaVersionV3 || payload.ResponseFormat.Type != "json_schema" {
+		if payload.Model != "qwen-plus" || payload.MaxTokens != 5000 || payload.Temperature != 0 || !payload.ResponseFormat.JSONSchema.Strict || payload.ResponseFormat.JSONSchema.Name != AIResponseSchemaVersionV4 || payload.ResponseFormat.Type != "json_schema" {
 			t.Fatal("Qwen request did not use the fixed Plus structured-output profile")
 		}
 		if payload.EnableThinking {
 			t.Fatal("Qwen request did not explicitly disable thinking")
 		}
-		if len(payload.Messages) != 2 || payload.Messages[0].Role != "system" || payload.Messages[1].Role != "user" || payload.Messages[0].Content != AISystemPromptV3() || !strings.Contains(string(payload.ResponseFormat.JSONSchema.Schema), `"source_term"`) || !json.Valid(payload.ResponseFormat.JSONSchema.Schema) {
+		if len(payload.Messages) != 2 || payload.Messages[0].Role != "system" || payload.Messages[1].Role != "user" || payload.Messages[0].Content != AISystemPromptV4() || !strings.Contains(string(payload.ResponseFormat.JSONSchema.Schema), `"maxItems":3`) || !json.Valid(payload.ResponseFormat.JSONSchema.Schema) {
 			t.Fatal("Qwen request did not carry the canonical prompt/schema pair")
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"{\"response_schema_version\":\"ai-jd-result-v3\"}"}}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}`))
+		_, _ = writer.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"{\"response_schema_version\":\"ai-jd-result-v4\"}"}}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}`))
 	}))
 	defer server.Close()
 
@@ -66,7 +67,7 @@ func TestQwenClientSendsFrozenStrictProfileAndReadsUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze() error = %v", err)
 	}
-	if string(response.Content) != `{"response_schema_version":"ai-jd-result-v3"}` || response.Usage.InputTokens != 12 || response.Usage.OutputTokens != 8 || response.Usage.TotalTokens != 20 || response.CompletionSignal != AIProviderCompletionSignalStop || response.ResponseLengthBytes != len(response.Content) {
+	if string(response.Content) != `{"response_schema_version":"ai-jd-result-v4"}` || response.Usage.InputTokens != 12 || response.Usage.OutputTokens != 8 || response.Usage.TotalTokens != 20 || response.CompletionSignal != AIProviderCompletionSignalStop || response.ResponseLengthBytes != len(response.Content) {
 		t.Fatalf("Qwen response did not preserve the expected structured-output and usage summary")
 	}
 	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")

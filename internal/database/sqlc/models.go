@@ -1634,6 +1634,14 @@ type AiAnalysisReleaseAttestation struct {
 	FullyReviewedTrialBodyCount int32
 	MajorErrorCount             int32
 	ReleasedAt                  pgtype.Timestamptz
+	TotalWorkCount              int32
+	TerminalWorkCount           int32
+	StructuralSuccessCount      int32
+	SafeFailureCount            int32
+	AttemptCount                int32
+	InputTokenCount             int64
+	OutputTokenCount            int64
+	ChargeNanoRmb               int64
 }
 
 type AiAnalysisRun struct {
@@ -2147,6 +2155,7 @@ type TechnologyDictionaryCandidate struct {
 	State                        TechnologyRuleState
 	CandidateSummary             string
 	CreatedAt                    pgtype.Timestamptz
+	GovernanceStatus             string
 }
 
 type TechnologyDictionaryRule struct {

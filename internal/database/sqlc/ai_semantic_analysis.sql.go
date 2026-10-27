@@ -80,7 +80,7 @@ func (q *Queries) GetAIAnalysisConfiguration(ctx context.Context, id pgtype.UUID
 }
 
 const getAIAnalysisReleaseAttestation = `-- name: GetAIAnalysisReleaseAttestation :one
-SELECT id, ai_analysis_configuration_id, gate_version, publisher, attestation_sha256, trial_body_count, fully_reviewed_trial_body_count, major_error_count, released_at
+SELECT id, ai_analysis_configuration_id, gate_version, publisher, attestation_sha256, trial_body_count, fully_reviewed_trial_body_count, major_error_count, released_at, total_work_count, terminal_work_count, structural_success_count, safe_failure_count, attempt_count, input_token_count, output_token_count, charge_nano_rmb
 FROM ai_analysis_release_attestations
 WHERE ai_analysis_configuration_id = $1
 `
@@ -98,6 +98,14 @@ func (q *Queries) GetAIAnalysisReleaseAttestation(ctx context.Context, aiAnalysi
 		&i.FullyReviewedTrialBodyCount,
 		&i.MajorErrorCount,
 		&i.ReleasedAt,
+		&i.TotalWorkCount,
+		&i.TerminalWorkCount,
+		&i.StructuralSuccessCount,
+		&i.SafeFailureCount,
+		&i.AttemptCount,
+		&i.InputTokenCount,
+		&i.OutputTokenCount,
+		&i.ChargeNanoRmb,
 	)
 	return i, err
 }

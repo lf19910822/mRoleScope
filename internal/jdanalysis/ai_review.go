@@ -211,6 +211,19 @@ func (repository *Repository) ReadAITrialComparisonReport(ctx context.Context, p
 	return AITrialComparisonReport{Plus: plus, Flash: flash}, nil
 }
 
+// ReadAIPlusTrialReport returns the redacted execution and usage totals for
+// the only current trial arm. Historical comparison reports remain readable
+// through ReadAITrialComparisonReport but no current operation selects them.
+func (repository *Repository) ReadAIPlusTrialReport(ctx context.Context, plusConfigurationID string) (AITrialComparisonConfigurationSummary, error) {
+	if plusConfigurationID == "" {
+		return AITrialComparisonConfigurationSummary{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
+	}
+	if err := validateAITrialComparisonConfiguration(ctx, repository, plusConfigurationID, "qwen-plus", "candidate"); err != nil {
+		return AITrialComparisonConfigurationSummary{}, err
+	}
+	return readAITrialComparisonConfigurationSummary(ctx, repository, plusConfigurationID)
+}
+
 func validateAITrialComparisonConfiguration(ctx context.Context, repository *Repository, configurationID, model, status string) error {
 	var valid bool
 	err := repository.pool.QueryRow(ctx, `
