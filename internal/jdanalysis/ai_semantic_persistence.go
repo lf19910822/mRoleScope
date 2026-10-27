@@ -225,14 +225,24 @@ func (repository *Repository) persistAICandidateMentions(ctx context.Context, tx
 	if len(candidates) == 0 {
 		return nil
 	}
-	var dictionaryVersionID string
+	var dictionaryVersionID, dictionaryStatus string
 	if err := tx.QueryRow(ctx, `
-SELECT technology_configuration.dictionary_version_id::text
+SELECT technology_configuration.dictionary_version_id::text,
+       dictionary_version.status::text
 FROM ai_analysis_configurations AS ai_configuration
 JOIN technology_analysis_configurations AS technology_configuration
   ON technology_configuration.id = ai_configuration.technology_analysis_configuration_id
-WHERE ai_configuration.id = $1`, configurationID).Scan(&dictionaryVersionID); err != nil {
+JOIN technology_dictionary_versions AS dictionary_version
+  ON dictionary_version.id = technology_configuration.dictionary_version_id
+WHERE ai_configuration.id = $1
+FOR SHARE OF dictionary_version`, configurationID).Scan(&dictionaryVersionID, &dictionaryStatus); err != nil {
 		return NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+	}
+	if dictionaryStatus != "candidate" {
+		// The immutable baseline may reference a published or retired dictionary.
+		// Candidate governance cannot mutate that version, so ignore advisory
+		// candidate text without affecting the completed semantic projection.
+		return nil
 	}
 	for _, candidate := range candidates {
 		if utf8RuneCount(candidate.CandidateText) > 256 {
