@@ -13,8 +13,9 @@ func TestControlledAIInputContractBindsCVMOutputAuditPolicy(t *testing.T) {
 		AIInputTokenEstimatorSHA256(),
 		"formal_trial_sampling_version=" + aiTrialSamplingVersionV2,
 		"formal_trial_sample_size=5",
-		"formal_trial_max_logical_tasks=10",
-		"formal_trial_max_attempts=30",
+		"formal_trial_max_logical_tasks=5",
+		"formal_trial_max_attempts=15",
+		"formal_trial_max_charge_nano_rmb=2500000000",
 		AIOutputAuditPolicyVersionV1,
 		"retention=168h",
 		"capacity_bytes=67108864",
@@ -57,17 +58,17 @@ func TestControlledAITrialConfigurationDigestChangesFromThirtyBodyTrialPolicy(t 
 	}
 }
 
-func TestControlledAITrialConfigurationInputUsesV3FrozenContract(t *testing.T) {
+func TestControlledAITrialConfigurationInputUsesV4FrozenContract(t *testing.T) {
 	profile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
 	}
 	input := controlledAITrialConfigurationInput("technology-configuration-id", profile, QwenPlusTrialPricingProfile())
-	if input.PromptSHA256 != AISystemPromptV3SHA256() || input.ResponseSchemaVersion != AIResponseSchemaVersionV3 || input.ResponseSchemaSHA256 != AIResponseSchemaV3SHA256() || input.ValidatorVersion != AIValidatorVersionV3 {
-		t.Fatalf("controlled trial input = %#v, want the frozen v3 contract", input)
+	if input.PromptSHA256 != AISystemPromptV4SHA256() || input.ResponseSchemaVersion != AIResponseSchemaVersionV4 || input.ResponseSchemaSHA256 != AIResponseSchemaV4SHA256() || input.ValidatorVersion != AIValidatorVersionV4 {
+		t.Fatalf("controlled trial input = %#v, want the frozen v4 contract", input)
 	}
 	if input.RequestProfileSHA256 != profile.SHA256() || input.PricingProfileSHA256 != QwenPlusTrialPricingProfile().SHA256() {
-		t.Fatal("controlled trial input did not bind v3 request/pricing profile digests")
+		t.Fatal("controlled trial input did not bind v4 request/pricing profile digests")
 	}
 }
 
@@ -117,28 +118,23 @@ func TestControlledAIOutputAuditDiagnosticContractBindsPersistableExecution(t *t
 	}
 }
 
-func TestControlledAIConfigurationInputsFreezeActiveV3PromptAndValidatorIdentity(t *testing.T) {
+func TestControlledAIConfigurationInputsFreezeActiveV4PromptAndValidatorIdentity(t *testing.T) {
 	plusProfile, err := QwenPlusTrialProfileForBeijingWorkspace("llm-mrolescope")
-	if err != nil {
-		t.Fatal(err)
-	}
-	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, input := range []CandidateAIConfigurationInput{
 		controlledAITrialConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", plusProfile, QwenPlusTrialPricingProfile()),
 		controlledAIOutputAuditDiagnosticConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", plusProfile, QwenPlusTrialPricingProfile()),
-		controlledAITrialConfigurationInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", flashProfile, QwenFlashComparisonPricingProfile()),
 	} {
-		if input.PromptSHA256 != AISystemPromptV3SHA256() {
-			t.Fatalf("controlled configuration prompt SHA-256 = %q, want active V3 %q", input.PromptSHA256, AISystemPromptV3SHA256())
+		if input.PromptSHA256 != AISystemPromptV4SHA256() {
+			t.Fatalf("controlled configuration prompt SHA-256 = %q, want active V4 %q", input.PromptSHA256, AISystemPromptV4SHA256())
 		}
-		if input.PromptSHA256 == AISystemPromptV1SHA256() || input.PromptSHA256 == AISystemPromptV2SHA256() {
+		if input.PromptSHA256 == AISystemPromptV1SHA256() || input.PromptSHA256 == AISystemPromptV2SHA256() || input.PromptSHA256 == AISystemPromptV3SHA256() {
 			t.Fatal("controlled configuration reused a historic prompt identity")
 		}
-		if input.ValidatorVersion != AIValidatorVersionV3 || input.ValidatorSHA256 != sha256Hex(AIValidatorVersionV3) {
-			t.Fatalf("controlled configuration validator = %s/%s, want active V3 validator", input.ValidatorVersion, input.ValidatorSHA256)
+		if input.ValidatorVersion != AIValidatorVersionV4 || input.ValidatorSHA256 != sha256Hex(AIValidatorVersionV4) {
+			t.Fatalf("controlled configuration validator = %s/%s, want active V4 validator", input.ValidatorVersion, input.ValidatorSHA256)
 		}
 	}
 }

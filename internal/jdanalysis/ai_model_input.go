@@ -75,6 +75,10 @@ func buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID 
 	if !knownAIResponseSchemaVersion(responseSchemaVersion) {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
+	assets, err := responseContractAssets(responseSchemaVersion)
+	if err != nil {
+		return AIModelInput{}, NewSafeAIError(AISafeErrorConfigurationInvalid, err)
+	}
 	if requestID == "" || spanIndex.bodyContentVersionID != body.BodyContentVersionID {
 		return AIModelInput{}, NewSafeAIError(AISafeErrorInvalidEvidence, nil)
 	}
@@ -93,9 +97,10 @@ func buildAIModelInputForResponseSchemaVersion(responseSchemaVersion, requestID 
 		},
 		spanIndex: spanIndex,
 		// Direct construction is used by unit tests and cannot be associated
-		// with a historical database configuration. It uses the current prompt
-		// while retaining the original strict mapper by default.
-		systemPrompt:     AISystemPromptV3(),
+		// with a historical database configuration. It still binds its prompt to
+		// the requested response schema so V4 structured-output tests exercise
+		// the same pair as the controlled candidate.
+		systemPrompt:     assets.prompt,
 		validatorVersion: AIValidatorVersionV1,
 	}
 	input.Fields = buildAIModelInputFields(body, spanIndex)
@@ -205,7 +210,7 @@ func (input *AIModelInput) applyFrozenExecutionContract(validatorVersion, valida
 	if input == nil {
 		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
-	if validatorVersion != AIValidatorVersionV1 && validatorVersion != AIValidatorVersionV2 && validatorVersion != AIValidatorVersionV3 {
+	if validatorVersion != AIValidatorVersionV1 && validatorVersion != AIValidatorVersionV2 && validatorVersion != AIValidatorVersionV3 && validatorVersion != AIValidatorVersionV4 {
 		return NewSafeAIError(AISafeErrorConfigurationInvalid, nil)
 	}
 	if validatorSHA256 != sha256Hex(validatorVersion) {
@@ -228,6 +233,8 @@ func reviewedAISystemPromptBySHA256(promptSHA256 string) (string, bool) {
 		return AISystemPromptV2(), true
 	case AISystemPromptV3SHA256():
 		return AISystemPromptV3(), true
+	case AISystemPromptV4SHA256():
+		return AISystemPromptV4(), true
 	default:
 		return "", false
 	}
@@ -235,7 +242,11 @@ func reviewedAISystemPromptBySHA256(promptSHA256 string) (string, bool) {
 
 func (input AIModelInput) reviewedSystemPrompt() string {
 	if input.systemPrompt == "" {
-		return AISystemPromptV3()
+		assets, err := responseContractAssets(input.responseContract.responseSchemaVersion)
+		if err == nil {
+			return assets.prompt
+		}
+		return AISystemPromptV4()
 	}
 	return input.systemPrompt
 }
@@ -323,6 +334,33 @@ func (input AIModelInput) ResolveSpanIDs(spanIDs []string) ([]AISemanticEvidence
 		})
 	}
 	return evidence, nil
+}
+
+// resolveKnownSpanIDs returns only program-owned evidence for spans belonging
+// to this exact model input. A model may name an unknown span, but that must
+// neither create cross-body evidence nor discard an otherwise representable
+// conclusion.
+func (input AIModelInput) resolveKnownSpanIDs(spanIDs []string) []AISemanticEvidence {
+	evidence := make([]AISemanticEvidence, 0, len(spanIDs))
+	seen := make(map[string]struct{}, len(spanIDs))
+	for _, spanID := range spanIDs {
+		if _, duplicate := seen[spanID]; duplicate {
+			continue
+		}
+		seen[spanID] = struct{}{}
+		span, found := input.spanIndex.Lookup(spanID)
+		if !found {
+			continue
+		}
+		evidence = append(evidence, AISemanticEvidence{
+			CodePointRange:        span.CodePointRange,
+			NormalizedFieldSHA256: span.NormalizedFieldSHA256,
+			NormalizationVersion:  span.NormalizationVersion,
+			SourceField:           span.SourceField,
+			SpanID:                span.ID,
+		})
+	}
+	return evidence
 }
 
 // ValidateResponse validates an in-memory provider response against this exact

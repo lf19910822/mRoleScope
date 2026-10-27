@@ -51,6 +51,7 @@ func TestControlledAIOutputAuditRecognizesHistoricalAndCurrentFrozenContracts(t 
 		{InputContractSHA256: controlledAIInputContractSHA256(), PromptSHA256: AISystemPromptV1SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV1, ResponseSchemaSHA256: AIResponseSchemaV1SHA256()},
 		{InputContractSHA256: controlledAIOutputAuditDiagnosticInputContractSHA256(), PromptSHA256: AISystemPromptV2SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV2, ResponseSchemaSHA256: AIResponseSchemaV2SHA256()},
 		{InputContractSHA256: controlledAIInputContractSHA256(), PromptSHA256: AISystemPromptV3SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV3, ResponseSchemaSHA256: AIResponseSchemaV3SHA256()},
+		{InputContractSHA256: controlledAIInputContractSHA256(), PromptSHA256: AISystemPromptV4SHA256(), ResponseSchemaVersion: AIResponseSchemaVersionV4, ResponseSchemaSHA256: AIResponseSchemaV4SHA256()},
 	} {
 		if !validControlledAIOutputAuditContract(target) {
 			t.Fatalf("controlled output-audit contract was rejected: %#v", target)

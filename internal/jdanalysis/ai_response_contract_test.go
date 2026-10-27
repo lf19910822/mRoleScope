@@ -67,6 +67,32 @@ func TestAISemanticResponseContractV3RequiresSourceExactCandidateTerm(t *testing
 	}
 }
 
+func TestAISemanticResponseContractV4CapsCandidateMentionsAtThree(t *testing.T) {
+	contract, err := newAISemanticResponseContract(AIResponseSchemaVersionV4,
+		"request-01", []string{"span-01"}, []string{"go"}, []string{"evidence-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := `[{
+"candidate_text":"ToolA","source_term":"ToolA","span_id":"span-01","role":"responsibility","necessity":"unspecified","review_recommendation":"required_review"
+},{
+"candidate_text":"ToolB","source_term":"ToolB","span_id":"span-01","role":"mention","necessity":"preferred","review_recommendation":"required_review"
+},{
+"candidate_text":"ToolC","source_term":"ToolC","span_id":"span-01","role":"qualification","necessity":"required","review_recommendation":"required_review"
+}]`
+	raw := strings.Replace(validAISemanticResponseJSON(), AIResponseSchemaVersionV1, AIResponseSchemaVersionV4, 1)
+	raw = strings.Replace(raw, `"candidate_mentions":[]`, `"candidate_mentions":`+candidates, 1)
+	if _, err := contract.Validate([]byte(raw)); err != nil {
+		t.Fatalf("v4 contract rejected three structurally valid candidates: %v", err)
+	}
+
+	fourth := `,{"candidate_text":"ToolD","source_term":"ToolD","span_id":"span-01","role":"unspecified","necessity":"unspecified","review_recommendation":"required_review"}`
+	overLimit := strings.Replace(raw, candidates, candidates[:len(candidates)-1]+fourth+`]`, 1)
+	if _, err := contract.Validate([]byte(overLimit)); err == nil || !strings.Contains(err.Error(), string(AISafeErrorInvalidResponseSchema)) {
+		t.Fatalf("v4 contract accepted a fourth candidate: %v", err)
+	}
+}
+
 func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 	contract := NewAISemanticResponseContract(
 		"request-01",
@@ -105,21 +131,6 @@ func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 			raw:           strings.Replace(validAISemanticResponseJSON(), `"request_id":"request-01"`, `"request_id":"request-unknown"`, 1),
 			wantErrorCode: AISafeErrorInvalidResponseSchema,
 		},
-		{
-			name:          "unknown span ID",
-			raw:           strings.Replace(validAISemanticResponseJSON(), `"evidence_span_ids":[]`, `"evidence_span_ids":["span-unknown"]`, 1),
-			wantErrorCode: AISafeErrorInvalidEvidence,
-		},
-		{
-			name:          "unknown technology key",
-			raw:           validAISemanticResponseWithOption(`"technology-unknown"`, `"evidence-01"`),
-			wantErrorCode: AISafeErrorInvalidEvidence,
-		},
-		{
-			name:          "unknown technology evidence ID",
-			raw:           validAISemanticResponseWithOption(`"go"`, `"evidence-unknown"`),
-			wantErrorCode: AISafeErrorInvalidEvidence,
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := contract.Validate([]byte(test.raw))
@@ -133,7 +144,7 @@ func TestAISemanticResponseContractRejectsUntrustedModelOutput(t *testing.T) {
 	}
 }
 
-func TestAISemanticResponseContractAcceptsBusinessInconsistenciesForFieldLevelRecovery(t *testing.T) {
+func TestAISemanticResponseContractDefersReferencesToLocalSanitation(t *testing.T) {
 	contract := NewAISemanticResponseContract(
 		"request-01",
 		[]string{"span-01"},
@@ -146,45 +157,21 @@ func TestAISemanticResponseContractAcceptsBusinessInconsistenciesForFieldLevelRe
 		raw  string
 	}{
 		{
-			name: "configured experience without item",
-			raw: `{
-				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
-				"experience":{"status":"configured","base_year":3,"items":[],"conditional_qualifications":[],"evidence_span_ids":["span-01"],"review_recommendation":"routine"},
-				"minimum_education":{"status":"not_configured","level":null,"level_code":null,"evidence_span_ids":[],"review_recommendation":"routine"},
-				"technology_requirement_groups":[],"candidate_mentions":[]
-			}`,
+			name: "unknown span ID",
+			raw:  strings.Replace(validAISemanticResponseJSON(), `"evidence_span_ids":[]`, `"evidence_span_ids":["span-unknown"]`, 1),
 		},
 		{
-			name: "inconsistent configured education code",
-			raw: `{
-				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
-				"experience":{"status":"not_configured","base_year":null,"items":[],"conditional_qualifications":[],"evidence_span_ids":[],"review_recommendation":"routine"},
-				"minimum_education":{"status":"configured","level":"bachelor","level_code":3,"evidence_span_ids":["span-01"],"review_recommendation":"routine"},
-				"technology_requirement_groups":[],"candidate_mentions":[]
-			}`,
+			name: "unknown technology key",
+			raw:  validAISemanticResponseWithOption(`"technology-unknown"`, `"evidence-01"`),
 		},
 		{
-			name: "non overall education condition",
-			raw: `{
-				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
-				"experience":{"status":"configured","base_year":3,"items":[{"scope_type":"base","scope_key":"overall","min_years":3,"evidence_span_ids":["span-01"],"review_recommendation":"routine"}],"conditional_qualifications":[{"when_education":"bachelor","experience_scope":"technology","experience_scope_key":"go","min_years":3,"evidence_span_ids":["span-01"],"review_recommendation":"required_review"}],"evidence_span_ids":["span-01"],"review_recommendation":"required_review"},
-				"minimum_education":{"status":"not_configured","level":null,"level_code":null,"evidence_span_ids":[],"review_recommendation":"routine"},
-				"technology_requirement_groups":[],"candidate_mentions":[]
-			}`,
-		},
-		{
-			name: "qualification group without option",
-			raw: `{
-				"response_schema_version":"ai-jd-result-v1","request_id":"request-01",
-				"experience":{"status":"not_configured","base_year":null,"items":[],"conditional_qualifications":[],"evidence_span_ids":[],"review_recommendation":"routine"},
-				"minimum_education":{"status":"not_configured","level":null,"level_code":null,"evidence_span_ids":[],"review_recommendation":"routine"},
-				"technology_requirement_groups":[{"local_id":"group-01","role":"qualification","necessity":"required","operator":"at_least","min_satisfied":1,"options":[],"evidence_span_ids":["span-01"],"review_recommendation":"routine"}],"candidate_mentions":[]
-			}`,
+			name: "unknown technology evidence ID",
+			raw:  validAISemanticResponseWithOption(`"go"`, `"evidence-unknown"`),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := contract.Validate([]byte(test.raw)); err != nil {
-				t.Fatalf("Validate() error = %v, want structurally valid response retained for field-level recovery", err)
+				t.Fatalf("Validate() error = %v, want reference sanitation deferred to mapping", err)
 			}
 		})
 	}
@@ -246,23 +233,15 @@ func TestV3AISemanticContractAssetsFreezeCandidateSourceTermRules(t *testing.T) 
 	}
 }
 
-func TestV3AISystemPromptFreezesAdjudicatedCrossFieldInstructions(t *testing.T) {
-	if got, want := AISystemPromptV3SHA256(), "9045f0878e8eba0fc5ac9c1c08a273e2e33caf1ae87598f0bc972a23f0549a55"; got != want {
-		t.Fatalf("v3 system prompt SHA-256 = %q, want %q", got, want)
+func TestV4AISemanticContractAssetsFreezeCandidateCapacity(t *testing.T) {
+	if AISystemPromptV4SHA256() == AISystemPromptV3SHA256() || AIResponseSchemaV4SHA256() == AIResponseSchemaV3SHA256() {
+		t.Fatal("v4 candidate-capacity assets must have distinct frozen digests")
 	}
-	if AISystemPromptV3() == AISystemPromptV2() {
-		t.Fatal("v3 system prompt did not create a distinct immutable candidate identity")
+	if !json.Valid([]byte(AIResponseSchemaV4())) || !strings.Contains(AIResponseSchemaV4(), `"const": "ai-jd-result-v4"`) || !strings.Contains(AIResponseSchemaV4(), `"maxItems": 3`) {
+		t.Fatal("v4 schema does not freeze the three-candidate limit")
 	}
-	for _, instruction := range []string{
-		"items=[] 时独立成立",
-		"省略所有该句的 domain items",
-		"各自一个单项 at_least=1 组",
-		"source_term",
-		"role=unspecified",
-	} {
-		if !strings.Contains(AISystemPromptV3(), instruction) {
-			t.Fatalf("v3 system prompt is missing cross-field contract instruction %q", instruction)
-		}
+	if prompt := AISystemPromptV4(); !strings.Contains(prompt, AIResponseSchemaVersionV4) || !strings.Contains(prompt, "最多输出三个") || !strings.Contains(prompt, "任意 role") {
+		t.Fatal("v4 prompt does not freeze the governed candidate boundary")
 	}
 }
 

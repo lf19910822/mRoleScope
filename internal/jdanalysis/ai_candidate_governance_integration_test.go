@@ -49,7 +49,7 @@ SELECT
 	}
 }
 
-func TestAISemanticProcessorV1RejectsEnabledAliasCandidateUnderHistoricalPolicy(t *testing.T) {
+func TestAISemanticProcessorV1SkipsEnabledAliasCandidateAndCompletesOtherSemantics(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -67,10 +67,10 @@ VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
 		t.Fatal(err)
 	}
 	summary, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: enabledAliasCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID)
-	if err == nil || summary.Failed != 1 {
-		t.Fatalf("historical V1 enabled-alias result = summary:%#v err:%v, want one safe failure", summary, err)
+	if err != nil || summary.Completed != 1 || summary.Failed != 0 {
+		t.Fatalf("enabled-alias result = summary:%#v err:%v, want one completed item", summary, err)
 	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "failed_safely", "failed_safely", "not_analyzed")
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "not_configured")
 
 	var dictionaryCandidates, identities, candidateArtifacts, requirementOptions int
 	if err := repository.pool.QueryRow(ctx, `
@@ -83,7 +83,7 @@ SELECT
 		t.Fatal(err)
 	}
 	if dictionaryCandidates != 0 || identities != 1 || candidateArtifacts != 0 || requirementOptions != 0 {
-		t.Fatalf("historical V1 enabled alias left governance records = candidates:%d identities:%d artifacts:%d options:%d", dictionaryCandidates, identities, candidateArtifacts, requirementOptions)
+		t.Fatalf("enabled alias created governance records = candidates:%d identities:%d artifacts:%d options:%d", dictionaryCandidates, identities, candidateArtifacts, requirementOptions)
 	}
 }
 
@@ -167,32 +167,69 @@ WHERE id = $1`, dictionaryID); err != nil {
 	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: externalCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
 		t.Fatalf("V2 processing with a published dictionary error = %v; want local candidate skip", err)
 	}
-	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "uncertain")
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "not_configured")
 
-	var dictionaryCandidates, candidateArtifacts, unresolvedCandidateArtifacts int
+	var dictionaryCandidates, candidateArtifacts int
 	if err := repository.pool.QueryRow(ctx, `
 SELECT
   (SELECT count(*) FROM technology_dictionary_candidates WHERE dictionary_version_id = $1),
   (SELECT count(*) FROM ai_candidate_technology_mentions AS candidate
    JOIN ai_semantic_artifacts AS artifact ON artifact.id = candidate.id
    JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
-   WHERE result.ai_analysis_configuration_id = $2 AND result.body_content_version_id = $3),
-  (SELECT count(*) FROM ai_semantic_artifacts AS artifact
-   JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
-   WHERE result.ai_analysis_configuration_id = $2
-     AND result.body_content_version_id = $3
-     AND artifact.artifact_kind = 'candidate_technology'
-     AND artifact.semantic_status = 'uncertain'
-     AND artifact.review_tier = 'required_review'
-     AND NOT EXISTS (
-       SELECT 1 FROM ai_candidate_technology_mentions AS candidate
-       WHERE candidate.id = artifact.id
-     ))
-`, dictionaryID, aiConfiguration.ID, bodyID).Scan(&dictionaryCandidates, &candidateArtifacts, &unresolvedCandidateArtifacts); err != nil {
+   WHERE result.ai_analysis_configuration_id = $2 AND result.body_content_version_id = $3)
+`, dictionaryID, aiConfiguration.ID, bodyID).Scan(&dictionaryCandidates, &candidateArtifacts); err != nil {
 		t.Fatal(err)
 	}
-	if dictionaryCandidates != 0 || candidateArtifacts != 0 || unresolvedCandidateArtifacts != 1 {
-		t.Fatalf("V2 frozen dictionary candidate handling = candidates:%d linked-artifacts:%d unresolved-artifacts:%d", dictionaryCandidates, candidateArtifacts, unresolvedCandidateArtifacts)
+	if dictionaryCandidates != 0 || candidateArtifacts != 0 {
+		t.Fatalf("published dictionary candidate handling = candidates:%d linked-artifacts:%d", dictionaryCandidates, candidateArtifacts)
+	}
+}
+
+func TestAISemanticProcessorAtCandidateCapacitySkipsOnlyTheNewCandidate(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	baseBodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
+	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, baseBodyID, dictionaryID, technologyID, ruleID, "synthetic-ai-candidate-capacity-reference")
+	bodyID := insertSyntheticExternalCandidateBody(t, repository, technologyConfigurationID, dictionaryID, technologyID, ruleID)
+	aiConfiguration, err := repository.CreateCandidateAIConfiguration(ctx, testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-candidate-capacity"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.EnsureAISemanticResult(ctx, bodyID, aiConfiguration.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO ai_analysis_work_items (ai_analysis_configuration_id, body_content_version_id, trigger)
+VALUES ($1, $2, 'trial')`, aiConfiguration.ID, bodyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_dictionary_candidates (
+    dictionary_version_id, candidate_text, state, governance_status, candidate_summary
+)
+SELECT $1, 'already-pending-' || series, 'candidate', 'pending_review', 'synthetic pending candidate'
+FROM generate_series(1, 500) AS series`, dictionaryID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (AISemanticProcessor{Repository: repository, Runner: AIModelAttemptRunner{Client: externalCandidateAIModelClient{}}}).ProcessPending(ctx, aiConfiguration.ID); err != nil {
+		t.Fatalf("candidate-capacity processing error = %v, want success", err)
+	}
+	assertAISemanticWorkState(t, repository, aiConfiguration.ID, bodyID, "complete", "complete", "not_configured")
+	assertPendingCandidateCapacity(t, repository, aiPendingCandidateCapacity)
+
+	var candidateArtifacts int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM ai_candidate_technology_mentions AS candidate
+JOIN ai_semantic_artifacts AS artifact ON artifact.id = candidate.id
+JOIN ai_semantic_results AS result ON result.id = artifact.ai_semantic_result_id
+WHERE result.ai_analysis_configuration_id = $1
+  AND result.body_content_version_id = $2`, aiConfiguration.ID, bodyID).Scan(&candidateArtifacts); err != nil {
+		t.Fatal(err)
+	}
+	if candidateArtifacts != 0 {
+		t.Fatalf("candidate artifacts at capacity = %d, want 0", candidateArtifacts)
 	}
 }
 

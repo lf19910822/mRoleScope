@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAIModelInputMapsConservativeSemanticProjection(t *testing.T) {
+func TestAIModelInputMapsStructurallyValidSemanticProjection(t *testing.T) {
 	input := syntheticSemanticModelInput(t)
 	response := syntheticConfiguredSemanticResponse()
 	raw, err := json.Marshal(response)
@@ -45,8 +45,8 @@ func TestAIModelInputMapsConservativeSemanticProjection(t *testing.T) {
 	if responsibility := projection.RequirementGroups[2]; responsibility.CandidateRequirement || responsibility.Role != "responsibility" {
 		t.Fatalf("responsibility group incorrectly affects candidate matching: %#v", responsibility)
 	}
-	if ambiguous := projection.RequirementGroups[3]; ambiguous.CandidateRequirement || ambiguous.ReviewTier != "required_review" {
-		t.Fatalf("ambiguous group = %#v, want non-candidate required review", ambiguous)
+	if ambiguous := projection.RequirementGroups[3]; ambiguous.CandidateRequirement || ambiguous.ReviewTier != "routine" {
+		t.Fatalf("ambiguous group = %#v, want the model-supplied non-candidate routine review tier", ambiguous)
 	}
 	if len(projection.CandidateMentions) != 1 || projection.CandidateMentions[0].Evidence.CodePointRange != (CodePointRange{Start: 24, End: 33}) || projection.CandidateMentions[0].ReviewTier != "required_review" {
 		t.Fatalf("candidate projection = %#v", projection.CandidateMentions)
@@ -82,7 +82,7 @@ func TestAIModelInputMapsUncertainWithoutInventingAZeroValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateAndMapResponse() error = %v", err)
 	}
-	if projection.Experience.Status != "uncertain" || projection.Experience.BaseYear != nil || projection.Experience.ReviewTier != "required_review" {
+	if projection.Experience.Status != "uncertain" || projection.Experience.BaseYear != nil || projection.Experience.ReviewTier != "routine" {
 		t.Fatalf("uncertain experience became a configured/zero value: %#v", projection.Experience)
 	}
 	if projection.MinimumEducation.Status != "not_configured" || projection.MinimumEducation.Level != "" {
@@ -112,7 +112,183 @@ func TestAIModelInputKeepsSupportedBaseYearWithoutDetailedItems(t *testing.T) {
 	}
 }
 
-func TestAIModelInputKeepsOnlySingleSourceExactExperienceDomains(t *testing.T) {
+func TestAIModelInputDropsUnknownSpanWithoutDiscardingSupportedExperience(t *testing.T) {
+	input := syntheticExperienceOnlyModelInput(t, "候选人需具备三年以上服务端开发经验。")
+	baseYear := 3
+	response := emptySemanticResponse(input)
+	response.Experience = AIExperienceResponse{
+		Status:                    "configured",
+		BaseYear:                  &baseYear,
+		Items:                     []AIExperienceItemResponse{},
+		ConditionalQualifications: []AIConditionalQualificationResponse{},
+		EvidenceSpanIDs:           []string{"unknown-span", "description:s01"},
+		ReviewRecommendation:      "routine",
+	}
+
+	projection, err := validateAndMapSyntheticResponse(input, response)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want local evidence sanitation", err)
+	}
+	if projection.Experience.BaseYear == nil || *projection.Experience.BaseYear != 3 {
+		t.Fatalf("experience base year = %#v, want retained model conclusion", projection.Experience)
+	}
+	if len(projection.Experience.Evidence) != 1 || projection.Experience.Evidence[0].SpanID != "description:s01" {
+		t.Fatalf("experience evidence = %#v, want only the known body span", projection.Experience.Evidence)
+	}
+}
+
+func TestAIModelInputDropsInvalidGroupEvidenceWithoutDiscardingItsOptions(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	response := syntheticConfiguredSemanticResponse()
+	response.TechnologyRequirementGroups[0].EvidenceSpanIDs = []string{"unknown-span"}
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	projection, err := input.ValidateAndMapResponse(raw)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want local group-evidence sanitation", err)
+	}
+	if len(projection.RequirementGroups) != 4 || len(projection.RequirementGroups[0].Options) != 5 {
+		t.Fatalf("requirement groups = %#v, want all model groups and first group options retained", projection.RequirementGroups)
+	}
+	if len(projection.RequirementGroups[0].Evidence) != 0 {
+		t.Fatalf("first group evidence = %#v, want the unknown reference removed", projection.RequirementGroups[0].Evidence)
+	}
+}
+
+func TestAIModelInputDropsUnknownFormalOptionWithoutDiscardingGovernedSibling(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	response := emptySemanticResponse(input)
+	response.TechnologyRequirementGroups = []AITechnologyRequirementGroupResponse{{
+		LocalID:              "mixed-governance-group",
+		Role:                 "qualification",
+		Necessity:            "required",
+		Operator:             nil,
+		MinSatisfied:         nil,
+		EvidenceSpanIDs:      []string{"description:s01"},
+		ReviewRecommendation: "routine",
+		Options: []AITechnologyRequirementOptionResponse{
+			{TechnologyKey: "ungoverned-tool", MentionEvidenceIDs: []string{"evidence-unknown"}},
+			{TechnologyKey: "go", MentionEvidenceIDs: []string{"evidence-go"}},
+		},
+	}}
+
+	projection, err := validateAndMapSyntheticResponse(input, response)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want local option sanitation", err)
+	}
+	if len(projection.RequirementGroups) != 1 {
+		t.Fatalf("requirement groups = %#v, want retained group", projection.RequirementGroups)
+	}
+	options := projection.RequirementGroups[0].Options
+	if len(options) != 1 || options[0].TechnologyKey != "go" {
+		t.Fatalf("mapped options = %#v, want only governed go option", options)
+	}
+}
+
+func TestAIModelInputKeepsStructurallyValidModelRelationWithoutPolicyRejection(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	minimumTwo := 2
+	atLeast := "at_least"
+	response := emptySemanticResponse(input)
+	response.TechnologyRequirementGroups = []AITechnologyRequirementGroupResponse{{
+		LocalID:              "model-supplied-relation",
+		Role:                 "qualification",
+		Necessity:            "required",
+		Operator:             &atLeast,
+		MinSatisfied:         &minimumTwo,
+		Options:              []AITechnologyRequirementOptionResponse{{TechnologyKey: "go", MentionEvidenceIDs: []string{"evidence-go"}}},
+		EvidenceSpanIDs:      []string{"description:s01"},
+		ReviewRecommendation: "routine",
+	}}
+
+	projection, err := validateAndMapSyntheticResponse(input, response)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want structurally valid model relation retained", err)
+	}
+	if len(projection.RequirementGroups) != 1 || projection.RequirementGroups[0].MinSatisfied != 2 || len(projection.RequirementGroups[0].Options) != 1 {
+		t.Fatalf("model relation projection = %#v, want at_least=2 with its one option retained", projection.RequirementGroups)
+	}
+}
+
+func TestAIModelInputKeepsStructurallyValidModelExperienceWithoutRecomputingYears(t *testing.T) {
+	input := syntheticExperienceOnlyModelInput(t, "候选人需具备三年以上服务端开发经验。")
+	baseYear := 3
+	response := emptySemanticResponse(input)
+	response.Experience = AIExperienceResponse{
+		Status:   "configured",
+		BaseYear: &baseYear,
+		Items: []AIExperienceItemResponse{{
+			ScopeType: "base", ScopeKey: "overall", MinYears: 5,
+			EvidenceSpanIDs: []string{"description:s01"}, ReviewRecommendation: "routine",
+		}},
+		ConditionalQualifications: []AIConditionalQualificationResponse{},
+		EvidenceSpanIDs:           []string{"description:s01"},
+		ReviewRecommendation:      "routine",
+	}
+
+	projection, err := validateAndMapSyntheticResponse(input, response)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want model years retained without a policy gate", err)
+	}
+	if projection.Experience.BaseYear == nil || *projection.Experience.BaseYear != 3 || len(projection.Experience.Items) != 1 || projection.Experience.Items[0].MinimumYears != 5 {
+		t.Fatalf("experience projection = %#v, want model base year and item year retained", projection.Experience)
+	}
+}
+
+func TestAIModelInputDropsInvalidOptionEvidenceWithoutDiscardingGovernedOption(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	minimumOne := 1
+	atLeast := "at_least"
+	response := emptySemanticResponse(input)
+	response.TechnologyRequirementGroups = []AITechnologyRequirementGroupResponse{{
+		LocalID: "partially-invalid-option-evidence", Role: "qualification", Necessity: "required", Operator: &atLeast, MinSatisfied: &minimumOne,
+		Options: []AITechnologyRequirementOptionResponse{{
+			TechnologyKey: "go", MentionEvidenceIDs: []string{"evidence-unknown", "evidence-go"},
+		}},
+		EvidenceSpanIDs: []string{"description:s01"}, ReviewRecommendation: "routine",
+	}}
+
+	projection, err := validateAndMapSyntheticResponse(input, response)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want only the bad option reference removed", err)
+	}
+	if len(projection.RequirementGroups) != 1 || len(projection.RequirementGroups[0].Options) != 1 {
+		t.Fatalf("requirement projection = %#v, want the governed option retained", projection.RequirementGroups)
+	}
+	if got := projection.RequirementGroups[0].Options[0].MentionEvidenceIDs; len(got) != 1 || got[0] != "evidence-go" {
+		t.Fatalf("option evidence IDs = %#v, want only evidence-go", got)
+	}
+}
+
+func TestAIModelInputKeepsStructurallyValidEducationWithoutSemanticConsistencyGate(t *testing.T) {
+	input := syntheticSemanticModelInput(t)
+	bachelor := "bachelor"
+	doctorCode := 4
+	response := emptySemanticResponse(input)
+	response.MinimumEducation = AIMinimumEducationResponse{
+		Status:               "configured",
+		Level:                &bachelor,
+		LevelCode:            &doctorCode,
+		EvidenceSpanIDs:      []string{"unknown-span", "jobRequire:s01"},
+		ReviewRecommendation: "routine",
+	}
+
+	projection, err := validateAndMapSyntheticResponse(input, response)
+	if err != nil {
+		t.Fatalf("ValidateAndMapResponse() error = %v, want model education retained", err)
+	}
+	if projection.MinimumEducation.Status != "configured" || projection.MinimumEducation.Level != "bachelor" {
+		t.Fatalf("education projection = %#v, want the model level retained", projection.MinimumEducation)
+	}
+	if len(projection.MinimumEducation.Evidence) != 1 || projection.MinimumEducation.Evidence[0].SpanID != "jobRequire:s01" {
+		t.Fatalf("education evidence = %#v, want only the known body span", projection.MinimumEducation.Evidence)
+	}
+}
+
+func TestAIModelInputKeepsModelExperienceDomainsThatFitTheNormalizedShape(t *testing.T) {
 	input := syntheticExperienceOnlyModelInput(t, "3年以上嵌入式开发经验。具备云计算，后台开发或音视频/流媒体等方向经验。3年以上消费电子/智能硬件测试经验。")
 	baseYear := 3
 	response := emptySemanticResponse(input)
@@ -137,15 +313,15 @@ func TestAIModelInputKeepsOnlySingleSourceExactExperienceDomains(t *testing.T) {
 	if projection.Experience.BaseYear == nil || *projection.Experience.BaseYear != 3 {
 		t.Fatalf("overall experience was lost with an alternative domain: %#v", projection.Experience)
 	}
-	if len(projection.Experience.Items) != 2 {
-		t.Fatalf("experience items = %#v, want only overall and one unambiguous domain", projection.Experience.Items)
+	if len(projection.Experience.Items) != 4 {
+		t.Fatalf("experience items = %#v, want every model-supplied item that the normalized shape can represent", projection.Experience.Items)
 	}
-	if projection.Experience.Items[0].SubjectKind != "overall" || projection.Experience.Items[1].SubjectKind != "domain" || projection.Experience.Items[1].SubjectKey != "嵌入式开发" {
-		t.Fatalf("experience items = %#v, want overall plus exact 嵌入式开发 domain", projection.Experience.Items)
+	if projection.Experience.Items[0].SubjectKind != "overall" || projection.Experience.Items[1].SubjectKey != "嵌入式开发" || projection.Experience.Items[2].SubjectKey != "云计算" || projection.Experience.Items[3].SubjectKey != "消费电子/智能硬件测试" {
+		t.Fatalf("experience items = %#v, want the model-supplied overall and domain projections", projection.Experience.Items)
 	}
 }
 
-func TestAIModelInputSplitsIndependentPositiveQualifications(t *testing.T) {
+func TestAIModelInputDoesNotRewriteModelRequirementGroups(t *testing.T) {
 	body := syntheticAISpanBody("", "精通C++编程。熟悉Python语言。Go或Rust任一即可。", "")
 	spans, err := NewAISpanIndex(body)
 	if err != nil {
@@ -187,30 +363,18 @@ func TestAIModelInputSplitsIndependentPositiveQualifications(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateAndMapResponse() error = %v", err)
 	}
-	if len(projection.RequirementGroups) != 3 {
-		t.Fatalf("requirement groups = %#v, want C++ and Python independent plus one explicit alternative", projection.RequirementGroups)
+	if len(projection.RequirementGroups) != 2 {
+		t.Fatalf("requirement groups = %#v, want the two model-supplied groups without local splitting", projection.RequirementGroups)
 	}
-	independent := make(map[string]AIRequirementGroupProjection)
-	var alternative AIRequirementGroupProjection
-	for _, group := range projection.RequirementGroups {
-		if len(group.Options) == 1 {
-			independent[group.Options[0].TechnologyKey] = group
-			continue
-		}
-		alternative = group
+	if group := projection.RequirementGroups[0]; group.LocalID != "separate-cpp-python" || len(group.Options) != 2 || group.Options[0].TechnologyKey != "cpp" || group.Options[1].TechnologyKey != "python" || len(group.Evidence) != 2 {
+		t.Fatalf("first model group was rewritten: %#v", group)
 	}
-	for _, technologyKey := range []string{"cpp", "python"} {
-		group, found := independent[technologyKey]
-		if !found || !group.CandidateRequirement || group.Necessity != "required" || group.Operator != "at_least" || group.MinSatisfied != 1 || len(group.Evidence) != 1 {
-			t.Fatalf("independent %s requirement = %#v", technologyKey, group)
-		}
-	}
-	if alternative.Operator != "at_least" || alternative.MinSatisfied != 1 || len(alternative.Options) != 2 {
-		t.Fatalf("explicit alternative was not retained as one at_least=1 group: %#v", alternative)
+	if group := projection.RequirementGroups[1]; group.LocalID != "alternative-go-rust" || group.Operator != "at_least" || group.MinSatisfied != 1 || len(group.Options) != 2 {
+		t.Fatalf("second model group was rewritten: %#v", group)
 	}
 }
 
-func TestAIModelInputLocallyIgnoresIneligibleOrOverLimitCandidates(t *testing.T) {
+func TestAIModelInputKeepsTheFirstThreeStructurallyValidCandidatesRegardlessOfModelRole(t *testing.T) {
 	body := syntheticAISpanBody("ToolA。ToolB。ToolC。ToolD。泛化概念。", "", "")
 	spans, err := NewAISpanIndex(body)
 	if err != nil {
@@ -233,8 +397,8 @@ func TestAIModelInputLocallyIgnoresIneligibleOrOverLimitCandidates(t *testing.T)
 	if err != nil {
 		t.Fatalf("ValidateAndMapResponse() error = %v", err)
 	}
-	if len(projection.CandidateMentions) != 2 || projection.CandidateMentions[0].CandidateText != "ToolA" || projection.CandidateMentions[1].CandidateText != "ToolC" {
-		t.Fatalf("governed candidate projections = %#v, want only source-exact top-three qualification candidates", projection.CandidateMentions)
+	if len(projection.CandidateMentions) != 3 || projection.CandidateMentions[0].CandidateText != "ToolA" || projection.CandidateMentions[1].CandidateText != "ToolB" || projection.CandidateMentions[2].CandidateText != "ToolC" {
+		t.Fatalf("candidate projections = %#v, want the first three source-exact model candidates", projection.CandidateMentions)
 	}
 }
 
@@ -353,20 +517,17 @@ func TestAIModelInputV2RecoversLocallyMalformedFieldsWithoutDiscardingJD(t *test
 	if err != nil {
 		t.Fatalf("ValidateAndMapResponse() error = %v; local defects must not reject the JD", err)
 	}
-	if projection.Experience.Status != "configured" || projection.Experience.BaseYear == nil || *projection.Experience.BaseYear != 3 || len(projection.Experience.Items) != 1 || projection.Experience.Items[0].SubjectKind != "overall" || projection.Experience.ReviewTier != "required_review" {
-		t.Fatalf("experience recovery = %#v, want synthesized overall item with required review", projection.Experience)
+	if projection.Experience.Status != "configured" || projection.Experience.BaseYear == nil || *projection.Experience.BaseYear != 3 || len(projection.Experience.Items) != 0 || projection.Experience.ReviewTier != "routine" {
+		t.Fatalf("experience recovery = %#v, want persisted base year with locally omitted unrepresentable branch", projection.Experience)
 	}
-	if projection.MinimumEducation.Status != "configured" || projection.MinimumEducation.Level != "bachelor" || projection.MinimumEducation.ReviewTier != "required_review" {
-		t.Fatalf("education recovery = %#v, want verified level with required review", projection.MinimumEducation)
+	if projection.MinimumEducation.Status != "configured" || projection.MinimumEducation.Level != "bachelor" || projection.MinimumEducation.ReviewTier != "routine" {
+		t.Fatalf("education recovery = %#v, want model projection without semantic reclassification", projection.MinimumEducation)
 	}
-	if len(projection.RequirementGroups) != 1 || projection.RequirementGroups[0].Role != "responsibility" || projection.RequirementGroups[0].CandidateRequirement || projection.RequirementGroups[0].ReviewTier != "required_review" || len(projection.RequirementGroups[0].Options) != 1 {
-		t.Fatalf("requirement recovery = %#v, want only non-candidate review group", projection.RequirementGroups)
+	if len(projection.RequirementGroups) != 2 || projection.RequirementGroups[0].Role != "qualification" || !projection.RequirementGroups[0].CandidateRequirement || projection.RequirementGroups[0].ReviewTier != "routine" || len(projection.RequirementGroups[0].Options) != 0 || projection.RequirementGroups[1].Role != "responsibility" || projection.RequirementGroups[1].CandidateRequirement || projection.RequirementGroups[1].ReviewTier != "routine" || len(projection.RequirementGroups[1].Options) != 1 {
+		t.Fatalf("requirement recovery = %#v, want the model groups with only invalid options removed", projection.RequirementGroups)
 	}
 	if len(projection.CandidateMentions) != 0 {
 		t.Fatalf("unlocatable candidate was persisted in projection: %#v", projection.CandidateMentions)
-	}
-	if !projection.CandidateMentionsUncertain {
-		t.Fatal("unlocatable candidate did not make the candidate field uncertain")
 	}
 }
 

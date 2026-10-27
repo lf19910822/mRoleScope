@@ -20,7 +20,6 @@ readonly CANDIDATE_V02_ANALYSIS_SERVICE='mrolescope-candidate-analysis-v0.2.serv
 readonly BACKFILL_SERVICE='mrolescope-backfill-versioned-content.service'
 readonly AI_TRIAL_PREPARE_SERVICE='mrolescope-ai-trial-prepare.service'
 readonly AI_PLUS_TRIAL_SERVICE='mrolescope-ai-plus-trial.service'
-readonly AI_FLASH_TRIAL_SERVICE='mrolescope-ai-flash-trial.service'
 readonly AI_PLUS_EXPAND_SERVICE='mrolescope-ai-plus-expand.service'
 readonly AI_PLUS_PUBLISH_SERVICE='mrolescope-ai-plus-publish.service'
 readonly RUNNER_SERVICE='actions.runner.lf19910822-mRoleScope.mrolescope-remote-development.service'
@@ -56,7 +55,6 @@ show_status() {
   print_unit_state "$CANDIDATE_V02_ANALYSIS_SERVICE"
   print_unit_state "$AI_TRIAL_PREPARE_SERVICE"
   print_unit_state "$AI_PLUS_TRIAL_SERVICE"
-  print_unit_state "$AI_FLASH_TRIAL_SERVICE"
   print_unit_state "$AI_PLUS_EXPAND_SERVICE"
   print_unit_state "$AI_PLUS_PUBLISH_SERVICE"
 
@@ -198,12 +196,6 @@ case "$1" in
     [[ -x "$AI_ANALYSIS_HELPER" ]] || die 'AI analysis helper is not installed'
     [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
     systemctl start --wait "$AI_PLUS_TRIAL_SERVICE"
-    ;;
-  run-ai-flash-trial)
-    [[ "$#" -eq 1 ]] || die 'run-ai-flash-trial accepts no arguments'
-    [[ -x "$AI_ANALYSIS_HELPER" ]] || die 'AI analysis helper is not installed'
-    [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
-    systemctl start --wait "$AI_FLASH_TRIAL_SERVICE"
     ;;
   expand-ai-plus)
     [[ "$#" -eq 1 ]] || die 'expand-ai-plus accepts no arguments'

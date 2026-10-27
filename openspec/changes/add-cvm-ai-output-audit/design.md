@@ -36,15 +36,15 @@ reservation 无法取得时，runner 在网络前以 `output_audit_capture_faile
 
 备选方案是收到响应后再检查空间或淘汰未到期文件。前者会丢失已经付费的诊断证据，后者违反 7 天承诺，均拒绝。
 
-### 3. 捕获只适用于新的候选/对照配置
+### 3. 捕获只适用于新的 Plus 候选配置
 
-定义 `cvm-ai-output-audit-v1` 策略摘要，内容包括 artifact 格式、最大响应槽位、7 天留存和 64 MiB 上限，并折入 AI 配置已有的输入/审计契约摘要。准备操作因此为新策略生成不同 Plus candidate 与 Flash comparison；旧配置继续保留历史。另有不可变的 `five-body / Plus-only` 诊断候选身份，供在已有候选失败后最小化地获取新的可审计回复；它不入队 Flash。只有 `candidate` 和 `comparison` worker 实例构造 artifact store；任何 `published` worker 不构造或挂载它。
+定义 `cvm-ai-output-audit-v1` 策略摘要，内容包括 artifact 格式、最大响应槽位、7 天留存和 64 MiB 上限，并折入 AI 配置已有的输入/审计契约摘要。准备操作因此为新策略生成不同的 Plus candidate；当前受控候选同时冻结 `ai-jd-result-v4` 与 `ai-semantic-validator-v4`，旧配置（包括历史 Flash comparison）继续保留历史。不可变的 `five-body / Plus-only` 诊断候选身份供在已有候选失败后最小化地获取新的可审计回复；它不入队 Flash。只有新的 Plus `candidate` worker 实例构造 artifact store；任何 `published` worker 不构造或挂载它。
 
 不新增一个“临时打开审计”的运行时开关，以避免同一配置在不同调用间产生不可比较的留存边界。也不改变模型、提示词、schema、Token 限额或输入正文范围。
 
 ### 4. 单独建立固定的终端契约审计会话
 
-新增 `audit-ai plus` 与 `audit-ai flash` worker 子命令和对应 root helper 固定操作。helper 与 worker 都要求 stdin/stdout 是 TTY；CVM helper 还将 `FAN` 固定绑定为由 `ubuntu` 登录账户经 sudo 发起的调用，拒绝 root 直登或其他 sudo 发起者。不注册为 systemd 服务，也不加入 GitHub Actions allowlist。Plus 的固定候选集合按五条诊断候选、再常规 Plus candidate 的顺序解析；Flash 只解析常规 Flash comparison。程序从这些固定集合选择最早的、尚未由 `FAN` 审计且**仍具有完整捕获 artifact**的 `invalid_response_schema`、`invalid_evidence_reference` 或 `policy_rejected` 工作；清理后的历史行会被跳过，而不阻塞后续工件。
+新增 `audit-ai plus` worker 子命令和对应 root helper 固定操作。helper 与 worker 都要求 stdin/stdout 是 TTY；CVM helper 还将 `FAN` 固定绑定为由 `ubuntu` 登录账户经 sudo 发起的调用，拒绝 root 直登或其他 sudo 发起者。不注册为 systemd 服务，也不加入 GitHub Actions allowlist。Plus 的固定候选集合按五条诊断候选、再常规 Plus candidate 的顺序解析。程序从这些固定集合选择最早的、尚未由 `FAN` 审计且**仍具有完整捕获 artifact**的 `invalid_response_schema`、`invalid_evidence_reference` 或 `policy_rejected` 工作；清理后的历史行会被跳过，而不阻塞后续工件。既有 Flash 审计结论保持历史记录，但没有新的 Flash 会话或捕获任务。
 
 会话先验证配置的 prompt/schema/input-contract/audit-policy 摘要，再用同一不可变正文版本和确定性 request ID 重建模型输入；摘要不匹配则安全停止。它把净化后的 `description`、`jobRequire`、`addition`、重建输入和原始模型输出仅写到连接 TTY。审计者只能输入一个固定结论：`prompt_noncompliance`、`schema_contract_mismatch`、`evidence_contract_mismatch`、`policy_contract_mismatch` 或 `unable_to_classify`。数据库追加不可变的安全审计记录，记录 `FAN`、绑定标识、原始输出 SHA-256 和结论，不记录文本。
 
@@ -69,7 +69,7 @@ worker 仍只记录原有安全错误码，而离线诊断能分辨应当字段�
 
 ### 6. 用最小挂载与 systemd 允许列表维持隔离
 
-bootstrap 创建审计根目录为 `root:root:0700`。两个常规 Plus/Flash 试跑服务与一个固定五条 Plus 诊断服务获得读写 bind mount；诊断服务不具备 Flash、扩展或发布操作。两个 TTY 审计服务与一个固定的非交互状态读取器只读挂载；其余服务（包括 API、同步、普通 worker、prepare、expand、publish 和已有语义复核）没有该挂载。仅现有 Plus/Flash systemd 单元把该目录加入 `ReadWritePaths`；诊断和审计操作经 root helper 直接启动、不会注册为 systemd 或 GitHub Actions 操作。
+bootstrap 创建审计根目录为 `root:root:0700`。常规 Plus 试跑服务与一个固定五条 Plus 诊断服务获得读写 bind mount；诊断服务不具备扩展或发布操作。Plus TTY 审计服务与一个固定的非交互状态读取器只读挂载；其余服务（包括 API、同步、普通 worker、prepare、expand、publish 和已有语义复核）没有该挂载。仅现有 Plus systemd 单元把该目录加入 `ReadWritePaths`；诊断和审计操作经 root helper 直接启动、不会注册为 systemd 或 GitHub Actions 操作。
 
 `audit-status` 仅从无正文 metadata、文件属性和数据库安全字段报告 artifact 数、待审计失败数、已用/可用容量及安全类别聚合；不输出文件名、路径、正文或摘要值。日志中只允许 `output_audit_capture_failed` 与固定结论类别。
 
@@ -85,6 +85,6 @@ bootstrap 创建审计根目录为 `root:root:0700`。两个常规 Plus/Flash �
 
 1. 以 TDD 实现 artifact store、reservation/cleanup、捕获顺序和安全错误码；合成测试不使用真实 JD 或模型输出。
 2. 实现固定终端审计会话及不可变、安全的审计结论记录；验证不接受 TTY 外调用、路径或自由文本。
-3. 修改 Compose、bootstrap、systemd 资产和静态部署测试，证明只有两个常规试跑 writer、一个固定五条 Plus 诊断 writer、两个 TTY 审计 reader 和一个无正文状态 reader 接触目录。
+3. 修改 Compose、bootstrap、systemd 资产和静态部署测试，证明只有常规 Plus 试跑 writer、一个固定五条 Plus 诊断 writer、Plus TTY 审计 reader 和一个无正文状态 reader 接触目录。
 4. 部署后先运行固定诊断 prepare 产生新候选；仅在单独授权下对 5 个冻结诊断样本运行 Plus，并由 `FAN` 在 CVM 终端审计。不会运行 Flash、扩展或发布。
 5. 回退时停用新固定操作并移除新镜像/资产；既有数据库历史和未到期 root 审计 artifact 不被普通服务读取，按既定留存自动清理。

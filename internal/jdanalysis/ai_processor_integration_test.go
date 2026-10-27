@@ -354,7 +354,7 @@ WHERE item.subject_kind = 'domain'`).Scan(&subjectKind, &domainKey, &minimumYear
 	}
 }
 
-func TestAISemanticProcessorOmitsUnboundDomainExperienceButKeepsOverallEvidence(t *testing.T) {
+func TestAISemanticProcessorPersistsModelSuppliedDomainExperience(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -388,8 +388,8 @@ SELECT summary.status::text, summary.base_year::integer,
 FROM ai_experience_summaries AS summary`).Scan(&status, &baseYear, &domainItems, &overallItems); err != nil {
 		t.Fatal(err)
 	}
-	if status != "configured" || baseYear != 3 || domainItems != 0 || overallItems != 0 {
-		t.Fatalf("unbound domain experience = status:%s base:%d domain:%d overall:%d, want configured/3/0/0", status, baseYear, domainItems, overallItems)
+	if status != "configured" || baseYear != 3 || domainItems != 1 || overallItems != 0 {
+		t.Fatalf("model-supplied domain experience = status:%s base:%d domain:%d overall:%d, want configured/3/1/0", status, baseYear, domainItems, overallItems)
 	}
 }
 

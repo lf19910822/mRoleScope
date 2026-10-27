@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestPrepareAITrialFreezesSameFiveBodyIDsForPlusAndFlash(t *testing.T) {
+func TestPrepareAIPlusTrialFreezesFiveBodyIDsAndOneMemberBudget(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -30,51 +30,34 @@ func TestPrepareAITrialFreezesSameFiveBodyIDsForPlusAndFlash(t *testing.T) {
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 6)
 
 	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-trial-plus")
-	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-ai-trial-flash")
-	flash.Model = "qwen-flash"
-	flash.RequestProfileSHA256 = testSHA256("synthetic-ai-trial-flash-request-profile")
-	flash.PricingProfileSHA256 = testSHA256("synthetic-ai-trial-flash-pricing-profile")
-	prepared, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
+	plus.PricingProfileVersion = QwenPlusTrialPricingProfile().Version
+	plus.PricingProfileSHA256 = QwenPlusTrialPricingProfile().SHA256()
+	prepared, err := repository.PrepareAIPlusTrial(ctx, AIPlusTrialPreparationInput{Plus: plus})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.Plus.ID == "" || prepared.Flash.ID == "" || prepared.Plus.ID == prepared.Flash.ID ||
-		prepared.Plus.Status != "candidate" || prepared.Flash.Status != "comparison" ||
-		prepared.PlusQueued != aiTrialSampleSize || prepared.FlashQueued != aiTrialSampleSize ||
-		len(prepared.BodyContentVersionIDs) != aiTrialSampleSize {
+	if prepared.Plus.ID == "" || prepared.Plus.Status != "candidate" ||
+		prepared.PlusQueued != aiTrialSampleSize || len(prepared.BodyContentVersionIDs) != aiTrialSampleSize {
 		t.Fatalf("trial preparation = %#v", prepared)
 	}
 	assertTrialWorkExactlyMatchesSample(t, repository, prepared.Plus.ID, prepared.BodyContentVersionIDs)
-	assertTrialWorkExactlyMatchesSample(t, repository, prepared.Flash.ID, prepared.BodyContentVersionIDs)
-	var budgetGroupCount, budgetMemberCount int
+	var budgetGroupCount, budgetMemberCount, maximumLogicalTasks, maximumAttempts int
 	if err := repository.pool.QueryRow(ctx, `
 SELECT
   (SELECT count(*)
    FROM ai_analysis_trial_budget_groups AS budget_group
-   JOIN ai_analysis_trial_budget_group_members AS plus_member
-     ON plus_member.ai_analysis_trial_budget_group_id = budget_group.id
-    AND plus_member.ai_analysis_configuration_id = $1
-   JOIN ai_analysis_trial_budget_group_members AS flash_member
-     ON flash_member.ai_analysis_trial_budget_group_id = budget_group.id
-    AND flash_member.ai_analysis_configuration_id = $2),
+   JOIN ai_analysis_trial_budget_group_members AS member
+     ON member.ai_analysis_trial_budget_group_id = budget_group.id
+    AND member.ai_analysis_configuration_id = $1),
   (SELECT count(*)
    FROM ai_analysis_trial_budget_group_members
-   WHERE ai_analysis_configuration_id IN ($1, $2))`, prepared.Plus.ID, prepared.Flash.ID).Scan(&budgetGroupCount, &budgetMemberCount); err != nil {
+   WHERE ai_analysis_trial_budget_group_id = $2),
+  (SELECT maximum_logical_task_count FROM ai_analysis_trial_budget_groups WHERE id = $2),
+  (SELECT maximum_physical_attempt_count FROM ai_analysis_trial_budget_groups WHERE id = $2)`, prepared.Plus.ID, prepared.BudgetGroupID).Scan(&budgetGroupCount, &budgetMemberCount, &maximumLogicalTasks, &maximumAttempts); err != nil {
 		t.Fatal(err)
 	}
-	if budgetGroupCount != 1 || budgetMemberCount != 2 {
-		t.Fatalf("trial budget membership = groups:%d members:%d, want 1/2", budgetGroupCount, budgetMemberCount)
-	}
-	report, err := repository.ReadAITrialComparisonReport(ctx, prepared.Plus.ID, prepared.Flash.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.Plus.AIConfigurationID != prepared.Plus.ID || report.Flash.AIConfigurationID != prepared.Flash.ID ||
-		report.Plus.LogicalTaskCount != aiTrialSampleSize || report.Flash.LogicalTaskCount != aiTrialSampleSize ||
-		report.Plus.PendingTaskCount != aiTrialSampleSize || report.Flash.PendingTaskCount != aiTrialSampleSize ||
-		report.Plus.CompleteTaskCount != 0 || report.Flash.CompleteTaskCount != 0 ||
-		report.Plus.InputTokenCount != 0 || report.Flash.OutputTokenCount != 0 {
-		t.Fatalf("text-free AI comparison report = %#v", report)
+	if budgetGroupCount != 1 || budgetMemberCount != 1 || maximumLogicalTasks != 5 || maximumAttempts != 15 {
+		t.Fatalf("Plus trial budget = groups:%d members:%d logical:%d attempts:%d, want 1/1/5/15", budgetGroupCount, budgetMemberCount, maximumLogicalTasks, maximumAttempts)
 	}
 	if _, err := repository.pool.Exec(ctx, `
 INSERT INTO ai_analysis_publication_state (singleton)
@@ -82,25 +65,17 @@ VALUES (true)
 ON CONFLICT (singleton) DO NOTHING`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.pool.Exec(ctx, `
-UPDATE ai_analysis_publication_state
-SET ai_analysis_configuration_id = $1, updated_at = now()
-WHERE singleton = true`, prepared.Flash.ID); err == nil {
-		t.Fatal("Flash comparison configuration became the AI publication default")
-	}
 
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 1)
-	reused, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
+	reused, err := repository.PrepareAIPlusTrial(ctx, AIPlusTrialPreparationInput{Plus: plus})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reused.Reused || reused.Plus.ID != prepared.Plus.ID || reused.Flash.ID != prepared.Flash.ID ||
-		reused.PlusQueued != 0 || reused.FlashQueued != 0 ||
+	if !reused.Reused || reused.Plus.ID != prepared.Plus.ID || reused.PlusQueued != 0 ||
 		!equalStrings(reused.BodyContentVersionIDs, prepared.BodyContentVersionIDs) {
 		t.Fatalf("reused trial preparation = %#v, initial = %#v", reused, prepared)
 	}
 	assertTrialWorkExactlyMatchesSample(t, repository, reused.Plus.ID, prepared.BodyContentVersionIDs)
-	assertTrialWorkExactlyMatchesSample(t, repository, reused.Flash.ID, prepared.BodyContentVersionIDs)
 }
 
 func TestPrepareControlledAITrialUsesOnlyFixedProfilesAndPublishedBaseline(t *testing.T) {
@@ -114,25 +89,21 @@ func TestPrepareControlledAITrialUsesOnlyFixedProfilesAndPublishedBaseline(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Plus.Status != "candidate" || first.Flash.Status != "comparison" || first.PlusQueued != aiTrialSampleSize || first.FlashQueued != aiTrialSampleSize || len(first.BodyContentVersionIDs) != aiTrialSampleSize {
+	if first.Plus.Status != "candidate" || first.PlusQueued != aiTrialSampleSize || len(first.BodyContentVersionIDs) != aiTrialSampleSize {
 		t.Fatalf("controlled AI trial preparation = %#v", first)
 	}
 	plus, err := repository.ReadAIConfiguration(ctx, first.Plus.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	flash, err := repository.ReadAIConfiguration(ctx, first.Flash.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plus.TechnologyConfigurationID != technologyConfigurationID || plus.Model != "qwen-plus" || plus.PromptSHA256 != AISystemPromptV3SHA256() || plus.ResponseSchemaVersion != AIResponseSchemaVersionV3 || plus.ResponseSchemaSHA256 != AIResponseSchemaV3SHA256() || plus.ValidatorVersion != AIValidatorVersionV3 || plus.PricingProfileVersion != QwenPlusTrialPricingProfile().Version || plus.PricingProfileSHA256 != QwenPlusTrialPricingProfile().SHA256() || flash.TechnologyConfigurationID != technologyConfigurationID || flash.Model != "qwen-flash" || flash.PromptSHA256 != AISystemPromptV3SHA256() || flash.ResponseSchemaVersion != AIResponseSchemaVersionV3 || flash.ResponseSchemaSHA256 != AIResponseSchemaV3SHA256() || flash.ValidatorVersion != AIValidatorVersionV3 || flash.PricingProfileVersion != QwenFlashComparisonPricingProfile().Version || flash.PricingProfileSHA256 != QwenFlashComparisonPricingProfile().SHA256() {
-		t.Fatalf("controlled AI trial configurations = plus:%#v flash:%#v", plus, flash)
+	if plus.TechnologyConfigurationID != technologyConfigurationID || plus.Model != "qwen-plus" || plus.PromptSHA256 != AISystemPromptV4SHA256() || plus.ResponseSchemaVersion != AIResponseSchemaVersionV4 || plus.ResponseSchemaSHA256 != AIResponseSchemaV4SHA256() || plus.ValidatorVersion != AIValidatorVersionV4 || plus.PricingProfileVersion != QwenPlusTrialPricingProfile().Version || plus.PricingProfileSHA256 != QwenPlusTrialPricingProfile().SHA256() {
+		t.Fatalf("controlled AI Plus configuration = %#v", plus)
 	}
 	var attempts int
 	if err := repository.pool.QueryRow(ctx, `
 SELECT count(*)
 FROM ai_analysis_attempts
-WHERE ai_analysis_configuration_id IN ($1, $2)`, first.Plus.ID, first.Flash.ID).Scan(&attempts); err != nil {
+WHERE ai_analysis_configuration_id = $1`, first.Plus.ID).Scan(&attempts); err != nil {
 		t.Fatal(err)
 	}
 	if attempts != 0 {
@@ -143,19 +114,15 @@ WHERE ai_analysis_configuration_id IN ($1, $2)`, first.Plus.ID, first.Flash.ID).
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !second.Reused || second.Plus.ID != first.Plus.ID || second.Flash.ID != first.Flash.ID || second.PlusQueued != 0 || second.FlashQueued != 0 {
+	if !second.Reused || second.Plus.ID != first.Plus.ID || second.PlusQueued != 0 {
 		t.Fatalf("controlled AI trial reuse = %#v, first = %#v", second, first)
 	}
-	plusID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-plus", "llm-mrolescope")
+	plusID, err := repository.ControlledAIPlusTrialConfigurationID(ctx, "llm-mrolescope")
 	if err != nil || plusID != first.Plus.ID {
 		t.Fatalf("controlled Plus configuration = %q, %v; want %q, nil", plusID, err, first.Plus.ID)
 	}
-	flashID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-flash", "llm-mrolescope")
-	if err != nil || flashID != first.Flash.ID {
-		t.Fatalf("controlled Flash configuration = %q, %v; want %q, nil", flashID, err, first.Flash.ID)
-	}
-	if _, err := repository.ControlledAITrialConfigurationID(ctx, "uncontrolled-model", "llm-mrolescope"); err == nil {
-		t.Fatal("uncontrolled AI model resolved to a trial configuration")
+	if _, err := repository.ControlledAIPlusTrialConfigurationID(ctx, "invalid workspace"); err == nil {
+		t.Fatal("invalid workspace resolved to a trial configuration")
 	}
 }
 
@@ -178,25 +145,7 @@ func TestPrepareControlledAIOutputAuditDiagnosticFreezesFivePlusWorkItems(t *tes
 	}
 	assertAIWorkMatchesSample(t, repository, prepared.Plus.ID, prepared.BodyContentVersionIDs)
 
-	var flashWorkCount int
-	if err := repository.pool.QueryRow(ctx, `
-SELECT count(*)
-FROM ai_analysis_trial_budget_group_members AS diagnostic_member
-JOIN ai_analysis_trial_budget_group_members AS flash_member
-  ON flash_member.ai_analysis_trial_budget_group_id = diagnostic_member.ai_analysis_trial_budget_group_id
-JOIN ai_analysis_configurations AS flash
-  ON flash.id = flash_member.ai_analysis_configuration_id
-JOIN ai_analysis_work_items AS work
-  ON work.ai_analysis_configuration_id = flash_member.ai_analysis_configuration_id
-WHERE diagnostic_member.ai_analysis_configuration_id = $1
-  AND flash.model = 'qwen-flash'`, prepared.Plus.ID).Scan(&flashWorkCount); err != nil {
-		t.Fatal(err)
-	}
-	if flashWorkCount != 0 {
-		t.Fatalf("output-audit diagnostic queued %d Flash work items, want 0", flashWorkCount)
-	}
-
-	standardID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-plus", "llm-mrolescope")
+	standardID, err := repository.ControlledAIPlusTrialConfigurationID(ctx, "llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,17 +153,9 @@ WHERE diagnostic_member.ai_analysis_configuration_id = $1
 	if err != nil || diagnosticID != prepared.Plus.ID || diagnosticID == standardID {
 		t.Fatalf("output-audit diagnostic configuration = %q, %v; standard = %q; want frozen distinct Plus candidate", diagnosticID, err, standardID)
 	}
-	auditPlusIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-plus", "llm-mrolescope")
+	auditPlusIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "llm-mrolescope")
 	if err != nil || !equalStrings(auditPlusIDs, []string{diagnosticID, standardID}) {
 		t.Fatalf("fixed Plus output-audit configuration IDs = %q, %v; want diagnostic then standard candidate", auditPlusIDs, err)
-	}
-	standardFlashID, err := repository.ControlledAITrialConfigurationID(ctx, "qwen-flash", "llm-mrolescope")
-	if err != nil {
-		t.Fatal(err)
-	}
-	auditFlashIDs, err := repository.ControlledAIOutputAuditConfigurationIDs(ctx, "qwen-flash", "llm-mrolescope")
-	if err != nil || !equalStrings(auditFlashIDs, []string{standardFlashID}) {
-		t.Fatalf("fixed Flash output-audit configuration IDs = %q, %v; want standard comparison candidate", auditFlashIDs, err)
 	}
 
 	reused, err := repository.PrepareControlledAIOutputAuditDiagnostic(ctx, "llm-mrolescope")
@@ -237,13 +178,8 @@ func TestPrepareControlledAIOutputAuditDiagnosticCreatesNewCandidateAfterNonPers
 	if err != nil {
 		t.Fatal(err)
 	}
-	flashProfile, err := QwenFlashComparisonProfileForBeijingWorkspace("llm-mrolescope")
-	if err != nil {
-		t.Fatal(err)
-	}
 	legacy, err := repository.prepareControlledAIOutputAuditDiagnostic(ctx,
 		prePersistableOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		prePersistableOutputAuditDiagnosticConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -274,27 +210,20 @@ func TestPrepareControlledAITrialCreatesNewCandidatesAfterLegacyByteEstimatorCon
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
-		Plus:  legacyByteEstimatorConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		Flash: legacyByteEstimatorConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	preFixQwenBPE, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
-		Plus:  preFixQwenBPEConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		Flash: preFixQwenBPEConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	legacy := insertHistoricalAIComparisonFixture(t, repository,
+		legacyByteEstimatorConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		legacyByteEstimatorConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	)
+	preFixQwenBPE := insertHistoricalAIComparisonFixture(t, repository,
+		preFixQwenBPEConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		preFixQwenBPEConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	)
 
 	current, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Reused || current.Plus.ID == legacy.Plus.ID || current.Flash.ID == legacy.Flash.ID ||
-		current.Plus.ID == preFixQwenBPE.Plus.ID || current.Flash.ID == preFixQwenBPE.Flash.ID {
+	if current.Reused || current.Plus.ID == legacy.Plus.ID || current.Plus.ID == preFixQwenBPE.Plus.ID {
 		t.Fatalf("current/legacy candidates = current:%#v byte:%#v qwen-v1:%#v; want distinct new candidates", current, legacy, preFixQwenBPE)
 	}
 	plus, err := repository.ReadAIConfiguration(ctx, current.Plus.ID)
@@ -331,23 +260,20 @@ func TestPrepareControlledAITrialCreatesNewCandidatesAfterPreAuditCaptureContrac
 	if err != nil {
 		t.Fatal(err)
 	}
-	preAudit, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
-		Plus:  preAuditCaptureConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		Flash: preAuditCaptureConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	preAudit := insertHistoricalAIComparisonFixture(t, repository,
+		preAuditCaptureConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		preAuditCaptureConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	)
 	current, err := repository.PrepareControlledAITrial(ctx, "llm-mrolescope")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Reused || current.Plus.ID == preAudit.Plus.ID || current.Flash.ID == preAudit.Flash.ID {
+	if current.Reused || current.Plus.ID == preAudit.Plus.ID {
 		t.Fatalf("current/pre-audit candidates = current:%#v pre-audit:%#v; want distinct candidates", current, preAudit)
 	}
 }
 
-func TestPrepareControlledAITrialCreatesV3ConfigurationsWithoutReusingV2ResultsOrSending(t *testing.T) {
+func TestPrepareControlledAITrialCreatesV4ConfigurationsWithoutReusingV2ResultsOrSending(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
@@ -361,13 +287,10 @@ func TestPrepareControlledAITrialCreatesV3ConfigurationsWithoutReusingV2ResultsO
 	if err != nil {
 		t.Fatal(err)
 	}
-	historical, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
-		Plus:  legacyV2ConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		Flash: legacyV2ConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	historical := insertHistoricalAIComparisonFixture(t, repository,
+		legacyV2ConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		legacyV2ConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	)
 	if _, err := repository.EnsureAISemanticResult(ctx, historical.BodyContentVersionIDs[0], historical.Plus.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -375,8 +298,8 @@ func TestPrepareControlledAITrialCreatesV3ConfigurationsWithoutReusingV2ResultsO
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Reused || current.Plus.ID == historical.Plus.ID || current.Flash.ID == historical.Flash.ID {
-		t.Fatalf("v3 trial configuration reused a v2 identity: current:%#v historical:%#v", current, historical)
+	if current.Reused || current.Plus.ID == historical.Plus.ID {
+		t.Fatalf("v4 trial configuration reused a v2 identity: current:%#v historical:%#v", current, historical)
 	}
 	var resultCount, attempts int
 	if err := repository.pool.QueryRow(ctx, `
@@ -384,8 +307,8 @@ SELECT
   (SELECT count(*) FROM ai_semantic_results
    WHERE body_content_version_id = $1 AND ai_analysis_configuration_id IN ($2, $3)),
   (SELECT count(*) FROM ai_analysis_attempts
-   WHERE ai_analysis_configuration_id IN ($3, $4))`,
-		historical.BodyContentVersionIDs[0], historical.Plus.ID, current.Plus.ID, current.Flash.ID).Scan(&resultCount, &attempts); err != nil {
+   WHERE ai_analysis_configuration_id = $3)`,
+		historical.BodyContentVersionIDs[0], historical.Plus.ID, current.Plus.ID).Scan(&resultCount, &attempts); err != nil {
 		t.Fatal(err)
 	}
 	if resultCount != 2 || attempts != 0 {
@@ -407,13 +330,10 @@ func TestPrepareControlledAITrialDoesNotReuseHistoricalThirtyBodyV3Candidate(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	historical, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{
-		Plus:  legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
-		Flash: legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	historical := insertHistoricalAIComparisonFixture(t, repository,
+		legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID, plusProfile, QwenPlusTrialPricingProfile()),
+		legacyThirtyBodyV3ConfigurationInput(technologyConfigurationID, flashProfile, QwenFlashComparisonPricingProfile()),
+	)
 	if len(historical.BodyContentVersionIDs) != aiLegacyTrialSampleSizeV1 {
 		t.Fatalf("historical v3 trial body count = %d, want %d", len(historical.BodyContentVersionIDs), aiLegacyTrialSampleSizeV1)
 	}
@@ -422,7 +342,7 @@ func TestPrepareControlledAITrialDoesNotReuseHistoricalThirtyBodyV3Candidate(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Reused || current.Plus.ID == historical.Plus.ID || current.Flash.ID == historical.Flash.ID || len(current.BodyContentVersionIDs) != aiTrialSampleSize {
+	if current.Reused || current.Plus.ID == historical.Plus.ID || len(current.BodyContentVersionIDs) != aiTrialSampleSize {
 		t.Fatalf("current five-body candidate reused historical trial: current:%#v historical:%#v", current, historical)
 	}
 	var historicalPlusWork, currentPlusWork, currentAttempts int
@@ -430,8 +350,8 @@ func TestPrepareControlledAITrialDoesNotReuseHistoricalThirtyBodyV3Candidate(t *
 SELECT
   (SELECT count(*) FROM ai_analysis_work_items WHERE ai_analysis_configuration_id = $1),
   (SELECT count(*) FROM ai_analysis_work_items WHERE ai_analysis_configuration_id = $2),
-  (SELECT count(*) FROM ai_analysis_attempts WHERE ai_analysis_configuration_id IN ($2, $3))`,
-		historical.Plus.ID, current.Plus.ID, current.Flash.ID,
+  (SELECT count(*) FROM ai_analysis_attempts WHERE ai_analysis_configuration_id = $2)`,
+		historical.Plus.ID, current.Plus.ID,
 	).Scan(&historicalPlusWork, &currentPlusWork, &currentAttempts); err != nil {
 		t.Fatal(err)
 	}

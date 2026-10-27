@@ -65,7 +65,7 @@ func TestAIModelInputBuildsOnlyVerifiedMentionsAndResolvesProgramOwnedEvidence(t
 	}
 }
 
-func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *testing.T) {
+func TestAIModelInputRejectsCrossBodyMentionsAndKeepsModelRequirementCounts(t *testing.T) {
 	body := syntheticAISpanBody("Use Go.", "", "")
 	spans, err := NewAISpanIndex(body)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *test
 		t.Fatalf("cross-body mention error = %v, want redacted invalid evidence error", err)
 	}
 
-	input, err := buildAIModelInputForResponseSchemaVersion(AIResponseSchemaVersionV3, "request-01", body, spans, []VerifiedTechnologyMention{{
+	input, err := BuildAIModelInput("request-01", body, spans, []VerifiedTechnologyMention{{
 		BodyContentVersionID:  body.BodyContentVersionID,
 		CanonicalName:         "Go",
 		CodePointRange:        CodePointRange{Start: 4, End: 6},
@@ -99,11 +99,12 @@ func TestAIModelInputRejectsCrossBodyMentionsAndInvalidRequirementCounts(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.validatorVersion = AIValidatorVersionV3
-	response := strings.Replace(validAIModelResponseWithGoOption(2), AIResponseSchemaVersionV1, AIResponseSchemaVersionV3, 1)
-	_, err = input.ValidateAndMapResponse([]byte(response))
+	response, err := input.ValidateAndMapResponse([]byte(validAIModelResponseWithGoOption(2)))
 	if err != nil {
-		t.Fatalf("structurally valid but locally inconsistent min_satisfied error = %v, want field-level recovery eligibility", err)
+		t.Fatalf("ValidateAndMapResponse() error = %v, want model relation retained", err)
+	}
+	if len(response.RequirementGroups) != 1 || response.RequirementGroups[0].MinSatisfied != 2 || len(response.RequirementGroups[0].Options) != 1 {
+		t.Fatalf("requirement groups = %#v, want the model-supplied at_least=2 relation", response.RequirementGroups)
 	}
 }
 

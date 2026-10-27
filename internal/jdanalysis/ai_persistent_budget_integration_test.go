@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func prepareTestAIPlusTrial(t *testing.T, repository *Repository, technologyConfigurationID, configurationName string) AIPlusTrialPreparation {
+	t.Helper()
+	plus := testCandidateAIConfigurationInput(technologyConfigurationID, configurationName)
+	plus.PricingProfileVersion = QwenPlusTrialPricingProfile().Version
+	plus.PricingProfileSHA256 = QwenPlusTrialPricingProfile().SHA256()
+	prepared, err := repository.PrepareAIPlusTrial(context.Background(), AIPlusTrialPreparationInput{Plus: plus})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prepared
+}
+
 func TestPersistentAITrialBudgetSharesReservationsAndSettlesReturnedUsage(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -13,26 +25,15 @@ func TestPersistentAITrialBudgetSharesReservationsAndSettlesReturnedUsage(t *tes
 	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-persistent-budget-reference")
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
 
-	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-budget-plus")
-	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-budget-flash")
-	flash.Model = "qwen-flash"
-	flash.RequestProfileSHA256 = testSHA256("synthetic-persistent-budget-flash-request-profile")
-	flash.PricingProfileVersion = QwenFlashComparisonPricingProfile().Version
-	flash.PricingProfileSHA256 = QwenFlashComparisonPricingProfile().SHA256()
-	plus.PricingProfileVersion = QwenPlusTrialPricingProfile().Version
-	plus.PricingProfileSHA256 = QwenPlusTrialPricingProfile().SHA256()
-	prepared, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
-	if err != nil {
-		t.Fatal(err)
-	}
+	prepared := prepareTestAIPlusTrial(t, repository, technologyConfigurationID, "synthetic-persistent-budget-plus")
 
 	plusWorkID := firstPendingAIWorkID(t, repository, prepared.Plus.ID)
-	flashWorkID := firstPendingAIWorkID(t, repository, prepared.Flash.ID)
+	secondPlusWorkID := secondPendingAIWorkID(t, repository, prepared.Plus.ID)
 	plusBudget, err := repository.NewPersistentAITrialBudget(ctx, prepared.Plus.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	flashBudget, err := repository.NewPersistentAITrialBudget(ctx, prepared.Flash.ID)
+	secondProcessBudget, err := repository.NewPersistentAITrialBudget(ctx, prepared.Plus.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,14 +41,14 @@ func TestPersistentAITrialBudgetSharesReservationsAndSettlesReturnedUsage(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := flashBudget.Reserve(ctx, flashWorkID, 1, 100); err != nil {
+	if _, err := secondProcessBudget.Reserve(ctx, secondPlusWorkID, 1, 100); err != nil {
 		t.Fatal(err)
 	}
 	if err := plusBudget.RecordUsage(ctx, plusReservation, AIModelUsage{InputTokens: 100, OutputTokens: 20, TotalTokens: 120}); err != nil {
 		t.Fatal(err)
 	}
 
-	snapshot, err := flashBudget.Snapshot(ctx)
+	snapshot, err := secondProcessBudget.Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,16 +66,7 @@ func TestAISemanticProcessorPersistentTrialBudgetRecordsReturnedUsage(t *testing
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
 	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-persistent-processor-reference")
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
-	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-processor-plus")
-	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-processor-flash")
-	flash.Model = "qwen-flash"
-	flash.RequestProfileSHA256 = testSHA256("synthetic-persistent-processor-flash-request-profile")
-	flash.PricingProfileVersion = QwenFlashComparisonPricingProfile().Version
-	flash.PricingProfileSHA256 = QwenFlashComparisonPricingProfile().SHA256()
-	prepared, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
-	if err != nil {
-		t.Fatal(err)
-	}
+	prepared := prepareTestAIPlusTrial(t, repository, technologyConfigurationID, "synthetic-persistent-processor-plus")
 
 	processor := AISemanticProcessor{
 		Repository:                   repository,
@@ -122,18 +114,7 @@ func TestAISemanticProcessorRecoversReservedAttemptWithoutReusingItsNumber(t *te
 	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-persistent-recovery-reference")
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
 
-	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-recovery-plus")
-	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-recovery-flash")
-	flash.Model = "qwen-flash"
-	flash.RequestProfileSHA256 = testSHA256("synthetic-persistent-recovery-flash-request-profile")
-	flash.PricingProfileVersion = QwenFlashComparisonPricingProfile().Version
-	flash.PricingProfileSHA256 = QwenFlashComparisonPricingProfile().SHA256()
-	plus.PricingProfileVersion = QwenPlusTrialPricingProfile().Version
-	plus.PricingProfileSHA256 = QwenPlusTrialPricingProfile().SHA256()
-	prepared, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
-	if err != nil {
-		t.Fatal(err)
-	}
+	prepared := prepareTestAIPlusTrial(t, repository, technologyConfigurationID, "synthetic-persistent-recovery-plus")
 
 	interruptedRunID, err := repository.createAIAnalysisRun(ctx, aiProcessingConfiguration{ID: prepared.Plus.ID, Model: "qwen-plus", Status: "candidate"})
 	if err != nil {
@@ -190,18 +171,7 @@ func TestAISemanticProcessorSafelyFailsInterruptedWorkAfterThirdReservedAttempt(
 	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-persistent-exhausted-recovery-reference")
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
 
-	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-exhausted-recovery-plus")
-	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-exhausted-recovery-flash")
-	flash.Model = "qwen-flash"
-	flash.RequestProfileSHA256 = testSHA256("synthetic-persistent-exhausted-recovery-flash-request-profile")
-	flash.PricingProfileVersion = QwenFlashComparisonPricingProfile().Version
-	flash.PricingProfileSHA256 = QwenFlashComparisonPricingProfile().SHA256()
-	plus.PricingProfileVersion = QwenPlusTrialPricingProfile().Version
-	plus.PricingProfileSHA256 = QwenPlusTrialPricingProfile().SHA256()
-	prepared, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
-	if err != nil {
-		t.Fatal(err)
-	}
+	prepared := prepareTestAIPlusTrial(t, repository, technologyConfigurationID, "synthetic-persistent-exhausted-recovery-plus")
 
 	interruptedRunID, err := repository.createAIAnalysisRun(ctx, aiProcessingConfiguration{ID: prepared.Plus.ID, Model: "qwen-plus", Status: "candidate"})
 	if err != nil {
@@ -260,16 +230,7 @@ func TestAISemanticProcessorPersistentTrialBudgetPreservesNanoRMBUsage(t *testin
 	bodyID, dictionaryID, technologyID, ruleID := insertSyntheticAnalysisPrerequisites(t, repository)
 	technologyConfigurationID := preparePublishedTechnologyConfigurationForAI(t, repository, bodyID, dictionaryID, technologyID, ruleID, "synthetic-persistent-nano-reference")
 	insertSyntheticTrialEligibleBodies(t, repository, technologyConfigurationID, dictionaryID, 34)
-	plus := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-nano-plus")
-	flash := testCandidateAIConfigurationInput(technologyConfigurationID, "synthetic-persistent-nano-flash")
-	flash.Model = "qwen-flash"
-	flash.RequestProfileSHA256 = testSHA256("synthetic-persistent-nano-flash-request-profile")
-	flash.PricingProfileVersion = QwenFlashComparisonPricingProfile().Version
-	flash.PricingProfileSHA256 = QwenFlashComparisonPricingProfile().SHA256()
-	prepared, err := repository.PrepareAITrial(ctx, AITrialPreparationInput{Plus: plus, Flash: flash})
-	if err != nil {
-		t.Fatal(err)
-	}
+	prepared := prepareTestAIPlusTrial(t, repository, technologyConfigurationID, "synthetic-persistent-nano-plus")
 	if _, err := (AISemanticProcessor{
 		Repository:                   repository,
 		RequirePersistentTrialBudget: true,
@@ -303,6 +264,22 @@ FROM ai_analysis_work_items
 WHERE ai_analysis_configuration_id = $1
   AND status = 'pending'
 ORDER BY queued_at, id
+LIMIT 1`, configurationID).Scan(&workID); err != nil {
+		t.Fatal(err)
+	}
+	return workID
+}
+
+func secondPendingAIWorkID(t *testing.T, repository *Repository, configurationID string) string {
+	t.Helper()
+	var workID string
+	if err := repository.pool.QueryRow(context.Background(), `
+SELECT id::text
+FROM ai_analysis_work_items
+WHERE ai_analysis_configuration_id = $1
+  AND status = 'pending'
+ORDER BY queued_at, id
+OFFSET 1
 LIMIT 1`, configurationID).Scan(&workID); err != nil {
 		t.Fatal(err)
 	}

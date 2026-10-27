@@ -13,7 +13,6 @@ func TestParseAIAnalysisOperationAllowsOnlyFixedActions(t *testing.T) {
 		{"prepare-trial"},
 		{"run-plus-output-audit-diagnostic"},
 		{"run-plus-trial"},
-		{"run-flash-trial"},
 		{"expand-plus"},
 		{"publish-plus"},
 		{"status"},
@@ -26,6 +25,7 @@ func TestParseAIAnalysisOperationAllowsOnlyFixedActions(t *testing.T) {
 	for _, arguments := range [][]string{
 		nil,
 		{"qwen-plus"},
+		{"run-flash-trial"},
 		{"run-plus-trial", "qwen-flash"},
 		{"run-plus-trial", "--prompt", "anything"},
 		{"run-plus-trial", "--sql", "select 1"},
@@ -38,14 +38,15 @@ func TestParseAIAnalysisOperationAllowsOnlyFixedActions(t *testing.T) {
 	}
 }
 
-func TestParseAIReviewModelAllowsOnlyFixedTrialArms(t *testing.T) {
-	for _, arguments := range [][]string{{"plus"}, {"flash"}} {
+func TestParseAIReviewModelAllowsOnlyCurrentPlusTrial(t *testing.T) {
+	for _, arguments := range [][]string{{"plus"}} {
 		if _, err := parseAIReviewModel(arguments); err != nil {
 			t.Fatalf("fixed AI review arm %q rejected: %v", arguments, err)
 		}
 	}
 	for _, arguments := range [][]string{
 		nil,
+		{"flash"},
 		{"qwen-plus"},
 		{"plus", "--body-id", "00000000-0000-4000-8000-000000000001"},
 		{"plus", "--sql", "select 1"},
@@ -57,14 +58,15 @@ func TestParseAIReviewModelAllowsOnlyFixedTrialArms(t *testing.T) {
 	}
 }
 
-func TestParseAIOutputAuditModelAllowsOnlyFixedTrialArms(t *testing.T) {
-	for _, arguments := range [][]string{{"plus"}, {"flash"}} {
+func TestParseAIOutputAuditModelAllowsOnlyCurrentPlusTrial(t *testing.T) {
+	for _, arguments := range [][]string{{"plus"}} {
 		if _, err := parseAIOutputAuditModel(arguments); err != nil {
 			t.Fatalf("fixed AI output-audit arm %q rejected: %v", arguments, err)
 		}
 	}
 	for _, arguments := range [][]string{
 		nil,
+		{"flash"},
 		{"qwen-plus"},
 		{"plus", "--path", "/var/lib/mrolescope/ai-output-audit"},
 		{"plus", "--attempt", "1"},
@@ -82,7 +84,7 @@ func TestRunAIOutputAuditSafeCommandsAreAvailableWithoutTerminalAndRejectExtraAr
 		return
 	}
 
-	for _, operation := range []string{"status", "policy-diagnostic"} {
+	for _, operation := range []string{"status"} {
 		command := exec.Command(os.Args[0], "-test.run=TestRunAIOutputAuditSafeCommandsAreAvailableWithoutTerminalAndRejectExtraArguments")
 		command.Env = append(os.Environ(),
 			"GO_WANT_AI_OUTPUT_AUDIT_STATUS_HELPER=1",

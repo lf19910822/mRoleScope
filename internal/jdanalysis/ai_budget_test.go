@@ -115,14 +115,15 @@ func TestAIInputTokenEstimatorContractIncludesFixedChatEnvelope(t *testing.T) {
 	}
 }
 
-func TestConservativeAIInputTokenEstimatorCountsV3PromptAndSchema(t *testing.T) {
+func TestConservativeAIInputTokenEstimatorCountsV4PromptAndSchema(t *testing.T) {
 	input := syntheticSemanticModelInput(t)
-	input.responseContract.responseSchemaVersion = AIResponseSchemaVersionV3
+	input.responseContract.responseSchemaVersion = AIResponseSchemaVersionV4
+	input.systemPrompt = AISystemPromptV4()
 	encoded, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	promptTokens, err := conservativeQwenTokenCount(AISystemPromptV3())
+	promptTokens, err := conservativeQwenTokenCount(AISystemPromptV4())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,13 +131,13 @@ func TestConservativeAIInputTokenEstimatorCountsV3PromptAndSchema(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	schemaTokens, err := conservativeQwenTokenCount(AIResponseSchemaV3())
+	schemaTokens, err := conservativeQwenTokenCount(AIResponseSchemaV4())
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := promptTokens + inputTokens + schemaTokens + qwenChatEnvelopeTokens
 	if got, err := (ConservativeAIInputTokenEstimator{}).Estimate(input); err != nil || got != want {
-		t.Fatalf("v3 request token estimate = %d, %v; want %d", got, err, want)
+		t.Fatalf("v4 request token estimate = %d, %v; want %d", got, err, want)
 	}
 }
 
@@ -184,10 +185,10 @@ func TestAITrialBudgetGateEnforcesFixedTrialCapsAndRecordsUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aiTrialMaximumLogicalTasks != 10 || aiTrialMaximumAttempts != 30 {
-		t.Fatalf("trial capacity = %d logical tasks / %d attempts, want 10/30", aiTrialMaximumLogicalTasks, aiTrialMaximumAttempts)
+	if aiTrialMaximumLogicalTasks != 5 || aiTrialMaximumAttempts != 15 {
+		t.Fatalf("trial capacity = %d logical tasks / %d attempts, want 5/15", aiTrialMaximumLogicalTasks, aiTrialMaximumAttempts)
 	}
-	for logicalTask := 1; logicalTask <= 10; logicalTask++ {
+	for logicalTask := 1; logicalTask <= 5; logicalTask++ {
 		for attempt := 1; attempt <= 3; attempt++ {
 			reservation, err := gate.Reserve("task-"+twoDigit(logicalTask), "task-"+twoDigit(logicalTask)+":attempt-"+twoDigit(attempt), 100)
 			if err != nil {
@@ -199,11 +200,11 @@ func TestAITrialBudgetGateEnforcesFixedTrialCapsAndRecordsUsage(t *testing.T) {
 		}
 	}
 	snapshot := gate.Snapshot()
-	if snapshot.LogicalTaskCount != 10 || snapshot.AttemptCount != 30 || snapshot.ChargedNanoRMB != 10*3*15 {
+	if snapshot.LogicalTaskCount != 5 || snapshot.AttemptCount != 15 || snapshot.ChargedNanoRMB != 5*3*15 {
 		t.Fatalf("budget snapshot = %#v", snapshot)
 	}
-	if _, err := gate.Reserve("task-11", "task-11:attempt-01", 100); err == nil || !strings.Contains(err.Error(), string(AISafeErrorBudgetExhausted)) {
-		t.Fatalf("11th logical task error = %v, want safe budget failure", err)
+	if _, err := gate.Reserve("task-06", "task-06:attempt-01", 100); err == nil || !strings.Contains(err.Error(), string(AISafeErrorBudgetExhausted)) {
+		t.Fatalf("sixth logical task error = %v, want safe budget failure", err)
 	}
 	if profile := QwenPlusTrialPricingProfile(); profile.MaxInputTokens != 10000 || profile.MaxOutputTokens != 5000 || profile.Model != "qwen-plus" {
 		t.Fatalf("Plus pricing profile is not fixed to the trial request profile: %#v", profile)
