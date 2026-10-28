@@ -28,6 +28,9 @@
   evidence.
 - [x] 3.2 Run `openspec validate automate-source-unavailable-closure --strict`
   and resolve all findings.
-- [ ] 3.3 Deploy only through the established immutable-image/GitHub Actions
+- [x] 3.3 Deploy only through the established immutable-image/GitHub Actions
   workflow; allow the next complete sync to transition verified jobs and
   verify aggregate lifecycle counts without outputting source IDs or JD text.
+  Completed by deployment run #29 and one audited 2026-10-28 synchronization:
+  four source-confirmed closures, two detail-available list omissions retained,
+  and zero remaining open missing markers.
