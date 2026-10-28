@@ -1,0 +1,20 @@
+{
+  "version": "deterministic-experience-lexicon-v1",
+  "chinese_numbers": {
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10
+  },
+  "experience_anchors": ["经验", "经历", "从业"],
+  "priority_markers": ["优先考虑", "优先", "加分", "更佳", "优聘"],
+  "unrestricted_markers": ["经验不限", "无需经验", "无经验"],
+  "education_condition_markers": ["大专", "专科", "本科", "学士", "硕士", "研究生", "博士"]
+}

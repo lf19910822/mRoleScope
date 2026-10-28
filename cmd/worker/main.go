@@ -543,6 +543,20 @@ func runPendingAnalysis(arguments []string) {
 			"reused", educationSummary.Reused,
 		)
 	}
+	experienceSummary, experienceErr := jdanalysis.ProcessPendingExperienceRequirements(ctx, repository)
+	if experienceErr != nil {
+		// This path is provider-free and independent from technology publication.
+		// Keep diagnostics safe because database failures can contain remote values.
+		slog.Error("deterministic experience analysis failed")
+	} else {
+		slog.Info("deterministic experience analysis completed",
+			"processed", experienceSummary.Processed,
+			"reused", experienceSummary.Reused,
+			"configured", experienceSummary.Configured,
+			"not_configured", experienceSummary.NotConfigured,
+			"uncertain", experienceSummary.Uncertain,
+		)
+	}
 	configurationID, err := repository.PublishedConfigurationID(ctx)
 	var summary jdanalysis.ProcessSummary
 	technologyErr := err
@@ -554,7 +568,7 @@ func runPendingAnalysis(arguments []string) {
 			slog.Error(jdanalysis.SafeOperationMessage(technologyErr), "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
 		}
 	}
-	if projectErr != nil || educationErr != nil || technologyErr != nil {
+	if projectErr != nil || educationErr != nil || experienceErr != nil || technologyErr != nil {
 		os.Exit(1)
 	}
 	slog.Info("analysis completed",
@@ -563,6 +577,11 @@ func runPendingAnalysis(arguments []string) {
 		"project_unidentified", projectSummary.Unidentified,
 		"education_processed", educationSummary.Processed,
 		"education_reused", educationSummary.Reused,
+		"experience_processed", experienceSummary.Processed,
+		"experience_reused", experienceSummary.Reused,
+		"experience_configured", experienceSummary.Configured,
+		"experience_not_configured", experienceSummary.NotConfigured,
+		"experience_uncertain", experienceSummary.Uncertain,
 		"claimed", summary.Claimed,
 		"completed", summary.Completed,
 		"failed", summary.Failed,
