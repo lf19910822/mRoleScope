@@ -1205,6 +1205,93 @@ func (ns NullEducationRequirementResultStatus) Value() (driver.Value, error) {
 	return string(ns.EducationRequirementResultStatus), nil
 }
 
+type ExperienceRequirementModality string
+
+const (
+	ExperienceRequirementModalityRequired    ExperienceRequirementModality = "required"
+	ExperienceRequirementModalityPreferred   ExperienceRequirementModality = "preferred"
+	ExperienceRequirementModalityConditional ExperienceRequirementModality = "conditional"
+	ExperienceRequirementModalityUncertain   ExperienceRequirementModality = "uncertain"
+)
+
+func (e *ExperienceRequirementModality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExperienceRequirementModality(s)
+	case string:
+		*e = ExperienceRequirementModality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExperienceRequirementModality: %T", src)
+	}
+	return nil
+}
+
+type NullExperienceRequirementModality struct {
+	ExperienceRequirementModality ExperienceRequirementModality
+	Valid                         bool // Valid is true if ExperienceRequirementModality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExperienceRequirementModality) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExperienceRequirementModality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExperienceRequirementModality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExperienceRequirementModality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExperienceRequirementModality), nil
+}
+
+type ExperienceRequirementResultStatus string
+
+const (
+	ExperienceRequirementResultStatusNotConfigured ExperienceRequirementResultStatus = "not_configured"
+	ExperienceRequirementResultStatusUncertain     ExperienceRequirementResultStatus = "uncertain"
+	ExperienceRequirementResultStatusConfigured    ExperienceRequirementResultStatus = "configured"
+)
+
+func (e *ExperienceRequirementResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExperienceRequirementResultStatus(s)
+	case string:
+		*e = ExperienceRequirementResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExperienceRequirementResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullExperienceRequirementResultStatus struct {
+	ExperienceRequirementResultStatus ExperienceRequirementResultStatus
+	Valid                             bool // Valid is true if ExperienceRequirementResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExperienceRequirementResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExperienceRequirementResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExperienceRequirementResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExperienceRequirementResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExperienceRequirementResultStatus), nil
+}
+
 type ProjectTagClassification string
 
 const (
@@ -2129,6 +2216,32 @@ type ExperienceRequirement struct {
 	ExperienceDomain   pgtype.Text
 	RelationGroup      pgtype.Text
 	Evidence           []byte
+}
+
+type ExperienceRequirementEvidence struct {
+	ID                            pgtype.UUID
+	ExperienceRequirementResultID pgtype.UUID
+	RuleKey                       string
+	Modality                      ExperienceRequirementModality
+	MinimumYears                  int32
+	SourceField                   string
+	NormalizationVersion          string
+	NormalizedFieldSha256         string
+	CodepointStart                int32
+	CodepointEnd                  int32
+	CreatedAt                     pgtype.Timestamptz
+}
+
+type ExperienceRequirementResult struct {
+	ID                   pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	ParserVersion        string
+	LexiconVersion       string
+	LexiconSha256        string
+	Status               ExperienceRequirementResultStatus
+	BaseYear             pgtype.Int4
+	CreatedAt            pgtype.Timestamptz
+	CompletedAt          pgtype.Timestamptz
 }
 
 type JdVersion struct {
