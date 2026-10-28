@@ -842,6 +842,21 @@ FOR UPDATE`, input.Scope.ID)
 			result = RecheckResult{Outcome: RecheckIndeterminate, Code: "missing_recheck_not_run"}
 		}
 		now := input.Manifest.FinishedAt.UTC()
+		if result.Outcome == RecheckAvailable {
+			if _, err := tx.Exec(ctx, `
+UPDATE job_presence_periods
+SET first_missing_run_id = NULL, first_missing_at = NULL
+WHERE id = $1`, period.ID); err != nil {
+				return fmt.Errorf("clear missing job %s after available detail recheck: %w", period.SourceJobID, err)
+			}
+			if err := appendAuditTx(ctx, tx, input.Run, AuditEvent{
+				Stage: "missing-recheck", Severity: "info", Code: result.Code, Message: "job was absent from list but detail remained available",
+				Diagnostics: map[string]any{"source_job_id": period.SourceJobID, "outcome": result.Outcome},
+			}); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := tx.Exec(ctx, `
 UPDATE job_presence_periods
 SET first_missing_run_id = COALESCE(first_missing_run_id, $2),
@@ -849,14 +864,8 @@ SET first_missing_run_id = COALESCE(first_missing_run_id, $2),
 WHERE id = $1`, period.ID, input.Run.ID, now); err != nil {
 			return fmt.Errorf("mark first missing job %s: %w", period.SourceJobID, err)
 		}
-		severity := "warning"
-		message := "job was absent from the validated list"
-		if result.Outcome == RecheckAvailable {
-			severity = "info"
-			message = "job was absent from list but detail remained available"
-		}
 		if err := appendAuditTx(ctx, tx, input.Run, AuditEvent{
-			Stage: "missing-recheck", Severity: severity, Code: result.Code, Message: message,
+			Stage: "missing-recheck", Severity: "warning", Code: result.Code, Message: "job was absent from the validated list",
 			Diagnostics: map[string]any{"source_job_id": period.SourceJobID, "outcome": result.Outcome},
 		}); err != nil {
 			return err
