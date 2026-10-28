@@ -518,17 +518,55 @@ func runPendingAnalysis(arguments []string) {
 		os.Exit(1)
 	}
 	defer repository.Close()
+	projectSummary, projectErr := jdanalysis.ProcessPendingProjectTags(ctx, repository)
+	if projectErr != nil {
+		// Project tags are derived only from immutable source titles. Keep their
+		// failure downstream of source synchronization and do not expose remote
+		// title or database values through the operation boundary.
+		slog.Error("deterministic project-tag analysis failed")
+	} else {
+		slog.Info("deterministic project-tag analysis completed",
+			"processed", projectSummary.Processed,
+			"reused", projectSummary.Reused,
+			"unidentified", projectSummary.Unidentified,
+		)
+	}
+	educationSummary, educationErr := jdanalysis.ProcessPendingEducationRequirements(ctx, repository)
+	if educationErr != nil {
+		// The deterministic education path is independent from technology
+		// publication. Do not expose a database error because it can carry
+		// remote values; retain only a fixed operation-level message.
+		slog.Error("deterministic education analysis failed")
+	} else {
+		slog.Info("deterministic education analysis completed",
+			"processed", educationSummary.Processed,
+			"reused", educationSummary.Reused,
+		)
+	}
 	configurationID, err := repository.PublishedConfigurationID(ctx)
-	if err != nil {
-		slog.Error(jdanalysis.SafeOperationMessage(err))
+	var summary jdanalysis.ProcessSummary
+	technologyErr := err
+	if technologyErr != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(technologyErr))
+	} else {
+		summary, technologyErr = (jdanalysis.Processor{Repository: repository}).ProcessPending(ctx, configurationID)
+		if technologyErr != nil {
+			slog.Error(jdanalysis.SafeOperationMessage(technologyErr), "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+		}
+	}
+	if projectErr != nil || educationErr != nil || technologyErr != nil {
 		os.Exit(1)
 	}
-	summary, err := (jdanalysis.Processor{Repository: repository}).ProcessPending(ctx, configurationID)
-	if err != nil {
-		slog.Error(jdanalysis.SafeOperationMessage(err), "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
-		os.Exit(1)
-	}
-	slog.Info("analysis completed", "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+	slog.Info("analysis completed",
+		"project_processed", projectSummary.Processed,
+		"project_reused", projectSummary.Reused,
+		"project_unidentified", projectSummary.Unidentified,
+		"education_processed", educationSummary.Processed,
+		"education_reused", educationSummary.Reused,
+		"claimed", summary.Claimed,
+		"completed", summary.Completed,
+		"failed", summary.Failed,
+	)
 }
 
 // runVersionedContentBackfill has a deliberately narrow interface because it

@@ -1,0 +1,20 @@
+{
+  "version": "deterministic-project-dictionary-v1",
+  "entries": [
+    {"project_key":"game.varsapura","display_name":"Varsapura","classification":"named_game","enabled":true,"keywords":[{"value":"Varsapura","ascii_case_insensitive":true,"ascii_identifier_boundary":true}]},
+    {"project_key":"game.yuanchu-zhijie","display_name":"源初之结","classification":"named_game","enabled":true,"keywords":[{"value":"源初之结"}]},
+    {"project_key":"game.xingbu-gudi","display_name":"星布谷地","classification":"named_game","enabled":true,"keywords":[{"value":"星布谷地"}]},
+    {"project_key":"game.zenless-zone-zero","display_name":"绝区零","classification":"named_game","enabled":true,"keywords":[{"value":"绝区零"}]},
+    {"project_key":"game.honkai-nexus-anima","display_name":"崩坏：因缘精灵","classification":"named_game","enabled":true,"keywords":[{"value":"崩坏：因缘精灵"}]},
+    {"project_key":"game.genshin-impact","display_name":"原神","classification":"named_game","enabled":true,"keywords":[{"value":"原神"}]},
+    {"project_key":"game.honkai-star-rail","display_name":"崩坏：星穹铁道","classification":"named_game","enabled":true,"keywords":[{"value":"崩坏：星穹铁道"}]},
+    {"project_key":"game.honkai-impact-3rd","display_name":"崩坏3","classification":"named_game","enabled":true,"keywords":[{"value":"崩坏3"}]},
+    {"project_key":"game.houkai-gakuen-2nd","display_name":"崩坏学园2","classification":"named_game","enabled":true,"keywords":[{"value":"崩坏学园2"}]},
+    {"project_key":"game.tears-of-themis","display_name":"未定事件簿","classification":"named_game","enabled":true,"keywords":[{"value":"未定事件簿"}]},
+    {"project_key":"direction.ue5-realistic-shooter-research","display_name":"UE5写实射击预研","classification":"source_direction","enabled":true,"keywords":[{"value":"UE5写实射击预研","ascii_case_insensitive":true,"ascii_identifier_boundary":true}]},
+    {"project_key":"direction.foundation-model","display_name":"基模","classification":"source_direction","enabled":true,"keywords":[{"value":"基模"}]},
+    {"project_key":"direction.research-project","display_name":"预研项目","classification":"source_direction","enabled":true,"keywords":[{"value":"预研项目"}]},
+    {"project_key":"direction.ai-engine","display_name":"AI引擎","classification":"source_direction","enabled":true,"keywords":[{"value":"AI引擎","ascii_case_insensitive":true,"ascii_identifier_boundary":true}]},
+    {"project_key":"direction.sandbox-research","display_name":"沙盒预研","classification":"source_direction","enabled":true,"keywords":[{"value":"沙盒预研"}]}
+  ]
+}
