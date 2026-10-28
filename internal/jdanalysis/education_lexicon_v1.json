@@ -1,0 +1,43 @@
+{
+  "version": "deterministic-education-lexicon-v1",
+  "rules": [
+    {"rule_key":"education.associate_or_lower.zhuanke","level":"associate_or_lower","alias":"专科"},
+    {"rule_key":"education.associate_or_lower.dazhuan","level":"associate_or_lower","alias":"大专"},
+    {"rule_key":"education.associate_or_lower.gaozhi","level":"associate_or_lower","alias":"高职"},
+    {"rule_key":"education.associate_or_lower.gaozhuan","level":"associate_or_lower","alias":"高专"},
+    {"rule_key":"education.associate_or_lower.zhongzhuan","level":"associate_or_lower","alias":"中专"},
+    {"rule_key":"education.associate_or_lower.zhongzhi","level":"associate_or_lower","alias":"中职"},
+    {"rule_key":"education.associate_or_lower.zhigao","level":"associate_or_lower","alias":"职高"},
+    {"rule_key":"education.associate_or_lower.zhixiao","level":"associate_or_lower","alias":"职校"},
+    {"rule_key":"education.associate_or_lower.jixiao","level":"associate_or_lower","alias":"技校"},
+    {"rule_key":"education.associate_or_lower.jigongxuexiao","level":"associate_or_lower","alias":"技工学校"},
+    {"rule_key":"education.associate_or_lower.zhiyegaozhong","level":"associate_or_lower","alias":"职业高中"},
+    {"rule_key":"education.associate_or_lower.gaozhong","level":"associate_or_lower","alias":"高中"},
+
+    {"rule_key":"education.bachelor.benke","level":"bachelor","alias":"本科"},
+    {"rule_key":"education.bachelor.daxuebenke","level":"bachelor","alias":"大学本科"},
+    {"rule_key":"education.bachelor.xueshi","level":"bachelor","alias":"学士"},
+    {"rule_key":"education.bachelor.xueshixuewei","level":"bachelor","alias":"学士学位"},
+    {"rule_key":"education.bachelor.tongzhaobenke","level":"bachelor","alias":"统招本科"},
+    {"rule_key":"education.bachelor.quanribenke","level":"bachelor","alias":"全日制本科"},
+    {"rule_key":"education.bachelor.zhuanshengben","level":"bachelor","alias":"专升本"},
+
+    {"rule_key":"education.master.shuoshi","level":"master","alias":"硕士"},
+    {"rule_key":"education.master.master_student","level":"master","alias":"硕士研究生"},
+    {"rule_key":"education.master.postgraduate","level":"master","alias":"研究生"},
+    {"rule_key":"education.master.professional_master","level":"master","alias":"专业硕士"},
+    {"rule_key":"education.master.engineering_master","level":"master","alias":"工程硕士"},
+    {"rule_key":"education.master.mba","level":"master","alias":"MBA","ascii_case_insensitive":true},
+    {"rule_key":"education.master.emba","level":"master","alias":"EMBA","ascii_case_insensitive":true},
+    {"rule_key":"education.master.mpa","level":"master","alias":"MPA","ascii_case_insensitive":true},
+    {"rule_key":"education.master.mem","level":"master","alias":"MEM","ascii_case_insensitive":true},
+    {"rule_key":"education.master.master_doctor","level":"master","alias":"硕博"},
+
+    {"rule_key":"education.doctor.boshi","level":"doctor","alias":"博士"},
+    {"rule_key":"education.doctor.doctoral_student","level":"doctor","alias":"博士研究生"},
+    {"rule_key":"education.doctor.doctoral_degree","level":"doctor","alias":"博士学位"},
+    {"rule_key":"education.doctor.phd","level":"doctor","alias":"PhD","ascii_case_insensitive":true},
+    {"rule_key":"education.doctor.phd_dotted","level":"doctor","alias":"Ph.D.","ascii_case_insensitive":true},
+    {"rule_key":"education.doctor.dba","level":"doctor","alias":"DBA","ascii_case_insensitive":true}
+  ]
+}

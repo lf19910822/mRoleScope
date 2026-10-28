@@ -1075,6 +1075,219 @@ func (ns NullCollectionTriggerKind) Value() (driver.Value, error) {
 	return string(ns.CollectionTriggerKind), nil
 }
 
+type DeterministicEducationLevel string
+
+const (
+	DeterministicEducationLevelAssociateOrLower DeterministicEducationLevel = "associate_or_lower"
+	DeterministicEducationLevelBachelor         DeterministicEducationLevel = "bachelor"
+	DeterministicEducationLevelMaster           DeterministicEducationLevel = "master"
+	DeterministicEducationLevelDoctor           DeterministicEducationLevel = "doctor"
+)
+
+func (e *DeterministicEducationLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DeterministicEducationLevel(s)
+	case string:
+		*e = DeterministicEducationLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DeterministicEducationLevel: %T", src)
+	}
+	return nil
+}
+
+type NullDeterministicEducationLevel struct {
+	DeterministicEducationLevel DeterministicEducationLevel
+	Valid                       bool // Valid is true if DeterministicEducationLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDeterministicEducationLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.DeterministicEducationLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DeterministicEducationLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDeterministicEducationLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DeterministicEducationLevel), nil
+}
+
+type EducationRequirementModality string
+
+const (
+	EducationRequirementModalityRequired     EducationRequirementModality = "required"
+	EducationRequirementModalityPreferred    EducationRequirementModality = "preferred"
+	EducationRequirementModalityUnrestricted EducationRequirementModality = "unrestricted"
+)
+
+func (e *EducationRequirementModality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EducationRequirementModality(s)
+	case string:
+		*e = EducationRequirementModality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EducationRequirementModality: %T", src)
+	}
+	return nil
+}
+
+type NullEducationRequirementModality struct {
+	EducationRequirementModality EducationRequirementModality
+	Valid                        bool // Valid is true if EducationRequirementModality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEducationRequirementModality) Scan(value interface{}) error {
+	if value == nil {
+		ns.EducationRequirementModality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EducationRequirementModality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEducationRequirementModality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EducationRequirementModality), nil
+}
+
+type EducationRequirementResultStatus string
+
+const (
+	EducationRequirementResultStatusNotConfigured EducationRequirementResultStatus = "not_configured"
+	EducationRequirementResultStatusUncertain     EducationRequirementResultStatus = "uncertain"
+	EducationRequirementResultStatusConfigured    EducationRequirementResultStatus = "configured"
+)
+
+func (e *EducationRequirementResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EducationRequirementResultStatus(s)
+	case string:
+		*e = EducationRequirementResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EducationRequirementResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullEducationRequirementResultStatus struct {
+	EducationRequirementResultStatus EducationRequirementResultStatus
+	Valid                            bool // Valid is true if EducationRequirementResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEducationRequirementResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.EducationRequirementResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EducationRequirementResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEducationRequirementResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EducationRequirementResultStatus), nil
+}
+
+type ProjectTagClassification string
+
+const (
+	ProjectTagClassificationNamedGame       ProjectTagClassification = "named_game"
+	ProjectTagClassificationSourceDirection ProjectTagClassification = "source_direction"
+)
+
+func (e *ProjectTagClassification) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProjectTagClassification(s)
+	case string:
+		*e = ProjectTagClassification(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProjectTagClassification: %T", src)
+	}
+	return nil
+}
+
+type NullProjectTagClassification struct {
+	ProjectTagClassification ProjectTagClassification
+	Valid                    bool // Valid is true if ProjectTagClassification is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProjectTagClassification) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProjectTagClassification, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProjectTagClassification.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProjectTagClassification) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProjectTagClassification), nil
+}
+
+type ProjectTagResultStatus string
+
+const (
+	ProjectTagResultStatusComplete ProjectTagResultStatus = "complete"
+)
+
+func (e *ProjectTagResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProjectTagResultStatus(s)
+	case string:
+		*e = ProjectTagResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProjectTagResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullProjectTagResultStatus struct {
+	ProjectTagResultStatus ProjectTagResultStatus
+	Valid                  bool // Valid is true if ProjectTagResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProjectTagResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProjectTagResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProjectTagResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProjectTagResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProjectTagResultStatus), nil
+}
+
 type TechnologyAnalysisConfigurationStatus string
 
 const (
@@ -1881,6 +2094,32 @@ type EducationRequirement struct {
 	Evidence              []byte
 }
 
+type EducationRequirementEvidence struct {
+	ID                           pgtype.UUID
+	EducationRequirementResultID pgtype.UUID
+	RuleKey                      string
+	Modality                     EducationRequirementModality
+	SourceField                  string
+	NormalizationVersion         string
+	NormalizedFieldSha256        string
+	CodepointStart               int32
+	CodepointEnd                 int32
+	CreatedAt                    pgtype.Timestamptz
+}
+
+type EducationRequirementResult struct {
+	ID                   pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	ParserVersion        string
+	LexiconVersion       string
+	LexiconSha256        string
+	Status               EducationRequirementResultStatus
+	LowerBoundLevel      NullDeterministicEducationLevel
+	UpperBoundLevel      NullDeterministicEducationLevel
+	CreatedAt            pgtype.Timestamptz
+	CompletedAt          pgtype.Timestamptz
+}
+
 type ExperienceRequirement struct {
 	ID                 pgtype.UUID
 	ParsedVersionID    pgtype.UUID
@@ -2034,6 +2273,51 @@ type ParsedVersion struct {
 	Status       string
 	Evidence     []byte
 	CreatedAt    pgtype.Timestamptz
+}
+
+type ProjectTagAssignment struct {
+	ID                 pgtype.UUID
+	ProjectTagResultID pgtype.UUID
+	ProjectKey         string
+	DisplayName        string
+	Classification     ProjectTagClassification
+	CreatedAt          pgtype.Timestamptz
+}
+
+type ProjectTagEvidence struct {
+	ID                     pgtype.UUID
+	ProjectTagAssignmentID pgtype.UUID
+	MatchedKeyword         string
+	NormalizationVersion   string
+	NormalizedTitleSha256  string
+	CodepointStart         int32
+	CodepointEnd           int32
+	CreatedAt              pgtype.Timestamptz
+}
+
+type ProjectTagResult struct {
+	ID                     pgtype.UUID
+	ProjectTitleIdentityID pgtype.UUID
+	ParserVersion          string
+	DictionaryVersion      string
+	DictionarySha256       string
+	Status                 ProjectTagResultStatus
+	CreatedAt              pgtype.Timestamptz
+	CompletedAt            pgtype.Timestamptz
+}
+
+type ProjectTitleIdentity struct {
+	ID                   pgtype.UUID
+	TitleSha256          string
+	NormalizationVersion string
+	NormalizedTitle      string
+	CreatedAt            pgtype.Timestamptz
+}
+
+type ProjectTitleObservation struct {
+	SourceMetadataVersionID pgtype.UUID
+	ProjectTitleIdentityID  pgtype.UUID
+	CreatedAt               pgtype.Timestamptz
 }
 
 type PublicationState struct {
