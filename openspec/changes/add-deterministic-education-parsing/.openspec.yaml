@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-28
+goal: Parse JD education requirements without model calls, preserve source
+  evidence and explicit upper/lower bounds, and route the formal JD-modeling
+  result through the deterministic pipeline.

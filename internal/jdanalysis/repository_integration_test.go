@@ -88,7 +88,9 @@ func newIntegrationRepository(t *testing.T) *Repository {
 	t.Cleanup(repository.Close)
 	acquireIntegrationTestLock(t, repository.pool)
 	if _, err := repository.pool.Exec(context.Background(), `
-TRUNCATE technology_mention_evidence, technology_mentions, technology_analysis_results,
+TRUNCATE project_tag_evidence, project_tag_assignments, project_tag_results,
+         project_title_observations, project_title_identities,
+         technology_mention_evidence, technology_mentions, technology_analysis_results,
          technology_analysis_configuration_rules,
          technology_dictionary_candidates, technology_dictionary_rule_decisions,
          technology_dictionary_rules, technology_dictionary_versions,
