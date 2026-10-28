@@ -80,6 +80,74 @@ func TestRepositorySCD2Lifecycle(t *testing.T) {
 	}
 }
 
+func TestRepositoryListOmissionWithAvailableDetailClearsMissingMarker(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC)
+	publishFixtureRun(t, repository, scope, base, 1, []Observation{integrationObservation("v1", base)}, nil)
+	publishFixtureRun(t, repository, scope, base.Add(time.Minute), 1, nil, map[string]RecheckResult{
+		"8771": {Outcome: RecheckIndeterminate, Code: "fixture_indeterminate"},
+	})
+	publishFixtureRun(t, repository, scope, base.Add(2*time.Minute), 1, nil, map[string]RecheckResult{
+		"8771": {Outcome: RecheckAvailable, Code: "detail_available"},
+	})
+
+	var missingCleared, stillOpen bool
+	if err := repository.pool.QueryRow(ctx, `
+SELECT first_missing_at IS NULL, closed_at IS NULL
+FROM job_presence_periods p
+JOIN jobs j ON j.id = p.job_id
+WHERE p.observation_scope_id = $1 AND j.source_job_id = '8771'`, scope.ID).Scan(&missingCleared, &stillOpen); err != nil {
+		t.Fatal(err)
+	}
+	if !missingCleared || !stillOpen {
+		t.Fatalf("list omission with available detail left invalid lifecycle state: missingCleared=%t stillOpen=%t", missingCleared, stillOpen)
+	}
+}
+
+func TestRepositoryAutomaticSourceClosureRetainsSafeEvidence(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC)
+	publishFixtureRun(t, repository, scope, base, 1, []Observation{integrationObservation("v1", base)}, nil)
+	closureRun := publishFixtureRun(t, repository, scope, base.Add(time.Minute), 1, nil, map[string]RecheckResult{
+		"8771": {Outcome: RecheckDefinitelyUnavailable, Code: "source_explicitly_unavailable"},
+	})
+
+	var closed, closureReason, recheckCode string
+	if err := repository.pool.QueryRow(ctx, `
+SELECT
+    to_char(closed_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
+    closure_reason,
+    closure_evidence ->> 'recheck_code'
+FROM job_presence_periods p
+JOIN jobs j ON j.id = p.job_id
+WHERE p.observation_scope_id = $1 AND j.source_job_id = '8771'`, scope.ID).Scan(&closed, &closureReason, &recheckCode); err != nil {
+		t.Fatal(err)
+	}
+	if closed == "" || closureReason != "detail_definitively_unavailable" || recheckCode != "source_explicitly_unavailable" {
+		t.Fatalf("closure evidence = closed:%q reason:%q code:%q", closed, closureReason, recheckCode)
+	}
+	var auditEvents int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM collection_run_audit_events
+WHERE run_id = $1 AND stage = 'missing-recheck' AND code = 'source_explicitly_unavailable'`, closureRun.ID).Scan(&auditEvents); err != nil {
+		t.Fatal(err)
+	}
+	if auditEvents != 1 {
+		t.Fatalf("source closure audit events = %d, want 1", auditEvents)
+	}
+}
+
 func TestRepositoryPublishIsIdempotent(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
