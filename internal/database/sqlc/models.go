@@ -1292,6 +1292,92 @@ func (ns NullExperienceRequirementResultStatus) Value() (driver.Value, error) {
 	return string(ns.ExperienceRequirementResultStatus), nil
 }
 
+type JobFamilyObservationStatus string
+
+const (
+	JobFamilyObservationStatusInScope      JobFamilyObservationStatus = "in_scope"
+	JobFamilyObservationStatusOutOfScope   JobFamilyObservationStatus = "out_of_scope"
+	JobFamilyObservationStatusScopeUnknown JobFamilyObservationStatus = "scope_unknown"
+	JobFamilyObservationStatusInvalidTitle JobFamilyObservationStatus = "invalid_title"
+)
+
+func (e *JobFamilyObservationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = JobFamilyObservationStatus(s)
+	case string:
+		*e = JobFamilyObservationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for JobFamilyObservationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullJobFamilyObservationStatus struct {
+	JobFamilyObservationStatus JobFamilyObservationStatus
+	Valid                      bool // Valid is true if JobFamilyObservationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullJobFamilyObservationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.JobFamilyObservationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.JobFamilyObservationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullJobFamilyObservationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.JobFamilyObservationStatus), nil
+}
+
+type JobFamilyResultStatus string
+
+const (
+	JobFamilyResultStatusClassified   JobFamilyResultStatus = "classified"
+	JobFamilyResultStatusUnclassified JobFamilyResultStatus = "unclassified"
+)
+
+func (e *JobFamilyResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = JobFamilyResultStatus(s)
+	case string:
+		*e = JobFamilyResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for JobFamilyResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullJobFamilyResultStatus struct {
+	JobFamilyResultStatus JobFamilyResultStatus
+	Valid                 bool // Valid is true if JobFamilyResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullJobFamilyResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.JobFamilyResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.JobFamilyResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullJobFamilyResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.JobFamilyResultStatus), nil
+}
+
 type ProjectTagClassification string
 
 const (
@@ -2310,6 +2396,81 @@ type JobContentPeriod struct {
 	// Exclusive SCD2 boundary: a content period is [valid_from, valid_to).
 	ValidTo   pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type JobFamilyMatch struct {
+	ID                pgtype.UUID
+	JobFamilyResultID pgtype.UUID
+	FamilyKey         string
+	MatchCount        int32
+	CreatedAt         pgtype.Timestamptz
+}
+
+type JobFamilyMatchEvidence struct {
+	ID                    pgtype.UUID
+	JobFamilyMatchID      pgtype.UUID
+	MatchedAlias          string
+	NormalizationVersion  string
+	NormalizedTitleSha256 string
+	CodepointStart        int32
+	CodepointEnd          int32
+	CreatedAt             pgtype.Timestamptz
+}
+
+type JobFamilyObservation struct {
+	SourceMetadataVersionID  pgtype.UUID
+	JobFamilyTitleIdentityID pgtype.UUID
+	Status                   JobFamilyObservationStatus
+	CreatedAt                pgtype.Timestamptz
+}
+
+type JobFamilyObservationRetryAudit struct {
+	ID                           pgtype.UUID
+	SourceMetadataVersionID      pgtype.UUID
+	ParserVersion                string
+	DictionaryVersion            string
+	DictionarySha256             string
+	ProjectMaskParserVersion     string
+	ProjectMaskDictionaryVersion string
+	ProjectMaskDictionarySha256  string
+	SafeErrorCode                string
+	OccurredAt                   pgtype.Timestamptz
+}
+
+type JobFamilyResult struct {
+	ID                           pgtype.UUID
+	JobFamilyTitleIdentityID     pgtype.UUID
+	ParserVersion                string
+	DictionaryVersion            string
+	DictionarySha256             string
+	ProjectMaskParserVersion     string
+	ProjectMaskDictionaryVersion string
+	ProjectMaskDictionarySha256  string
+	Status                       JobFamilyResultStatus
+	PrimaryFamilyKey             pgtype.Text
+	CreatedAt                    pgtype.Timestamptz
+	CompletedAt                  pgtype.Timestamptz
+}
+
+type JobFamilyRetryAudit struct {
+	ID                           pgtype.UUID
+	JobFamilyTitleIdentityID     pgtype.UUID
+	ParserVersion                string
+	DictionaryVersion            string
+	DictionarySha256             string
+	ProjectMaskParserVersion     string
+	ProjectMaskDictionaryVersion string
+	ProjectMaskDictionarySha256  string
+	SafeErrorCode                string
+	OccurredAt                   pgtype.Timestamptz
+}
+
+type JobFamilyTitleIdentity struct {
+	ID                   pgtype.UUID
+	TitleSha256          string
+	NormalizationVersion string
+	NormalizedTitle      string
+	CreatedAt            pgtype.Timestamptz
 }
 
 type JobLocation struct {
