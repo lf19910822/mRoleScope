@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-29
+goal: Persist one explainable primary job family and complete per-family match
+  counts for in-scope JD titles, then process the historical baseline and daily
+  title changes independently of AI.
