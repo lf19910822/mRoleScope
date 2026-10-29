@@ -510,15 +510,17 @@ func runPendingAnalysis(arguments []string) {
 		slog.Error("invalid analysis configuration")
 		os.Exit(1)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
-	defer cancel()
-	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	initializationContext, cancelInitialization := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	repository, err := jdanalysis.NewRepository(initializationContext, cfg.DatabaseURL)
+	cancelInitialization()
 	if err != nil {
 		slog.Error("analysis database initialization failed")
 		os.Exit(1)
 	}
 	defer repository.Close()
-	projectSummary, projectErr := jdanalysis.ProcessPendingProjectTags(ctx, repository)
+	projectContext, cancelProject := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	projectSummary, projectErr := jdanalysis.ProcessPendingProjectTags(projectContext, repository)
+	cancelProject()
 	if projectErr != nil {
 		// Project tags are derived only from immutable source titles. Keep their
 		// failure downstream of source synchronization and do not expose remote
@@ -531,7 +533,39 @@ func runPendingAnalysis(arguments []string) {
 			"unidentified", projectSummary.Unidentified,
 		)
 	}
-	educationSummary, educationErr := jdanalysis.ProcessPendingEducationRequirements(ctx, repository)
+	jobFamilyContext, cancelJobFamily := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	jobFamilySummary, jobFamilyErr := jdanalysis.ProcessPendingJobFamilies(jobFamilyContext, repository)
+	cancelJobFamily()
+	if jobFamilyErr != nil {
+		// Job-family processing is title-only and provider-free. Keep an
+		// operation-level failure safe and continue with all other independent
+		// deterministic stages. The partial summary is aggregate-only, so it
+		// remains safe to emit even when a retry audit cannot be stored.
+		slog.Error("deterministic job-family analysis failed",
+			"processed", jobFamilySummary.Processed,
+			"reused", jobFamilySummary.Reused,
+			"classified", jobFamilySummary.Classified,
+			"unclassified", jobFamilySummary.Unclassified,
+			"out_of_scope", jobFamilySummary.OutOfScope,
+			"scope_unknown", jobFamilySummary.ScopeUnknown,
+			"invalid_title", jobFamilySummary.InvalidTitle,
+			"retryable_failures", jobFamilySummary.RetryableFailures,
+		)
+	} else {
+		slog.Info("deterministic job-family analysis completed",
+			"processed", jobFamilySummary.Processed,
+			"reused", jobFamilySummary.Reused,
+			"classified", jobFamilySummary.Classified,
+			"unclassified", jobFamilySummary.Unclassified,
+			"out_of_scope", jobFamilySummary.OutOfScope,
+			"scope_unknown", jobFamilySummary.ScopeUnknown,
+			"invalid_title", jobFamilySummary.InvalidTitle,
+			"retryable_failures", jobFamilySummary.RetryableFailures,
+		)
+	}
+	educationContext, cancelEducation := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	educationSummary, educationErr := jdanalysis.ProcessPendingEducationRequirements(educationContext, repository)
+	cancelEducation()
 	if educationErr != nil {
 		// The deterministic education path is independent from technology
 		// publication. Do not expose a database error because it can carry
@@ -543,7 +577,9 @@ func runPendingAnalysis(arguments []string) {
 			"reused", educationSummary.Reused,
 		)
 	}
-	experienceSummary, experienceErr := jdanalysis.ProcessPendingExperienceRequirements(ctx, repository)
+	experienceContext, cancelExperience := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	experienceSummary, experienceErr := jdanalysis.ProcessPendingExperienceRequirements(experienceContext, repository)
+	cancelExperience()
 	if experienceErr != nil {
 		// This path is provider-free and independent from technology publication.
 		// Keep diagnostics safe because database failures can contain remote values.
@@ -557,24 +593,34 @@ func runPendingAnalysis(arguments []string) {
 			"uncertain", experienceSummary.Uncertain,
 		)
 	}
-	configurationID, err := repository.PublishedConfigurationID(ctx)
+	technologyContext, cancelTechnology := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	configurationID, err := repository.PublishedConfigurationID(technologyContext)
 	var summary jdanalysis.ProcessSummary
 	technologyErr := err
 	if technologyErr != nil {
 		slog.Error(jdanalysis.SafeOperationMessage(technologyErr))
 	} else {
-		summary, technologyErr = (jdanalysis.Processor{Repository: repository}).ProcessPending(ctx, configurationID)
+		summary, technologyErr = (jdanalysis.Processor{Repository: repository}).ProcessPending(technologyContext, configurationID)
 		if technologyErr != nil {
 			slog.Error(jdanalysis.SafeOperationMessage(technologyErr), "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
 		}
 	}
-	if projectErr != nil || educationErr != nil || experienceErr != nil || technologyErr != nil {
+	cancelTechnology()
+	if projectErr != nil || jobFamilyErr != nil || educationErr != nil || experienceErr != nil || technologyErr != nil {
 		os.Exit(1)
 	}
 	slog.Info("analysis completed",
 		"project_processed", projectSummary.Processed,
 		"project_reused", projectSummary.Reused,
 		"project_unidentified", projectSummary.Unidentified,
+		"job_family_processed", jobFamilySummary.Processed,
+		"job_family_reused", jobFamilySummary.Reused,
+		"job_family_classified", jobFamilySummary.Classified,
+		"job_family_unclassified", jobFamilySummary.Unclassified,
+		"job_family_out_of_scope", jobFamilySummary.OutOfScope,
+		"job_family_scope_unknown", jobFamilySummary.ScopeUnknown,
+		"job_family_invalid_title", jobFamilySummary.InvalidTitle,
+		"job_family_retryable_failures", jobFamilySummary.RetryableFailures,
 		"education_processed", educationSummary.Processed,
 		"education_reused", educationSummary.Reused,
 		"experience_processed", experienceSummary.Processed,
