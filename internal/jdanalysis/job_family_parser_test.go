@@ -127,3 +127,68 @@ func TestParseJobFamilyTitleDoesNotExpandUnlistedTermsOrOvermaskGenericRoleWords
 		t.Fatalf("generic engine role = %#v, want one unmasked engine-systems match", engine)
 	}
 }
+
+func TestParseJobFamilyTitleClassifiesReviewedDictionaryV2AuditTitles(t *testing.T) {
+	tests := []struct {
+		name    string
+		title   string
+		status  JobFamilyTitleStatus
+		primary JobFamilyKey
+	}{
+		{name: "AI storage", title: "AI存储资深研发工程师（大模型）", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "agent development", title: "Agent开发工程师（数据方向）", status: JobFamilyClassified, primary: JobFamilyBackend},
+		{name: "inference optimization", title: "Infra 推理优化工程师（3D生成）", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "cloud native", title: "K8S云原生开发", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "posttrain research", title: "LLM Posttrain研究员", status: JobFamilyClassified, primary: JobFamilyAlgorithmResearch},
+		{name: "LLM data processing", title: "LLM数据处理", status: JobFamilyClassified, primary: JobFamilyDataEngineering},
+		{name: "MaaS platform", title: "MaaS平台开发工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "cloud database", title: "云数据库开发工程师", status: JobFamilyClassified, primary: JobFamilyBackend},
+		{name: "cloud gaming is domain only", title: "云游戏技术专家", status: JobFamilyUnclassified},
+		{name: "model inference reliability", title: "大模型推理服务可靠性工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "model routing and evaluation", title: "大模型路由与评测工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "game AI research", title: "游戏AI研发工程师（AIGC方向）-绝区零", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "network engineer", title: "网络工程师", status: JobFamilyClassified, primary: JobFamilyOperationsSRE},
+		{name: "agent research and development", title: "资深Agent研发工程师（游戏发行）", status: JobFamilyClassified, primary: JobFamilyBackend},
+		{name: "search and recommendation", title: "资深搜推AI工程师", status: JobFamilyClassified, primary: JobFamilyAlgorithmResearch},
+		{name: "senior game AI research", title: "资深游戏AI研发工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "high-performance network engineer", title: "高性能网络工程师", status: JobFamilyClassified, primary: JobFamilyOperationsSRE},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := ParseJobFamilyTitle(test.title)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != test.status || result.PrimaryFamilyKey != test.primary {
+				t.Fatalf("ParseJobFamilyTitle(%q) = %#v, want status %q and primary %q", test.title, result, test.status, test.primary)
+			}
+		})
+	}
+}
+
+func TestParseJobFamilyTitleAppliesReviewedDictionaryV2CrossFamilyRules(t *testing.T) {
+	agentDevelopment, err := ParseJobFamilyTitle("Agent开发工程师")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agentDevelopment.FamilyMatchCounts[JobFamilyBackend] != 1 || agentDevelopment.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || agentDevelopment.PrimaryFamilyKey != JobFamilyBackend {
+		t.Fatalf("Agent development = %#v, want backend:1 platform_infra:1 with backend primary", agentDevelopment)
+	}
+
+	cloudNative, err := ParseJobFamilyTitle("K8S云原生开发")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloudNative.FamilyMatchCounts[JobFamilyOperationsSRE] != 1 || cloudNative.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || cloudNative.PrimaryFamilyKey != JobFamilyPlatformInfra {
+		t.Fatalf("cloud native = %#v, want operations_sre:1 platform_infra:1 with platform_infra primary", cloudNative)
+	}
+
+	aiops, err := ParseJobFamilyTitle("AIOps工程师")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aiops.FamilyMatchCounts[JobFamilyOperationsSRE] != 1 || aiops.FamilyMatchCounts[JobFamilyPlatformInfra] != 0 || aiops.PrimaryFamilyKey != JobFamilyOperationsSRE {
+		t.Fatalf("AIOps = %#v, want only bounded operations_sre match", aiops)
+	}
+}
