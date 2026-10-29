@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-29
+goal: Publish the reviewed V2 deterministic job-family aliases for the audited
+  unclassified titles while retaining the existing 13 stable family keys and
+  title-only, provider-free parsing contract.
