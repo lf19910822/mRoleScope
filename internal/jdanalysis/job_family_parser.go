@@ -87,7 +87,7 @@ type jobFamilyTitleMatch struct {
 	interval  CodePointRange
 }
 
-//go:embed job_family_dictionary_v3.json
+//go:embed job_family_dictionary_v4.json
 var deterministicJobFamilyDictionaryAsset []byte
 
 var deterministicJobFamilyDictionary struct {
