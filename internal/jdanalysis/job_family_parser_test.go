@@ -129,7 +129,7 @@ func TestParseJobFamilyTitleDoesNotExpandUnlistedTermsOrOvermaskGenericRoleWords
 	}
 }
 
-func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3AuditTitles(t *testing.T) {
+func TestParseJobFamilyTitleClassifiesReviewedDictionaryV4AuditTitles(t *testing.T) {
 	tests := []struct {
 		name    string
 		title   string
@@ -168,13 +168,13 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3AuditTitles(t *testing
 	}
 }
 
-func TestParseJobFamilyTitleAppliesReviewedDictionaryV3CrossFamilyRules(t *testing.T) {
+func TestParseJobFamilyTitleAppliesReviewedDictionaryV4CrossFamilyRules(t *testing.T) {
 	agentDevelopment, err := ParseJobFamilyTitle("Agent开发工程师")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agentDevelopment.FamilyMatchCounts[JobFamilyAIApplication] != 1 || agentDevelopment.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || agentDevelopment.PrimaryFamilyKey != JobFamilyAIApplication {
-		t.Fatalf("Agent development = %#v, want ai_application:1 platform_infra:1 with AI application primary", agentDevelopment)
+	if agentDevelopment.FamilyMatchCounts[JobFamilyAIApplication] != 1 || agentDevelopment.FamilyMatchCounts[JobFamilyPlatformInfra] != 0 || agentDevelopment.PrimaryFamilyKey != JobFamilyAIApplication {
+		t.Fatalf("Agent development = %#v, want only ai_application:1 with AI application primary", agentDevelopment)
 	}
 
 	cloudNative, err := ParseJobFamilyTitle("K8S云原生开发")
@@ -194,7 +194,7 @@ func TestParseJobFamilyTitleAppliesReviewedDictionaryV3CrossFamilyRules(t *testi
 	}
 }
 
-func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
+func TestParseJobFamilyTitleClassifiesReviewedDictionaryV4Titles(t *testing.T) {
 	const (
 		aiAlgorithm   = JobFamilyAIAlgorithm
 		aiApplication = JobFamilyAIApplication
@@ -254,7 +254,6 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			wantCounts: map[JobFamilyKey]int{
 				aiAlgorithm:                1,
 				JobFamilyAlgorithmResearch: 1,
-				JobFamilyPlatformInfra:     1,
 			},
 		},
 		{
@@ -263,9 +262,8 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			status:  JobFamilyClassified,
 			primary: aiApplication,
 			wantCounts: map[JobFamilyKey]int{
-				aiApplication:          1,
-				JobFamilyBackend:       1,
-				JobFamilyPlatformInfra: 1,
+				aiApplication:    1,
+				JobFamilyBackend: 1,
 			},
 		},
 		{
@@ -274,8 +272,7 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			status:  JobFamilyClassified,
 			primary: aiApplication,
 			wantCounts: map[JobFamilyKey]int{
-				aiApplication:          1,
-				JobFamilyPlatformInfra: 1,
+				aiApplication: 1,
 			},
 		},
 		{
@@ -284,8 +281,7 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			status:  JobFamilyClassified,
 			primary: aiApplication,
 			wantCounts: map[JobFamilyKey]int{
-				aiApplication:          1,
-				JobFamilyPlatformInfra: 1,
+				aiApplication: 1,
 			},
 		},
 		{
@@ -294,9 +290,8 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			status:  JobFamilyClassified,
 			primary: aiApplication,
 			wantCounts: map[JobFamilyKey]int{
-				aiApplication:          1,
-				JobFamilyBackend:       1,
-				JobFamilyPlatformInfra: 1,
+				aiApplication:    1,
+				JobFamilyBackend: 1,
 			},
 		},
 		{
@@ -305,8 +300,7 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			status:  JobFamilyClassified,
 			primary: aiApplication,
 			wantCounts: map[JobFamilyKey]int{
-				aiApplication:          1,
-				JobFamilyPlatformInfra: 1,
+				aiApplication: 1,
 			},
 		},
 		{
@@ -319,13 +313,12 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 			},
 		},
 		{
-			name:    "AI agent engine remains platform",
+			name:    "AI agent engine no longer implies platform",
 			title:   "AI Agent引擎系统开发工程师 -UE5写实射击预研",
 			status:  JobFamilyClassified,
-			primary: JobFamilyPlatformInfra,
+			primary: JobFamilyEngineSystems,
 			wantCounts: map[JobFamilyKey]int{
 				JobFamilyEngineSystems: 1,
-				JobFamilyPlatformInfra: 2,
 			},
 		},
 		{
@@ -357,31 +350,42 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
 	}
 }
 
-func TestParseJobFamilyTitlePreservesV3IndependentEvidenceAndBareTermBoundary(t *testing.T) {
+func TestParseJobFamilyTitleAppliesV4PlatformBoundaryToAIAndAgentTerms(t *testing.T) {
 	const (
 		aiAlgorithm   = JobFamilyAIAlgorithm
 		aiApplication = JobFamilyAIApplication
 	)
+	if got := JobFamilyDictionaryVersion(); got != "deterministic-job-family-dictionary-v4" {
+		t.Fatalf("dictionary version = %q, want V4", got)
+	}
 
 	application, err := ParseJobFamilyTitle("AI全栈开发工程师（AI引擎）")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if application.FamilyMatchCounts[aiApplication] != 1 || application.FamilyMatchCounts[JobFamilyBackend] != 1 || application.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || application.PrimaryFamilyKey != aiApplication {
-		t.Fatalf("AI full-stack application = %#v, want independent ai_application/backend/platform evidence with AI application primary", application)
+	if application.FamilyMatchCounts[aiApplication] != 1 || application.FamilyMatchCounts[JobFamilyBackend] != 1 || application.FamilyMatchCounts[JobFamilyPlatformInfra] != 0 || application.PrimaryFamilyKey != aiApplication {
+		t.Fatalf("AI full-stack application = %#v, want ai_application/backend evidence without platform inference", application)
 	}
 
 	for _, title := range []string{
-		"AI工程师", "LLM工程师", "大模型工程师", "Agent工程师", "AIGC工程师", "RAG工程师", "MCP工程师", "Prompt工程师", "工作流工程师",
+		"AI工程师", "Agent工程师",
 	} {
 		t.Run(title, func(t *testing.T) {
 			result, err := ParseJobFamilyTitle(title)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.FamilyMatchCounts[aiAlgorithm] != 0 || result.FamilyMatchCounts[aiApplication] != 0 {
-				t.Fatalf("bare term title %q unexpectedly gained a new AI family: %#v", title, result)
+			if result.Status != JobFamilyUnclassified || result.FamilyMatchCounts[aiAlgorithm] != 0 || result.FamilyMatchCounts[aiApplication] != 0 || result.FamilyMatchCounts[JobFamilyPlatformInfra] != 0 {
+				t.Fatalf("bare term title %q unexpectedly gained a family: %#v", title, result)
 			}
 		})
+	}
+
+	model, err := ParseJobFamilyTitle("大模型工程师")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.PrimaryFamilyKey != JobFamilyPlatformInfra || model.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 {
+		t.Fatalf("bare retained model-platform term = %#v, want platform_infra:1", model)
 	}
 }

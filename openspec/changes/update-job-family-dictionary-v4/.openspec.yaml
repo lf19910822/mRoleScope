@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-30
+goal: Publish deterministic job-family dictionary V4, which removes the
+  over-broad bare AI and agent platform aliases while retaining every other V3
+  family, title-only parsing rule, and historical result.
