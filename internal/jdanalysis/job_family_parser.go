@@ -17,6 +17,8 @@ const deterministicJobFamilyParserVersionV1 = "deterministic-job-family-title-pa
 type JobFamilyKey string
 
 const (
+	JobFamilyAIAlgorithm           JobFamilyKey = "ai_algorithm"
+	JobFamilyAIApplication         JobFamilyKey = "ai_application"
 	JobFamilyAlgorithmResearch     JobFamilyKey = "algorithm_research"
 	JobFamilyBackend               JobFamilyKey = "backend"
 	JobFamilyClient                JobFamilyKey = "client"
@@ -85,7 +87,7 @@ type jobFamilyTitleMatch struct {
 	interval  CodePointRange
 }
 
-//go:embed job_family_dictionary_v2.json
+//go:embed job_family_dictionary_v3.json
 var deterministicJobFamilyDictionaryAsset []byte
 
 var deterministicJobFamilyDictionary struct {
@@ -190,7 +192,7 @@ func validateJobFamilyDictionary(asset jobFamilyDictionaryAsset) error {
 		return fmt.Errorf("deterministic job-family dictionary has no version")
 	}
 	expectedFamilies := map[JobFamilyKey]struct{}{
-		JobFamilyAlgorithmResearch: {}, JobFamilyBackend: {}, JobFamilyClient: {}, JobFamilyDataEngineering: {},
+		JobFamilyAIAlgorithm: {}, JobFamilyAIApplication: {}, JobFamilyAlgorithmResearch: {}, JobFamilyBackend: {}, JobFamilyClient: {}, JobFamilyDataEngineering: {},
 		JobFamilyEngineeringManagement: {}, JobFamilyEngineSystems: {}, JobFamilyFrontend: {}, JobFamilyHardwareEmbedded: {},
 		JobFamilyOperationsSRE: {}, JobFamilyPlatformInfra: {}, JobFamilySecurity: {}, JobFamilyTestingQuality: {}, JobFamilyToolchain: {},
 	}

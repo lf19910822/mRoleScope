@@ -31,7 +31,8 @@ func TestParseJobFamilyTitleClassifiesReviewedFamilies(t *testing.T) {
 		title   string
 		primary JobFamilyKey
 	}{
-		{name: "algorithm research", title: "模型研究工程师", primary: JobFamilyAlgorithmResearch},
+		{name: "AI algorithm", title: "模型研究工程师", primary: JobFamilyAIAlgorithm},
+		{name: "AI application", title: "AI应用工程师", primary: JobFamilyAIApplication},
 		{name: "backend", title: "后端开发工程师", primary: JobFamilyBackend},
 		{name: "game client", title: "游戏客户端开发", primary: JobFamilyClient},
 		{name: "data engineering", title: "ETL工程师", primary: JobFamilyDataEngineering},
@@ -128,7 +129,7 @@ func TestParseJobFamilyTitleDoesNotExpandUnlistedTermsOrOvermaskGenericRoleWords
 	}
 }
 
-func TestParseJobFamilyTitleClassifiesReviewedDictionaryV2AuditTitles(t *testing.T) {
+func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3AuditTitles(t *testing.T) {
 	tests := []struct {
 		name    string
 		title   string
@@ -136,21 +137,21 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV2AuditTitles(t *testing
 		primary JobFamilyKey
 	}{
 		{name: "AI storage", title: "AI存储资深研发工程师（大模型）", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
-		{name: "agent development", title: "Agent开发工程师（数据方向）", status: JobFamilyClassified, primary: JobFamilyBackend},
+		{name: "agent development", title: "Agent开发工程师（数据方向）", status: JobFamilyClassified, primary: JobFamilyAIApplication},
 		{name: "inference optimization", title: "Infra 推理优化工程师（3D生成）", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
 		{name: "cloud native", title: "K8S云原生开发", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
-		{name: "posttrain research", title: "LLM Posttrain研究员", status: JobFamilyClassified, primary: JobFamilyAlgorithmResearch},
+		{name: "posttrain research", title: "LLM Posttrain研究员", status: JobFamilyClassified, primary: JobFamilyAIAlgorithm},
 		{name: "LLM data processing", title: "LLM数据处理", status: JobFamilyClassified, primary: JobFamilyDataEngineering},
 		{name: "MaaS platform", title: "MaaS平台开发工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
 		{name: "cloud database", title: "云数据库开发工程师", status: JobFamilyClassified, primary: JobFamilyBackend},
 		{name: "cloud gaming is domain only", title: "云游戏技术专家", status: JobFamilyUnclassified},
 		{name: "model inference reliability", title: "大模型推理服务可靠性工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
 		{name: "model routing and evaluation", title: "大模型路由与评测工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
-		{name: "game AI research", title: "游戏AI研发工程师（AIGC方向）-绝区零", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "game AI research", title: "游戏AI研发工程师（AIGC方向）-绝区零", status: JobFamilyClassified, primary: JobFamilyAIApplication},
 		{name: "network engineer", title: "网络工程师", status: JobFamilyClassified, primary: JobFamilyOperationsSRE},
-		{name: "agent research and development", title: "资深Agent研发工程师（游戏发行）", status: JobFamilyClassified, primary: JobFamilyBackend},
-		{name: "search and recommendation", title: "资深搜推AI工程师", status: JobFamilyClassified, primary: JobFamilyAlgorithmResearch},
-		{name: "senior game AI research", title: "资深游戏AI研发工程师", status: JobFamilyClassified, primary: JobFamilyPlatformInfra},
+		{name: "agent research and development", title: "资深Agent研发工程师（游戏发行）", status: JobFamilyClassified, primary: JobFamilyAIApplication},
+		{name: "search and recommendation", title: "资深搜推AI工程师", status: JobFamilyClassified, primary: JobFamilyAIAlgorithm},
+		{name: "senior game AI research", title: "资深游戏AI研发工程师", status: JobFamilyClassified, primary: JobFamilyAIApplication},
 		{name: "high-performance network engineer", title: "高性能网络工程师", status: JobFamilyClassified, primary: JobFamilyOperationsSRE},
 	}
 
@@ -167,13 +168,13 @@ func TestParseJobFamilyTitleClassifiesReviewedDictionaryV2AuditTitles(t *testing
 	}
 }
 
-func TestParseJobFamilyTitleAppliesReviewedDictionaryV2CrossFamilyRules(t *testing.T) {
+func TestParseJobFamilyTitleAppliesReviewedDictionaryV3CrossFamilyRules(t *testing.T) {
 	agentDevelopment, err := ParseJobFamilyTitle("Agent开发工程师")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agentDevelopment.FamilyMatchCounts[JobFamilyBackend] != 1 || agentDevelopment.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || agentDevelopment.PrimaryFamilyKey != JobFamilyBackend {
-		t.Fatalf("Agent development = %#v, want backend:1 platform_infra:1 with backend primary", agentDevelopment)
+	if agentDevelopment.FamilyMatchCounts[JobFamilyAIApplication] != 1 || agentDevelopment.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || agentDevelopment.PrimaryFamilyKey != JobFamilyAIApplication {
+		t.Fatalf("Agent development = %#v, want ai_application:1 platform_infra:1 with AI application primary", agentDevelopment)
 	}
 
 	cloudNative, err := ParseJobFamilyTitle("K8S云原生开发")
@@ -190,5 +191,197 @@ func TestParseJobFamilyTitleAppliesReviewedDictionaryV2CrossFamilyRules(t *testi
 	}
 	if aiops.FamilyMatchCounts[JobFamilyOperationsSRE] != 1 || aiops.FamilyMatchCounts[JobFamilyPlatformInfra] != 0 || aiops.PrimaryFamilyKey != JobFamilyOperationsSRE {
 		t.Fatalf("AIOps = %#v, want only bounded operations_sre match", aiops)
+	}
+}
+
+func TestParseJobFamilyTitleClassifiesReviewedDictionaryV3Titles(t *testing.T) {
+	const (
+		aiAlgorithm   = JobFamilyAIAlgorithm
+		aiApplication = JobFamilyAIApplication
+	)
+
+	tests := []struct {
+		name       string
+		title      string
+		status     JobFamilyTitleStatus
+		primary    JobFamilyKey
+		wantCounts map[JobFamilyKey]int
+	}{
+		{
+			name:    "LLM evaluation algorithm",
+			title:   "LLM Evaluation算法研究员-基模",
+			status:  JobFamilyClassified,
+			primary: aiAlgorithm,
+			wantCounts: map[JobFamilyKey]int{
+				aiAlgorithm:                1,
+				JobFamilyAlgorithmResearch: 1,
+			},
+		},
+		{
+			name:    "LLM post-train algorithm with spacing",
+			title:   "LLM Post-train 算法研究员 - Varsapura",
+			status:  JobFamilyClassified,
+			primary: aiAlgorithm,
+			wantCounts: map[JobFamilyKey]int{
+				aiAlgorithm:                1,
+				JobFamilyAlgorithmResearch: 1,
+			},
+		},
+		{
+			name:    "LLM pretraining data",
+			title:   "LLM Pretraining Data Technical Staff (Agentic Models)",
+			status:  JobFamilyClassified,
+			primary: aiAlgorithm,
+			wantCounts: map[JobFamilyKey]int{
+				aiAlgorithm: 1,
+			},
+		},
+		{
+			name:    "multimodal algorithm",
+			title:   "多模态算法工程师（audio方向）",
+			status:  JobFamilyClassified,
+			primary: aiAlgorithm,
+			wantCounts: map[JobFamilyKey]int{
+				aiAlgorithm:                1,
+				JobFamilyAlgorithmResearch: 1,
+			},
+		},
+		{
+			name:    "AI virtual human algorithm",
+			title:   "AI虚拟人算法系统工程师",
+			status:  JobFamilyClassified,
+			primary: aiAlgorithm,
+			wantCounts: map[JobFamilyKey]int{
+				aiAlgorithm:                1,
+				JobFamilyAlgorithmResearch: 1,
+				JobFamilyPlatformInfra:     1,
+			},
+		},
+		{
+			name:    "AI full stack application with masked project",
+			title:   "AI全栈开发工程师（AI引擎）",
+			status:  JobFamilyClassified,
+			primary: aiApplication,
+			wantCounts: map[JobFamilyKey]int{
+				aiApplication:          1,
+				JobFamilyBackend:       1,
+				JobFamilyPlatformInfra: 1,
+			},
+		},
+		{
+			name:    "agent delivery",
+			title:   "Agent开发工程师（数据方向）",
+			status:  JobFamilyClassified,
+			primary: aiApplication,
+			wantCounts: map[JobFamilyKey]int{
+				aiApplication:          1,
+				JobFamilyPlatformInfra: 1,
+			},
+		},
+		{
+			name:    "agent game publishing delivery",
+			title:   "资深Agent研发工程师（游戏发行）",
+			status:  JobFamilyClassified,
+			primary: aiApplication,
+			wantCounts: map[JobFamilyKey]int{
+				aiApplication:          1,
+				JobFamilyPlatformInfra: 1,
+			},
+		},
+		{
+			name:    "backend AI game delivery",
+			title:   "后端开发工程师（AI 游戏方向）- 星布谷地",
+			status:  JobFamilyClassified,
+			primary: aiApplication,
+			wantCounts: map[JobFamilyKey]int{
+				aiApplication:          1,
+				JobFamilyBackend:       1,
+				JobFamilyPlatformInfra: 1,
+			},
+		},
+		{
+			name:    "game AI delivery",
+			title:   "游戏AI研发工程师（AIGC方向）-绝区零",
+			status:  JobFamilyClassified,
+			primary: aiApplication,
+			wantCounts: map[JobFamilyKey]int{
+				aiApplication:          1,
+				JobFamilyPlatformInfra: 1,
+			},
+		},
+		{
+			name:    "model platform remains platform",
+			title:   "大模型平台开发工程师",
+			status:  JobFamilyClassified,
+			primary: JobFamilyPlatformInfra,
+			wantCounts: map[JobFamilyKey]int{
+				JobFamilyPlatformInfra: 1,
+			},
+		},
+		{
+			name:    "AI agent engine remains platform",
+			title:   "AI Agent引擎系统开发工程师 -UE5写实射击预研",
+			status:  JobFamilyClassified,
+			primary: JobFamilyPlatformInfra,
+			wantCounts: map[JobFamilyKey]int{
+				JobFamilyEngineSystems: 1,
+				JobFamilyPlatformInfra: 2,
+			},
+		},
+		{
+			name:       "domain only remains unclassified",
+			title:      "云游戏技术专家",
+			status:     JobFamilyUnclassified,
+			wantCounts: map[JobFamilyKey]int{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := ParseJobFamilyTitle(test.title)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != test.status || result.PrimaryFamilyKey != test.primary {
+				t.Fatalf("ParseJobFamilyTitle(%q) = %#v, want status %q and primary %q", test.title, result, test.status, test.primary)
+			}
+			if len(result.FamilyMatchCounts) != len(test.wantCounts) {
+				t.Fatalf("family match count map = %#v, want %#v", result.FamilyMatchCounts, test.wantCounts)
+			}
+			for family, want := range test.wantCounts {
+				if got := result.FamilyMatchCounts[family]; got != want {
+					t.Fatalf("family %q count = %d, want %d; result = %#v", family, got, want, result)
+				}
+			}
+		})
+	}
+}
+
+func TestParseJobFamilyTitlePreservesV3IndependentEvidenceAndBareTermBoundary(t *testing.T) {
+	const (
+		aiAlgorithm   = JobFamilyAIAlgorithm
+		aiApplication = JobFamilyAIApplication
+	)
+
+	application, err := ParseJobFamilyTitle("AI全栈开发工程师（AI引擎）")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.FamilyMatchCounts[aiApplication] != 1 || application.FamilyMatchCounts[JobFamilyBackend] != 1 || application.FamilyMatchCounts[JobFamilyPlatformInfra] != 1 || application.PrimaryFamilyKey != aiApplication {
+		t.Fatalf("AI full-stack application = %#v, want independent ai_application/backend/platform evidence with AI application primary", application)
+	}
+
+	for _, title := range []string{
+		"AI工程师", "LLM工程师", "大模型工程师", "Agent工程师", "AIGC工程师", "RAG工程师", "MCP工程师", "Prompt工程师", "工作流工程师",
+	} {
+		t.Run(title, func(t *testing.T) {
+			result, err := ParseJobFamilyTitle(title)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.FamilyMatchCounts[aiAlgorithm] != 0 || result.FamilyMatchCounts[aiApplication] != 0 {
+				t.Fatalf("bare term title %q unexpectedly gained a new AI family: %#v", title, result)
+			}
+		})
 	}
 }
