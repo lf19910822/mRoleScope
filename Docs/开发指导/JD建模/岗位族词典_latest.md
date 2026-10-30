@@ -1,14 +1,23 @@
 # 岗位族词典（最新已裁决版）
 
-目标版本：`deterministic-job-family-dictionary-v4`（**待实现、待部署**）
-当前生产版本：`deterministic-job-family-dictionary-v3`
-当前生效资产：`internal/jdanalysis/job_family_dictionary_v3.json`
+当前生产版本：`deterministic-job-family-dictionary-v4`（**已部署**）
+当前生效资产：`internal/jdanalysis/job_family_dictionary_v4.json`
 更新日期：2026-10-30
-状态：**V4 词典边界已裁决；本文先记录目标词典，不代表线上 V3 已变更。**
+状态：**V4 已合并、部署并完成历史重算；本文是当前线上词典的可读维护入口。**
 
 本文是岗位标题词典的人工维护入口和可读版本。运行时以同版本 JSON
 资产为准；V1、V2 资产和据其生成的历史结果均不可修改、不可删除。任何
 新词、改归属或禁用词均须经新的审核与版本发布，不能为单个标题写覆盖值。
+
+## V4 部署与历史重算记录
+
+- V4 已通过 GitHub Actions remote-development deploy run #34 构建、推送并部署。
+- 随后仅运行本地确定性 `mrolescope-analysis pending`：处理 187 个历史标题，
+  186 个已分类、1 个 `unclassified`、0 个可重试失败；未调用 Qwen、Flash 或其他
+  外部模型。
+- 在最新发布快照（2026-10-30，168 个岗位）中，跨岗位族命中从 V3 的 56 个降为
+  V4 的 42 个；AI 应用与平台与 AI 基础设施的共同命中从 7 个降为 0 个。该统计
+  由只读聚合获得，不读取 JD 正文。
 
 ## 1. 使用边界
 
@@ -279,4 +288,4 @@ V4 仅调整 `platform_infra` 的两个过宽别名；其他岗位族、别名�
 
 例如，`大模型平台开发工程师`仍是平台与 AI 基础设施；`AI Agent引擎系统开发
 工程师`不会仅因 AI/Agent 命中任何岗位族；`云游戏技术专家`仍是
-`unclassified`。只有实现并部署 V4 后，这些规则才会用于新解析或历史重算。
+`unclassified`。这些规则现已用于日常新标题解析与历史 V4 结果。

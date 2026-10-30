@@ -17,6 +17,6 @@
 
 - [x] 3.1 Run focused parser tests, `make test`, generated-code hygiene,
   strict OpenSpec validation, and diff checks.
-- [ ] 3.2 Merge V4, build/push images, and deploy through GitHub Actions.
-- [ ] 3.3 Run only the provider-free pending analysis on CVM and record
+- [x] 3.2 Merge V4, build/push images, and deploy through GitHub Actions.
+- [x] 3.3 Run only the provider-free pending analysis on CVM and record
   read-only V4 aggregate results.
