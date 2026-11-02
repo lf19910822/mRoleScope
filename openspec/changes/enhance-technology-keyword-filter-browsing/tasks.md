@@ -20,6 +20,6 @@
 
 ## 3. Acceptance
 
-- [ ] 3.1 Run Go and Vue checks, type checking, production build, strict
+- [x] 3.1 Run Go and Vue checks, type checking, production build, strict
   OpenSpec validation, `git diff --check`, and private deployed API/UI checks
   at the fixed `127.0.0.1:5175` entrypoint.
