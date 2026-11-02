@@ -23,7 +23,7 @@
 ## 4. Integrated validation and handoff
 
 - [x] 4.1 Run focused Go service/HTTP tests, the Vue unit and browser-flow suites, `npm --prefix web run build`, `openspec validate improve-jd-detail-readability --strict`, and `git diff --check`; record exact commands and results in the change validation note.
-- [ ] 4.2 Perform a production-safe detail API acceptance read through the existing private path and confirm a current JD renders list/fallback sections and exact technology emphasis without exposing internal fields; do not record JD body content or credentials.
+- [x] 4.2 Perform a production-safe detail API acceptance read through the existing private path and confirm a current JD renders list/fallback sections and exact technology emphasis without exposing internal fields; do not record JD body content or credentials.
 
 ## Workflow follow-up
 
