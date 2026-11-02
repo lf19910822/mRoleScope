@@ -14,6 +14,7 @@ import (
 	"mrolescope/internal/collector"
 	"mrolescope/internal/config"
 	"mrolescope/internal/jdanalysis"
+	"mrolescope/internal/jdserving"
 	"mrolescope/internal/jobsync"
 )
 
@@ -606,6 +607,30 @@ func runPendingAnalysis(arguments []string) {
 		}
 	}
 	cancelTechnology()
+	servingContext, cancelServing := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	servingRepository, servingInitErr := jdserving.NewRepository(servingContext, cfg.DatabaseURL)
+	if servingInitErr != nil {
+		// Serving is a retryable DWD projection. Its availability must not turn
+		// an already-published source run, or any of the independent analysis
+		// stages above, into a failure.
+		slog.Error("serving reconciliation database initialization failed")
+	} else {
+		servingSummary, servingErr := servingRepository.ReconcilePublishedInventory(servingContext)
+		servingRepository.Close()
+		if servingErr != nil {
+			// Do not expose database/source values at this operation boundary.
+			// The next ordinary analysis run retries the durable projection.
+			slog.Error("serving reconciliation failed")
+		} else {
+			slog.Info("serving reconciliation completed",
+				"reconciled_runs", servingSummary.ReconciledRuns,
+				"memberships_created", servingSummary.MembershipsCreated,
+				"memberships_reused", servingSummary.MembershipsReused,
+				"retryable_failures", servingSummary.RetryableFailures,
+			)
+		}
+	}
+	cancelServing()
 	if projectErr != nil || jobFamilyErr != nil || educationErr != nil || experienceErr != nil || technologyErr != nil {
 		os.Exit(1)
 	}

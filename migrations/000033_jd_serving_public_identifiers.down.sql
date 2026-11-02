@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS serving_jd_public_identifiers_immutable ON serving_jd_public_identifiers;
+DROP TABLE IF EXISTS serving_jd_public_identifiers;

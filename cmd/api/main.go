@@ -14,6 +14,7 @@ import (
 
 	"mrolescope/internal/config"
 	"mrolescope/internal/httpserver"
+	"mrolescope/internal/jdserving"
 )
 
 func main() {
@@ -39,7 +40,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpserver.New(pool),
+		Handler:           httpserver.New(pool, jdserving.NewRepositoryFromPool(pool)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

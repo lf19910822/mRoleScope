@@ -26,6 +26,7 @@ umask 077
 api_image="${1:-}"
 migrate_image="${2:-}"
 worker_image="${3:-}"
+web_edge_image="${4:-}"
 phase="preflight"
 deployment_succeeded=false
 deployment_config_loaded=false
@@ -34,6 +35,8 @@ dockerhub_namespace=""
 api_pattern=""
 migrate_pattern=""
 worker_pattern=""
+web_edge_pattern=""
+web_edge_enabled=false
 
 die() {
   printf 'mrolescope deployment failed during %s: %s\n' "$phase" "$1" >&2
@@ -74,6 +77,7 @@ load_deployment_config() {
   api_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-api@${DIGEST_PATTERN}$"
   migrate_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
   worker_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  web_edge_pattern="^docker\\.io/${dockerhub_namespace}/mrolescope-web-edge@${DIGEST_PATTERN}$"
   deployment_config_loaded=true
 }
 
@@ -86,8 +90,17 @@ read_current_api() {
   fi
 }
 
+read_current_web_edge() {
+  local current_file="$RELEASE_DIR/current.env" candidate
+  [[ -f "$current_file" && ! -L "$current_file" ]] || return 0
+  candidate=$(sed -nE "s|^web_edge_image=(docker\\.io/${dockerhub_namespace}/mrolescope-web-edge@sha256:[a-f0-9]{64})$|\\1|p" "$current_file" | tail -n 1)
+  if [[ -n "$candidate" && "$candidate" =~ $web_edge_pattern ]]; then
+    printf '%s' "$candidate"
+  fi
+}
+
 write_record() {
-  local status="$1" record_phase="$2" record_api="$3" record_migrate="$4" record_worker="$5" record_revision="$6"
+  local status="$1" record_phase="$2" record_api="$3" record_migrate="$4" record_worker="$5" record_web_edge="$6" record_revision="$7"
   local timestamp temporary record suffix
 
   timestamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -100,6 +113,7 @@ write_record() {
     printf 'api_image=%s\n' "$record_api"
     printf 'migrate_image=%s\n' "$record_migrate"
     printf 'worker_image=%s\n' "$record_worker"
+    printf 'web_edge_image=%s\n' "$record_web_edge"
     printf 'revision=%s\n' "$record_revision"
     printf 'recorded_at=%s\n' "$(date -u +%FT%TZ)"
   } >"$temporary"
@@ -114,6 +128,7 @@ write_current() {
     printf 'api_image=%s\n' "$api_image"
     printf 'migrate_image=%s\n' "$migrate_image"
     printf 'worker_image=%s\n' "$worker_image"
+    printf 'web_edge_image=%s\n' "$web_edge_image"
     printf 'revision=%s\n' "$api_revision"
     printf 'verified_at=%s\n' "$(date -u +%FT%TZ)"
   } >"$temporary"
@@ -137,10 +152,25 @@ prune_records() {
 }
 
 healthy_api() {
-  local attempt
+  local attempt container_id status
   for ((attempt = 1; attempt <= 20; attempt += 1)); do
-    if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1 \
-      && curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
+    container_id=$(compose ps -q api)
+    status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container_id" 2>/dev/null || true)
+    if [[ "$status" == healthy ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+healthy_web_edge() {
+  local attempt status
+  for ((attempt = 1; attempt <= 20; attempt += 1)); do
+    status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+      --max-time 3 --resolve "${MROLESCOPE_WEB_HOSTNAME}:443:127.0.0.1" \
+      "https://${MROLESCOPE_WEB_HOSTNAME}/" 2>/dev/null || true)
+    if [[ "$status" == 401 ]]; then
       return 0
     fi
     sleep 2
@@ -158,11 +188,21 @@ rollback_api() {
   healthy_api
 }
 
+rollback_web_edge() {
+  local previous_web_edge="$1"
+  [[ -n "$previous_web_edge" && "$previous_web_edge" != "$web_edge_image" ]] || return 1
+
+  log "new Web Edge did not become authentication-ready; restoring the previous verified Web Edge digest"
+  export MROLESCOPE_WEB_EDGE_IMAGE="$previous_web_edge"
+  compose --profile web up -d --no-deps web-edge
+  healthy_web_edge
+}
+
 cleanup() {
   local exit_code=$?
   trap - EXIT
-  if [[ "$deployment_succeeded" != true && "$deployment_config_loaded" == true && "$api_image" =~ $api_pattern && "$migrate_image" =~ $migrate_pattern && "$worker_image" =~ $worker_pattern && -d "$RELEASE_DIR" ]]; then
-    write_record failed "$phase" "$api_image" "$migrate_image" "$worker_image" "$api_revision" || true
+  if [[ "$deployment_succeeded" != true && "$deployment_config_loaded" == true && "$api_image" =~ $api_pattern && "$migrate_image" =~ $migrate_pattern && "$worker_image" =~ $worker_pattern && "$web_edge_image" =~ $web_edge_pattern && -d "$RELEASE_DIR" ]]; then
+    write_record failed "$phase" "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" "$api_revision" || true
     prune_records || true
   fi
   exit "$exit_code"
@@ -173,13 +213,14 @@ trap cleanup EXIT
 if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "mrolescope-deploy" ]]; then
   die "only the mrolescope-deploy service account may invoke this through sudo"
 fi
-[[ "$#" -eq 3 ]] || die "expected API, migration, and worker image digests"
+[[ "$#" -eq 4 ]] || die "expected API, migration, worker, and Web Edge image digests"
 is_root_owned_mode "$COMPOSE_FILE" 644 || die "Compose definition must be root:root mode 0644"
 is_root_owned_mode "$SECRETS_FILE" 600 || die "runtime secrets must be root:root mode 0600"
 load_deployment_config
 [[ "$api_image" =~ $api_pattern ]] || die "API image is not an allowed immutable Docker Hub digest"
 [[ "$migrate_image" =~ $migrate_pattern ]] || die "migration image is not an allowed immutable Docker Hub digest"
 [[ "$worker_image" =~ $worker_pattern ]] || die "worker image is not an allowed immutable Docker Hub digest"
+[[ "$web_edge_image" =~ $web_edge_pattern ]] || die "Web Edge image is not an allowed immutable Docker Hub digest"
 [[ -d "$RELEASE_DIR" ]] || die "release directory is missing"
 [[ "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die "release directory must be root:root mode 0700"
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
@@ -199,20 +240,38 @@ for required_value in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL; 
   [[ -n "${!required_value:-}" ]] || die "required runtime configuration is missing"
 done
 
+case "${MROLESCOPE_WEB_EDGE_ENABLED:-false}" in
+  false)
+    ;;
+  true)
+    web_edge_enabled=true
+    for required_value in MROLESCOPE_WEB_HOSTNAME MROLESCOPE_WEB_AUTH_BCRYPT_HASH; do
+      [[ -n "${!required_value:-}" ]] || die "required Web Edge runtime configuration is missing"
+    done
+    ;;
+  *)
+    die 'MROLESCOPE_WEB_EDGE_ENABLED must be true or false'
+    ;;
+esac
+
 export MROLESCOPE_API_IMAGE="$api_image"
 export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
 export MROLESCOPE_WORKER_IMAGE="$worker_image"
+export MROLESCOPE_WEB_EDGE_IMAGE="$web_edge_image"
 
 phase="pull-images"
-compose pull postgres migrate api worker
+compose --profile web pull postgres migrate api worker web-edge
 api_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$api_image" 2>/dev/null || true)
 [[ "$api_revision" =~ $SHA_PATTERN ]] || die "API image is missing its immutable source revision label"
 migrate_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$migrate_image" 2>/dev/null || true)
 [[ "$migrate_revision" == "$api_revision" ]] || die "API and migration images were not built from the same revision"
 worker_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$worker_image" 2>/dev/null || true)
 [[ "$worker_revision" == "$api_revision" ]] || die "API, migration, and worker images were not built from the same revision"
+web_edge_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$web_edge_image" 2>/dev/null || true)
+[[ "$web_edge_revision" == "$api_revision" ]] || die "API, migration, worker, and Web Edge images were not built from the same revision"
 
 previous_api=$(read_current_api || true)
+previous_web_edge=$(read_current_web_edge || true)
 
 phase="start-database"
 compose up -d --wait --wait-timeout 60 postgres
@@ -232,9 +291,27 @@ if ! healthy_api; then
   die "the new API did not pass local health and readiness checks"
 fi
 
+if [[ "$web_edge_enabled" == true ]]; then
+  phase="start-web-edge"
+  if ! compose --profile web up -d --no-deps web-edge; then
+    rollback_web_edge "$previous_web_edge" || true
+    die 'could not start the new Web Edge container'
+  fi
+
+  phase="verify-web-edge"
+  if ! healthy_web_edge; then
+    rollback_web_edge "$previous_web_edge" || true
+    die 'the new Web Edge did not pass its local authentication boundary check'
+  fi
+else
+  # A missing/false manual gate is fail-closed: retain API and scheduled work
+  # but ensure a previously created public Web Edge is not left running.
+  compose --profile web stop web-edge >/dev/null 2>&1 || true
+fi
+
 phase="record-release"
 write_current
-write_record success "$phase" "$api_image" "$migrate_image" "$worker_image" "$api_revision"
+write_record success "$phase" "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" "$api_revision"
 prune_records
 deployment_succeeded=true
 log "deployment verified at revision ${api_revision}"
