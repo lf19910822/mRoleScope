@@ -77,6 +77,23 @@
   OpenSpec strict validation, and diff checks; run a real-data localhost
   smoke request through the Vite proxy without opening a public listener.
 
+## 6. Concise controls, four-level sorting, and numbered pagination
+
+- [x] 6.1 Update the interaction contract, OpenAPI, Serving validation, and
+  focused Go tests so an ordered request may contain at most four unique sort
+  rules while invalid fifth or duplicate rules remain safely rejected.
+- [x] 6.2 Replace the threshold button row with an ordinary `不限／1–9 年及以上`
+  select, remove system-oriented helper copy from the public list page, and
+  prove component tests do not render the removed wording or a zero-year
+  browser choice.
+- [x] 6.3 Replace previous/next-only pagination with URL-backed numbered
+  pages, bounded page-size selection, and direct page jump. Verify generated
+  requests use only `page` and `page_size`, preserve filters and sort rules,
+  and do not contain a cursor parameter.
+- [x] 6.4 Run focused Go and Vue suites, type-check, production build,
+  OpenSpec strict validation, and desktop/390px visual checks against the
+  private localhost preview.
+
 ## Workflow follow-up
 
 - Review the completed change before deployment.

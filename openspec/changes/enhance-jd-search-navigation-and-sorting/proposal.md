@@ -13,10 +13,11 @@ needs a durable navigation shell rather than another page-local header.
 - Replace the browser's separate primary/other job-family controls with one
   `岗位族` filter that matches every formal job-family hit.  A returned JD
   continues to show its primary and other matches separately.
-- Replace the exact-value work-experience selector with an optional
-  `最低工作年限 ≥ 0–9` threshold. `0` means an explicitly configured
-  requirement of zero or more years; it never treats an unavailable
-  requirement as zero.
+- Present the optional minimum-work-experience threshold as the same simple
+  select control used by the other fields. It offers `不限` and `1–9 年及
+  以上`; it does not expose a row of threshold buttons or implementation
+  explanations. The compatible API representation remains
+  `minimum_experience_year`.
 - Expand ordered multi-level sorting from minimum work experience and
   education requirement to the other single-value facts that have an
   unambiguous order: first-discovered date, urgent marker, activity state,
@@ -24,6 +25,13 @@ needs a durable navigation shell rather than another page-local header.
 - Make every sort rule a pair of independent controls: a sort kind and a
   sort direction. The UI must not present an opaque combined value such as
   `学历要求：从高到低` as its only editable control.
+- Allow up to four ordered sort rules. The first rule wins and later rules
+  resolve ties; duplicate sort kinds remain invalid.
+- Keep offset pagination explicit and URL-backed with `page` and `page_size`.
+  The browser shows numbered pages, page-size selection, and a direct page
+  jump; it does not use or expose a cursor continuation.
+- Remove system-oriented explanatory copy from the filter, sorting, and result
+  areas. Visitors see only controls and short task-oriented labels.
 - Extend the list contract to accept ordered repeated sort values and a
   unified job-family value, while retaining single-sort and legacy family
   parameters as compatible API input during this release.

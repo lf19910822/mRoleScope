@@ -17,7 +17,7 @@ describe('JD list URL state', () => {
       page: 2,
       pageSize: 25,
       projects: ['genshin_impact'],
-      sortRules: ['experience_desc', 'first_discovered_desc'],
+      sortRules: ['experience_desc', 'first_discovered_desc', 'education_desc', 'urgent_asc'],
       technologyKeywords: ['go', 'python'],
       title: '服务端',
     }
@@ -54,7 +54,7 @@ describe('JD list URL state', () => {
     })
   })
 
-  it('round-trips the bounded minimum-experience threshold, including zero, without using exact experience values', () => {
+  it('keeps the zero-year compatibility URL while the browser state supports the visible one-through-nine range', () => {
     expect(
       listStateFromRoute({
         minimum_experience_year: '0',

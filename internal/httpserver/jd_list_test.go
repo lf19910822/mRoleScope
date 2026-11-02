@@ -88,6 +88,8 @@ func TestJDListRoutePassesUnifiedJobFamiliesAndOrderedSortRules(t *testing.T) {
 		wantSortRules := []jdserving.SortRule{
 			{Field: jdserving.SortFieldExperience, Direction: jdserving.SortDirectionDescending},
 			{Field: jdserving.SortFieldEducation, Direction: jdserving.SortDirectionAscending},
+			{Field: jdserving.SortFieldFirstDiscovered, Direction: jdserving.SortDirectionDescending},
+			{Field: jdserving.SortFieldUrgent, Direction: jdserving.SortDirectionAscending},
 		}
 		if !reflect.DeepEqual(query.SortRules, wantSortRules) {
 			t.Fatalf("ordered sort rules = %#v, want %#v", query.SortRules, wantSortRules)
@@ -95,7 +97,7 @@ func TestJDListRoutePassesUnifiedJobFamiliesAndOrderedSortRules(t *testing.T) {
 		return jdserving.JobListResponse{}, nil
 	})
 	request := httptest.NewRequest(http.MethodGet,
-		"/api/v1/jobs?job_family=backend&job_family=ai_application&sort=experience_desc&sort=education_asc", nil)
+		"/api/v1/jobs?job_family=backend&job_family=ai_application&sort=experience_desc&sort=education_asc&sort=first_discovered_desc&sort=urgent_asc", nil)
 	response := httptest.NewRecorder()
 	New(nil, reader).ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -168,7 +170,7 @@ func TestJDListRouteRejectsInvalidStructuredValues(t *testing.T) {
 		"sort=invalid",
 		"sort=education_desc&sort=education_asc",
 		"sort=title&sort=experience_desc",
-		"sort=education_desc&sort=experience_desc&sort=education_asc",
+		"sort=education_desc&sort=experience_desc&sort=first_discovered_desc&sort=urgent_asc&sort=activity_state_desc",
 		"minimum_experience_year=-1",
 		"minimum_experience_year=10",
 		"minimum_experience_year=three",

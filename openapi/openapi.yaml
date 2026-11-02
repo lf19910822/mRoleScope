@@ -134,10 +134,10 @@ paths:
           schema: {type: integer, minimum: 1, maximum: 100}
         - in: query
           name: sort
-          description: Repeated ordered scalar sort. Earlier values have higher priority; education and experience may each occur once with unavailable values last. First-discovered date, urgent marker, activity state, and title are also supported. A single title value is retained for compatible callers and cannot be combined.
+          description: Repeated ordered scalar sort of at most four values. Earlier values have higher priority; education and experience may each occur once with unavailable values last. First-discovered date, urgent marker, activity state, and title are also supported. A single title value is retained for compatible callers and cannot be combined.
           schema:
             type: array
-            maxItems: 2
+            maxItems: 4
             items:
               type: string
               enum: [title, education_asc, education_desc, experience_asc, experience_desc, first_discovered_asc, first_discovered_desc, urgent_asc, urgent_desc, activity_state_asc, activity_state_desc, title_asc, title_desc]

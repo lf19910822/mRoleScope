@@ -118,7 +118,7 @@ function requirementSortRules(values: string[]): RequirementSort[] {
     if (
       permittedRequirementSorts.has(value as RequirementSort) &&
       !rules.includes(value as RequirementSort) &&
-      rules.length < 2
+      rules.length < 4
     ) {
       rules.push(value as RequirementSort)
     }
