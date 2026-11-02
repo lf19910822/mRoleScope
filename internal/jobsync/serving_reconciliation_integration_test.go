@@ -393,18 +393,31 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	at := time.Date(2026, 10, 6, 2, 0, 0, 0, time.UTC)
-	run := publishFixtureRun(t, repository, scope, at, 1, []Observation{
-		integrationServingFilterObservation("sort-upper", "Sort Upper", "sort-upper-body", "上海", false, at),
-		integrationServingFilterObservation("sort-bachelor", "Sort Bachelor", "sort-bachelor-body", "上海", false, at),
-		integrationServingFilterObservation("sort-master", "Sort Master", "sort-master-body", "上海", false, at),
-		integrationServingFilterObservation("sort-peer-master", "Sort Peer Master", "sort-peer-master-body", "上海", false, at),
-		integrationServingFilterObservation("sort-unavailable", "Sort Unavailable", "sort-unavailable-body", "上海", false, at),
+	firstDay := time.Date(2026, 10, 2, 2, 0, 0, 0, time.UTC)
+	publishFixtureRun(t, repository, scope, firstDay, 1, []Observation{
+		integrationServingFilterObservation("sort-unavailable", "Sort Unavailable", "sort-unavailable-body", "上海", false, firstDay),
 	}, nil)
-	_, upperBodyID := servingFilterReference(t, repository, run.ID, "sort-upper")
-	_, bachelorBodyID := servingFilterReference(t, repository, run.ID, "sort-bachelor")
-	_, masterBodyID := servingFilterReference(t, repository, run.ID, "sort-master")
-	_, peerMasterBodyID := servingFilterReference(t, repository, run.ID, "sort-peer-master")
+	upperRun := publishFixtureRun(t, repository, scope, firstDay.AddDate(0, 0, 1), 1, []Observation{
+		integrationServingFilterObservation("sort-upper", "Sort Upper", "sort-upper-body", "上海", false, firstDay.AddDate(0, 0, 1)),
+	}, nil)
+	peerMasterRun := publishFixtureRun(t, repository, scope, firstDay.AddDate(0, 0, 2), 1, []Observation{
+		integrationServingFilterObservation("sort-peer-master", "Sort Peer Master", "sort-peer-master-body", "上海", true, firstDay.AddDate(0, 0, 2)),
+	}, nil)
+	bachelorRun := publishFixtureRun(t, repository, scope, firstDay.AddDate(0, 0, 3), 1, []Observation{
+		integrationServingFilterObservation("sort-bachelor", "Sort Bachelor", "sort-bachelor-body", "上海", false, firstDay.AddDate(0, 0, 3)),
+	}, nil)
+	masterRun := publishFixtureRun(t, repository, scope, firstDay.AddDate(0, 0, 4), 1, []Observation{
+		integrationServingFilterObservation("sort-master", "Sort Master", "sort-master-body", "上海", true, firstDay.AddDate(0, 0, 4)),
+		integrationServingFilterObservation("sort-bachelor", "Sort Bachelor", "sort-bachelor-body", "上海", false, firstDay.AddDate(0, 0, 4)),
+		integrationServingFilterObservation("sort-unavailable", "Sort Unavailable", "sort-unavailable-body", "上海", false, firstDay.AddDate(0, 0, 4)),
+	}, map[string]RecheckResult{
+		"sort-peer-master": {Outcome: RecheckDefinitelyUnavailable, Code: "serving-sort-fixture-closed"},
+		"sort-upper":       {Outcome: RecheckDefinitelyUnavailable, Code: "serving-sort-fixture-closed"},
+	})
+	_, upperBodyID := servingFilterReference(t, repository, upperRun.ID, "sort-upper")
+	_, bachelorBodyID := servingFilterReference(t, repository, bachelorRun.ID, "sort-bachelor")
+	_, masterBodyID := servingFilterReference(t, repository, masterRun.ID, "sort-master")
+	_, peerMasterBodyID := servingFilterReference(t, repository, peerMasterRun.ID, "sort-peer-master")
 	insertServingEducationUpperResult(t, repository, upperBodyID, "serving-sort-upper", "associate_or_lower")
 	insertServingEducationResult(t, repository, bachelorBodyID, "serving-sort-bachelor", "bachelor")
 	insertServingEducationResult(t, repository, masterBodyID, "serving-sort-master", "master")
@@ -422,16 +435,24 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 		t.Fatalf("reconcile serving sort fixture: %v", err)
 	}
 
-	assertServingSortTitles(t, serving, ctx, jdserving.ListSortEducationAscending, []string{"Sort Upper", "Sort Bachelor", "Sort Master", "Sort Peer Master", "Sort Unavailable"})
-	assertServingSortTitles(t, serving, ctx, jdserving.ListSortEducationDescending, []string{"Sort Master", "Sort Peer Master", "Sort Bachelor", "Sort Upper", "Sort Unavailable"})
-	assertServingSortTitles(t, serving, ctx, jdserving.ListSortExperienceAscending, []string{"Sort Bachelor", "Sort Peer Master", "Sort Master", "Sort Unavailable", "Sort Upper"})
-	assertServingSortTitles(t, serving, ctx, jdserving.ListSortExperienceDescending, []string{"Sort Master", "Sort Bachelor", "Sort Peer Master", "Sort Unavailable", "Sort Upper"})
-	assertServingSortRuleTitles(t, serving, ctx, []jdserving.SortRule{
+	assertServingSortRuleTitlesWithQuery(t, serving, ctx, []jdserving.SortRule{
+		{Field: jdserving.SortFieldEducation, Direction: jdserving.SortDirectionAscending},
+	}, []string{"Sort Upper", "Sort Bachelor", "Sort Master", "Sort Peer Master", "Sort Unavailable"})
+	assertServingSortRuleTitlesWithQuery(t, serving, ctx, []jdserving.SortRule{
+		{Field: jdserving.SortFieldEducation, Direction: jdserving.SortDirectionDescending},
+	}, []string{"Sort Master", "Sort Peer Master", "Sort Bachelor", "Sort Upper", "Sort Unavailable"})
+	assertServingSortRuleTitlesWithQuery(t, serving, ctx, []jdserving.SortRule{
+		{Field: jdserving.SortFieldExperience, Direction: jdserving.SortDirectionAscending},
+	}, []string{"Sort Bachelor", "Sort Peer Master", "Sort Master", "Sort Unavailable", "Sort Upper"})
+	assertServingSortRuleTitlesWithQuery(t, serving, ctx, []jdserving.SortRule{
+		{Field: jdserving.SortFieldExperience, Direction: jdserving.SortDirectionDescending},
+	}, []string{"Sort Master", "Sort Bachelor", "Sort Peer Master", "Sort Unavailable", "Sort Upper"})
+	assertServingSortRuleTitlesWithQuery(t, serving, ctx, []jdserving.SortRule{
 		{Field: jdserving.SortFieldExperience, Direction: jdserving.SortDirectionDescending},
 		{Field: jdserving.SortFieldEducation, Direction: jdserving.SortDirectionDescending},
 	}, []string{"Sort Master", "Sort Peer Master", "Sort Bachelor", "Sort Upper", "Sort Unavailable"})
 	minimumExperienceYears := 3
-	thresholdResult, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{MinimumExperienceYears: &minimumExperienceYears})
+	thresholdResult, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, MinimumExperienceYears: &minimumExperienceYears})
 	if err != nil {
 		t.Fatalf("list configured experience threshold: %v", err)
 	}
@@ -439,7 +460,7 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 		t.Fatalf("configured experience threshold titles = %#v", got)
 	}
 	minimumExperienceYears = 5
-	thresholdResult, err = serving.ListJobs(ctx, jdserving.ListJobsQuery{MinimumExperienceYears: &minimumExperienceYears})
+	thresholdResult, err = serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, MinimumExperienceYears: &minimumExperienceYears})
 	if err != nil {
 		t.Fatalf("list five-year experience threshold: %v", err)
 	}
@@ -447,7 +468,7 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 		t.Fatalf("five-year experience threshold titles = %#v", got)
 	}
 	minimumExperienceYears = 0
-	configuredResult, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{MinimumExperienceYears: &minimumExperienceYears})
+	configuredResult, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, MinimumExperienceYears: &minimumExperienceYears})
 	if err != nil {
 		t.Fatalf("list zero experience threshold: %v", err)
 	}
@@ -455,7 +476,7 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 		t.Fatalf("zero experience threshold incorrectly treated unavailable values as zero: %#v", got)
 	}
 
-	ascending, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{Sort: jdserving.ListSortEducationAscending})
+	ascending, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, Sort: jdserving.ListSortEducationAscending})
 	if err != nil {
 		t.Fatalf("load education display shape: %v", err)
 	}
@@ -463,15 +484,15 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 		t.Fatalf("upper-bound education display = %#v", ascending.Items[0].Education)
 	}
 
-	firstPage, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{PageNumber: 1, PageSize: 2})
+	firstPage, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, PageNumber: 1, PageSize: 2})
 	if err != nil {
 		t.Fatalf("load stable first page: %v", err)
 	}
-	secondPage, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{PageNumber: 2, PageSize: 2})
+	secondPage, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, PageNumber: 2, PageSize: 2})
 	if err != nil {
 		t.Fatalf("load stable second page: %v", err)
 	}
-	repeatedFirstPage, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{PageNumber: 1, PageSize: 2})
+	repeatedFirstPage, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{IncludeAllActivityStates: true, PageNumber: 1, PageSize: 2})
 	if err != nil {
 		t.Fatalf("repeat stable first page: %v", err)
 	}
@@ -484,23 +505,6 @@ func TestServingListJobsSortsConfiguredRequirementsBeforeUnavailableValues(t *te
 				t.Fatalf("stable page boundary repeated opaque ID %q", firstItem.ID)
 			}
 		}
-	}
-	if _, err := repository.pool.Exec(ctx, `
-UPDATE serving_jd_current_inventory_memberships
-SET first_discovered_at = CASE title
-        WHEN 'Sort Master' THEN date '2026-10-05'
-        WHEN 'Sort Bachelor' THEN date '2026-10-04'
-        WHEN 'Sort Peer Master' THEN date '2026-10-03'
-        WHEN 'Sort Upper' THEN date '2026-10-02'
-        WHEN 'Sort Unavailable' THEN date '2026-10-01'
-    END,
-    is_urgent = title IN ('Sort Master', 'Sort Peer Master'),
-    activity_state = CASE title
-        WHEN 'Sort Peer Master' THEN 'confirmed_closed'::serving_jd_activity_state
-        WHEN 'Sort Upper' THEN 'confirmed_closed'::serving_jd_activity_state
-        ELSE 'effective'::serving_jd_activity_state
-    END`); err != nil {
-		t.Fatalf("prepare scalar-sort serving fixture: %v", err)
 	}
 	assertServingSortRuleTitlesWithQuery(t, serving, ctx, []jdserving.SortRule{
 		{Field: jdserving.SortFieldFirstDiscovered, Direction: jdserving.SortDirectionDescending},
@@ -733,17 +737,6 @@ WHERE schemaname = current_schema()
 	}
 	if indexCount != 4 {
 		t.Fatalf("serving query-plan indexes = %d, want 4", indexCount)
-	}
-}
-
-func assertServingSortTitles(t *testing.T, serving *jdserving.Repository, ctx context.Context, sort jdserving.ListSort, want []string) {
-	t.Helper()
-	result, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{Sort: sort})
-	if err != nil {
-		t.Fatalf("list %s sort: %v", sort, err)
-	}
-	if got := servingTitles(result.Items); strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("%s sort titles = %#v, want %#v", sort, got, want)
 	}
 }
 
