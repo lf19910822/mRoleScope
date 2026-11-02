@@ -35,17 +35,28 @@ func (IndeterminateRechecker) Recheck(context.Context, string) RecheckResult {
 	return RecheckResult{Outcome: RecheckIndeterminate, Code: "recheck_not_configured"}
 }
 
-// MihoyoDetailRechecker recognizes a valid detail response. Definitive
-// unavailability is intentionally disabled until a stable source semantic is
-// observed and added as a reviewed fixture; unknown failure bodies are never
-// allowed to close a presence period.
+// MihoyoDetailRechecker recognizes valid matching detail responses and the
+// reviewed explicit-unavailable response. It is invoked sequentially at the
+// service boundary so a list omission cannot create parallel source traffic.
 type MihoyoDetailRechecker struct {
-	Client      *http.Client
-	Endpoint    string
-	EnableClose bool
+	Client   *http.Client
+	Endpoint string
 }
 
 func (checker MihoyoDetailRechecker) Recheck(ctx context.Context, sourceJobID string) RecheckResult {
+	for attempt := 0; attempt < 3; attempt++ {
+		result := checker.recheckOnce(ctx, sourceJobID)
+		if result.Outcome != RecheckDefinitelyUnavailable {
+			return result
+		}
+		if attempt == 2 {
+			return result
+		}
+	}
+	return RecheckResult{Outcome: RecheckIndeterminate, Code: "recheck_attempts_exhausted"}
+}
+
+func (checker MihoyoDetailRechecker) recheckOnce(ctx context.Context, sourceJobID string) RecheckResult {
 	client := checker.Client
 	if client == nil {
 		client = &http.Client{Timeout: 20 * time.Second}
@@ -80,20 +91,20 @@ func (checker MihoyoDetailRechecker) Recheck(ctx context.Context, sourceJobID st
 		return RecheckResult{Outcome: RecheckIndeterminate, Code: "recheck_http_unknown"}
 	}
 	var decoded struct {
-		Success bool           `json:"success"`
+		Success *bool          `json:"success"`
 		Data    map[string]any `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&decoded); err != nil {
 		return RecheckResult{Outcome: RecheckIndeterminate, Code: "recheck_response_invalid"}
 	}
-	if decoded.Success && fmt.Sprint(decoded.Data["id"]) == sourceJobID && hasRequiredDetailFields(decoded.Data) {
-		return RecheckResult{Outcome: RecheckAvailable, Code: "detail_available"}
+	if decoded.Success == nil {
+		return RecheckResult{Outcome: RecheckIndeterminate, Code: "recheck_unknown_response"}
 	}
-	// EnableClose is deliberately ineffective until a fixture-backed source
-	// semantic is introduced. Its presence makes that future change explicit
-	// instead of silently treating false/empty bodies as a removal signal.
-	if checker.EnableClose {
-		return RecheckResult{Outcome: RecheckIndeterminate, Code: "unavailable_classifier_unverified"}
+	if !*decoded.Success {
+		return RecheckResult{Outcome: RecheckDefinitelyUnavailable, Code: "source_explicitly_unavailable"}
+	}
+	if fmt.Sprint(decoded.Data["id"]) == sourceJobID && hasRequiredDetailFields(decoded.Data) {
+		return RecheckResult{Outcome: RecheckAvailable, Code: "detail_available"}
 	}
 	return RecheckResult{Outcome: RecheckIndeterminate, Code: "recheck_unknown_response"}
 }

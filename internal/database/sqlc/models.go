@@ -1075,6 +1075,479 @@ func (ns NullCollectionTriggerKind) Value() (driver.Value, error) {
 	return string(ns.CollectionTriggerKind), nil
 }
 
+type DeterministicEducationLevel string
+
+const (
+	DeterministicEducationLevelAssociateOrLower DeterministicEducationLevel = "associate_or_lower"
+	DeterministicEducationLevelBachelor         DeterministicEducationLevel = "bachelor"
+	DeterministicEducationLevelMaster           DeterministicEducationLevel = "master"
+	DeterministicEducationLevelDoctor           DeterministicEducationLevel = "doctor"
+)
+
+func (e *DeterministicEducationLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DeterministicEducationLevel(s)
+	case string:
+		*e = DeterministicEducationLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DeterministicEducationLevel: %T", src)
+	}
+	return nil
+}
+
+type NullDeterministicEducationLevel struct {
+	DeterministicEducationLevel DeterministicEducationLevel
+	Valid                       bool // Valid is true if DeterministicEducationLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDeterministicEducationLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.DeterministicEducationLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DeterministicEducationLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDeterministicEducationLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DeterministicEducationLevel), nil
+}
+
+type EducationRequirementModality string
+
+const (
+	EducationRequirementModalityRequired     EducationRequirementModality = "required"
+	EducationRequirementModalityPreferred    EducationRequirementModality = "preferred"
+	EducationRequirementModalityUnrestricted EducationRequirementModality = "unrestricted"
+)
+
+func (e *EducationRequirementModality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EducationRequirementModality(s)
+	case string:
+		*e = EducationRequirementModality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EducationRequirementModality: %T", src)
+	}
+	return nil
+}
+
+type NullEducationRequirementModality struct {
+	EducationRequirementModality EducationRequirementModality
+	Valid                        bool // Valid is true if EducationRequirementModality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEducationRequirementModality) Scan(value interface{}) error {
+	if value == nil {
+		ns.EducationRequirementModality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EducationRequirementModality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEducationRequirementModality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EducationRequirementModality), nil
+}
+
+type EducationRequirementResultStatus string
+
+const (
+	EducationRequirementResultStatusNotConfigured EducationRequirementResultStatus = "not_configured"
+	EducationRequirementResultStatusUncertain     EducationRequirementResultStatus = "uncertain"
+	EducationRequirementResultStatusConfigured    EducationRequirementResultStatus = "configured"
+)
+
+func (e *EducationRequirementResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EducationRequirementResultStatus(s)
+	case string:
+		*e = EducationRequirementResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EducationRequirementResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullEducationRequirementResultStatus struct {
+	EducationRequirementResultStatus EducationRequirementResultStatus
+	Valid                            bool // Valid is true if EducationRequirementResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEducationRequirementResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.EducationRequirementResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EducationRequirementResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEducationRequirementResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EducationRequirementResultStatus), nil
+}
+
+type ExperienceRequirementModality string
+
+const (
+	ExperienceRequirementModalityRequired    ExperienceRequirementModality = "required"
+	ExperienceRequirementModalityPreferred   ExperienceRequirementModality = "preferred"
+	ExperienceRequirementModalityConditional ExperienceRequirementModality = "conditional"
+	ExperienceRequirementModalityUncertain   ExperienceRequirementModality = "uncertain"
+)
+
+func (e *ExperienceRequirementModality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExperienceRequirementModality(s)
+	case string:
+		*e = ExperienceRequirementModality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExperienceRequirementModality: %T", src)
+	}
+	return nil
+}
+
+type NullExperienceRequirementModality struct {
+	ExperienceRequirementModality ExperienceRequirementModality
+	Valid                         bool // Valid is true if ExperienceRequirementModality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExperienceRequirementModality) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExperienceRequirementModality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExperienceRequirementModality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExperienceRequirementModality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExperienceRequirementModality), nil
+}
+
+type ExperienceRequirementResultStatus string
+
+const (
+	ExperienceRequirementResultStatusNotConfigured ExperienceRequirementResultStatus = "not_configured"
+	ExperienceRequirementResultStatusUncertain     ExperienceRequirementResultStatus = "uncertain"
+	ExperienceRequirementResultStatusConfigured    ExperienceRequirementResultStatus = "configured"
+)
+
+func (e *ExperienceRequirementResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExperienceRequirementResultStatus(s)
+	case string:
+		*e = ExperienceRequirementResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExperienceRequirementResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullExperienceRequirementResultStatus struct {
+	ExperienceRequirementResultStatus ExperienceRequirementResultStatus
+	Valid                             bool // Valid is true if ExperienceRequirementResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExperienceRequirementResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExperienceRequirementResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExperienceRequirementResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExperienceRequirementResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExperienceRequirementResultStatus), nil
+}
+
+type JobFamilyObservationStatus string
+
+const (
+	JobFamilyObservationStatusInScope      JobFamilyObservationStatus = "in_scope"
+	JobFamilyObservationStatusOutOfScope   JobFamilyObservationStatus = "out_of_scope"
+	JobFamilyObservationStatusScopeUnknown JobFamilyObservationStatus = "scope_unknown"
+	JobFamilyObservationStatusInvalidTitle JobFamilyObservationStatus = "invalid_title"
+)
+
+func (e *JobFamilyObservationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = JobFamilyObservationStatus(s)
+	case string:
+		*e = JobFamilyObservationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for JobFamilyObservationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullJobFamilyObservationStatus struct {
+	JobFamilyObservationStatus JobFamilyObservationStatus
+	Valid                      bool // Valid is true if JobFamilyObservationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullJobFamilyObservationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.JobFamilyObservationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.JobFamilyObservationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullJobFamilyObservationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.JobFamilyObservationStatus), nil
+}
+
+type JobFamilyResultStatus string
+
+const (
+	JobFamilyResultStatusClassified   JobFamilyResultStatus = "classified"
+	JobFamilyResultStatusUnclassified JobFamilyResultStatus = "unclassified"
+)
+
+func (e *JobFamilyResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = JobFamilyResultStatus(s)
+	case string:
+		*e = JobFamilyResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for JobFamilyResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullJobFamilyResultStatus struct {
+	JobFamilyResultStatus JobFamilyResultStatus
+	Valid                 bool // Valid is true if JobFamilyResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullJobFamilyResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.JobFamilyResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.JobFamilyResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullJobFamilyResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.JobFamilyResultStatus), nil
+}
+
+type ProjectTagClassification string
+
+const (
+	ProjectTagClassificationNamedGame       ProjectTagClassification = "named_game"
+	ProjectTagClassificationSourceDirection ProjectTagClassification = "source_direction"
+)
+
+func (e *ProjectTagClassification) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProjectTagClassification(s)
+	case string:
+		*e = ProjectTagClassification(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProjectTagClassification: %T", src)
+	}
+	return nil
+}
+
+type NullProjectTagClassification struct {
+	ProjectTagClassification ProjectTagClassification
+	Valid                    bool // Valid is true if ProjectTagClassification is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProjectTagClassification) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProjectTagClassification, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProjectTagClassification.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProjectTagClassification) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProjectTagClassification), nil
+}
+
+type ProjectTagResultStatus string
+
+const (
+	ProjectTagResultStatusComplete ProjectTagResultStatus = "complete"
+)
+
+func (e *ProjectTagResultStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProjectTagResultStatus(s)
+	case string:
+		*e = ProjectTagResultStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProjectTagResultStatus: %T", src)
+	}
+	return nil
+}
+
+type NullProjectTagResultStatus struct {
+	ProjectTagResultStatus ProjectTagResultStatus
+	Valid                  bool // Valid is true if ProjectTagResultStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProjectTagResultStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProjectTagResultStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProjectTagResultStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProjectTagResultStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProjectTagResultStatus), nil
+}
+
+type ServingJdActivityState string
+
+const (
+	ServingJdActivityStateEffective       ServingJdActivityState = "effective"
+	ServingJdActivityStateConfirmedClosed ServingJdActivityState = "confirmed_closed"
+)
+
+func (e *ServingJdActivityState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ServingJdActivityState(s)
+	case string:
+		*e = ServingJdActivityState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ServingJdActivityState: %T", src)
+	}
+	return nil
+}
+
+type NullServingJdActivityState struct {
+	ServingJdActivityState ServingJdActivityState
+	Valid                  bool // Valid is true if ServingJdActivityState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullServingJdActivityState) Scan(value interface{}) error {
+	if value == nil {
+		ns.ServingJdActivityState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ServingJdActivityState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullServingJdActivityState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ServingJdActivityState), nil
+}
+
+type ServingJdFormalDimension string
+
+const (
+	ServingJdFormalDimensionEducation  ServingJdFormalDimension = "education"
+	ServingJdFormalDimensionExperience ServingJdFormalDimension = "experience"
+	ServingJdFormalDimensionTechnology ServingJdFormalDimension = "technology"
+	ServingJdFormalDimensionProject    ServingJdFormalDimension = "project"
+	ServingJdFormalDimensionJobFamily  ServingJdFormalDimension = "job_family"
+)
+
+func (e *ServingJdFormalDimension) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ServingJdFormalDimension(s)
+	case string:
+		*e = ServingJdFormalDimension(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ServingJdFormalDimension: %T", src)
+	}
+	return nil
+}
+
+type NullServingJdFormalDimension struct {
+	ServingJdFormalDimension ServingJdFormalDimension
+	Valid                    bool // Valid is true if ServingJdFormalDimension is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullServingJdFormalDimension) Scan(value interface{}) error {
+	if value == nil {
+		ns.ServingJdFormalDimension, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ServingJdFormalDimension.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullServingJdFormalDimension) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ServingJdFormalDimension), nil
+}
+
 type TechnologyAnalysisConfigurationStatus string
 
 const (
@@ -1881,6 +2354,32 @@ type EducationRequirement struct {
 	Evidence              []byte
 }
 
+type EducationRequirementEvidence struct {
+	ID                           pgtype.UUID
+	EducationRequirementResultID pgtype.UUID
+	RuleKey                      string
+	Modality                     EducationRequirementModality
+	SourceField                  string
+	NormalizationVersion         string
+	NormalizedFieldSha256        string
+	CodepointStart               int32
+	CodepointEnd                 int32
+	CreatedAt                    pgtype.Timestamptz
+}
+
+type EducationRequirementResult struct {
+	ID                   pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	ParserVersion        string
+	LexiconVersion       string
+	LexiconSha256        string
+	Status               EducationRequirementResultStatus
+	LowerBoundLevel      NullDeterministicEducationLevel
+	UpperBoundLevel      NullDeterministicEducationLevel
+	CreatedAt            pgtype.Timestamptz
+	CompletedAt          pgtype.Timestamptz
+}
+
 type ExperienceRequirement struct {
 	ID                 pgtype.UUID
 	ParsedVersionID    pgtype.UUID
@@ -1890,6 +2389,32 @@ type ExperienceRequirement struct {
 	ExperienceDomain   pgtype.Text
 	RelationGroup      pgtype.Text
 	Evidence           []byte
+}
+
+type ExperienceRequirementEvidence struct {
+	ID                            pgtype.UUID
+	ExperienceRequirementResultID pgtype.UUID
+	RuleKey                       string
+	Modality                      ExperienceRequirementModality
+	MinimumYears                  int32
+	SourceField                   string
+	NormalizationVersion          string
+	NormalizedFieldSha256         string
+	CodepointStart                int32
+	CodepointEnd                  int32
+	CreatedAt                     pgtype.Timestamptz
+}
+
+type ExperienceRequirementResult struct {
+	ID                   pgtype.UUID
+	BodyContentVersionID pgtype.UUID
+	ParserVersion        string
+	LexiconVersion       string
+	LexiconSha256        string
+	Status               ExperienceRequirementResultStatus
+	BaseYear             pgtype.Int4
+	CreatedAt            pgtype.Timestamptz
+	CompletedAt          pgtype.Timestamptz
 }
 
 type JdVersion struct {
@@ -1958,6 +2483,81 @@ type JobContentPeriod struct {
 	// Exclusive SCD2 boundary: a content period is [valid_from, valid_to).
 	ValidTo   pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type JobFamilyMatch struct {
+	ID                pgtype.UUID
+	JobFamilyResultID pgtype.UUID
+	FamilyKey         string
+	MatchCount        int32
+	CreatedAt         pgtype.Timestamptz
+}
+
+type JobFamilyMatchEvidence struct {
+	ID                    pgtype.UUID
+	JobFamilyMatchID      pgtype.UUID
+	MatchedAlias          string
+	NormalizationVersion  string
+	NormalizedTitleSha256 string
+	CodepointStart        int32
+	CodepointEnd          int32
+	CreatedAt             pgtype.Timestamptz
+}
+
+type JobFamilyObservation struct {
+	SourceMetadataVersionID  pgtype.UUID
+	JobFamilyTitleIdentityID pgtype.UUID
+	Status                   JobFamilyObservationStatus
+	CreatedAt                pgtype.Timestamptz
+}
+
+type JobFamilyObservationRetryAudit struct {
+	ID                           pgtype.UUID
+	SourceMetadataVersionID      pgtype.UUID
+	ParserVersion                string
+	DictionaryVersion            string
+	DictionarySha256             string
+	ProjectMaskParserVersion     string
+	ProjectMaskDictionaryVersion string
+	ProjectMaskDictionarySha256  string
+	SafeErrorCode                string
+	OccurredAt                   pgtype.Timestamptz
+}
+
+type JobFamilyResult struct {
+	ID                           pgtype.UUID
+	JobFamilyTitleIdentityID     pgtype.UUID
+	ParserVersion                string
+	DictionaryVersion            string
+	DictionarySha256             string
+	ProjectMaskParserVersion     string
+	ProjectMaskDictionaryVersion string
+	ProjectMaskDictionarySha256  string
+	Status                       JobFamilyResultStatus
+	PrimaryFamilyKey             pgtype.Text
+	CreatedAt                    pgtype.Timestamptz
+	CompletedAt                  pgtype.Timestamptz
+}
+
+type JobFamilyRetryAudit struct {
+	ID                           pgtype.UUID
+	JobFamilyTitleIdentityID     pgtype.UUID
+	ParserVersion                string
+	DictionaryVersion            string
+	DictionarySha256             string
+	ProjectMaskParserVersion     string
+	ProjectMaskDictionaryVersion string
+	ProjectMaskDictionarySha256  string
+	SafeErrorCode                string
+	OccurredAt                   pgtype.Timestamptz
+}
+
+type JobFamilyTitleIdentity struct {
+	ID                   pgtype.UUID
+	TitleSha256          string
+	NormalizationVersion string
+	NormalizedTitle      string
+	CreatedAt            pgtype.Timestamptz
 }
 
 type JobLocation struct {
@@ -2036,6 +2636,51 @@ type ParsedVersion struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type ProjectTagAssignment struct {
+	ID                 pgtype.UUID
+	ProjectTagResultID pgtype.UUID
+	ProjectKey         string
+	DisplayName        string
+	Classification     ProjectTagClassification
+	CreatedAt          pgtype.Timestamptz
+}
+
+type ProjectTagEvidence struct {
+	ID                     pgtype.UUID
+	ProjectTagAssignmentID pgtype.UUID
+	MatchedKeyword         string
+	NormalizationVersion   string
+	NormalizedTitleSha256  string
+	CodepointStart         int32
+	CodepointEnd           int32
+	CreatedAt              pgtype.Timestamptz
+}
+
+type ProjectTagResult struct {
+	ID                     pgtype.UUID
+	ProjectTitleIdentityID pgtype.UUID
+	ParserVersion          string
+	DictionaryVersion      string
+	DictionarySha256       string
+	Status                 ProjectTagResultStatus
+	CreatedAt              pgtype.Timestamptz
+	CompletedAt            pgtype.Timestamptz
+}
+
+type ProjectTitleIdentity struct {
+	ID                   pgtype.UUID
+	TitleSha256          string
+	NormalizationVersion string
+	NormalizedTitle      string
+	CreatedAt            pgtype.Timestamptz
+}
+
+type ProjectTitleObservation struct {
+	SourceMetadataVersionID pgtype.UUID
+	ProjectTitleIdentityID  pgtype.UUID
+	CreatedAt               pgtype.Timestamptz
+}
+
 type PublicationState struct {
 	Singleton      bool
 	PublishedRunID pgtype.UUID
@@ -2057,6 +2702,89 @@ type RunJobVersionReference struct {
 	BodyContentVersionID    pgtype.UUID
 	ObservedAt              pgtype.Timestamptz
 	CreatedAt               pgtype.Timestamptz
+}
+
+// Latest current-inventory deterministic result per dimension; priority 0 is the observed source version and priority 1 is same-job fallback.
+type ServingJdCurrentDimensionResolution struct {
+	ID                             pgtype.UUID
+	ServingJdInventoryMembershipID pgtype.UUID
+	Dimension                      ServingJdFormalDimension
+	SelectionPriority              int16
+	ResolutionKey                  string
+	EducationRequirementResultID   pgtype.UUID
+	ExperienceRequirementResultID  pgtype.UUID
+	TechnologyAnalysisResultID     pgtype.UUID
+	ProjectTagResultID             pgtype.UUID
+	JobFamilyResultID              pgtype.UUID
+	CreatedAt                      pgtype.Timestamptz
+}
+
+// Latest published Serving membership for each observation scope; applications must not reconstruct it from ODS tables.
+type ServingJdCurrentInventoryMembership struct {
+	ID                      pgtype.UUID
+	PublishedRunID          pgtype.UUID
+	ObservationScopeID      pgtype.UUID
+	JobID                   pgtype.UUID
+	PresencePeriodID        pgtype.UUID
+	SourceMetadataVersionID pgtype.UUID
+	BodyContentVersionID    pgtype.UUID
+	ActivityState           ServingJdActivityState
+	Title                   string
+	Locations               []string
+	IsUrgent                bool
+	FirstDiscoveredAt       pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+}
+
+// Append-only selected formal-result references; later parsing appends a new resolution without mutating the source snapshot.
+type ServingJdDimensionResolution struct {
+	ID                             pgtype.UUID
+	ServingJdInventoryMembershipID pgtype.UUID
+	Dimension                      ServingJdFormalDimension
+	SelectionPriority              int16
+	ResolutionKey                  string
+	EducationRequirementResultID   pgtype.UUID
+	ExperienceRequirementResultID  pgtype.UUID
+	TechnologyAnalysisResultID     pgtype.UUID
+	ProjectTagResultID             pgtype.UUID
+	JobFamilyResultID              pgtype.UUID
+	CreatedAt                      pgtype.Timestamptz
+}
+
+// Append-only DWD snapshot members for each reconciled source publication; source and formal result identities remain directly traceable.
+type ServingJdInventoryMembership struct {
+	ID                      pgtype.UUID
+	PublishedRunID          pgtype.UUID
+	ObservationScopeID      pgtype.UUID
+	JobID                   pgtype.UUID
+	PresencePeriodID        pgtype.UUID
+	SourceMetadataVersionID pgtype.UUID
+	BodyContentVersionID    pgtype.UUID
+	ActivityState           ServingJdActivityState
+	Title                   string
+	Locations               []string
+	IsUrgent                bool
+	FirstDiscoveredAt       pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+}
+
+// Stable opaque browser identifiers, isolated from source and provenance identifiers.
+type ServingJdPublicIdentifier struct {
+	JobID     pgtype.UUID
+	PublicID  pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+}
+
+type ServingJdReconciliationAudit struct {
+	ID                 pgtype.UUID
+	PublishedRunID     pgtype.UUID
+	ObservationScopeID pgtype.UUID
+	JobID              pgtype.UUID
+	Stage              string
+	Severity           string
+	Code               string
+	OccurredAt         pgtype.Timestamptz
+	Diagnostics        []byte
 }
 
 type TechnologyAnalysisAuditEvent struct {

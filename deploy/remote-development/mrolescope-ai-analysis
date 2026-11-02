@@ -45,7 +45,7 @@ compose() {
 }
 
 load_release() {
-  local namespace api_image migrate_image worker_image api_pattern migrate_pattern worker_pattern
+  local namespace api_image migrate_image worker_image web_edge_image api_pattern migrate_pattern worker_pattern web_edge_pattern
   is_root_owned_mode /etc/mrolescope/remote-development.conf 644 || die 'deployment configuration must be root:root mode 0644'
   is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
   # shellcheck disable=SC1090
@@ -56,16 +56,24 @@ load_release() {
   api_image="${api_image:-}"
   migrate_image="${migrate_image:-}"
   worker_image="${worker_image:-}"
+  web_edge_image="${web_edge_image:-}"
   [[ "$namespace" =~ $NAMESPACE_PATTERN ]] || die 'invalid configured Docker Hub namespace'
   api_pattern="^docker\\.io/${namespace}/mrolescope-api@${DIGEST_PATTERN}$"
   migrate_pattern="^docker\\.io/${namespace}/mrolescope-migrate@${DIGEST_PATTERN}$"
   worker_pattern="^docker\\.io/${namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  web_edge_pattern="^docker\\.io/${namespace}/mrolescope-web-edge@${DIGEST_PATTERN}$"
   [[ "$api_image" =~ $api_pattern ]] || die 'verified release has no allowed API image digest'
   [[ "$migrate_image" =~ $migrate_pattern ]] || die 'verified release has no allowed migration image digest'
   [[ "$worker_image" =~ $worker_pattern ]] || die 'verified release has no allowed worker image digest'
+  if [[ -n "$web_edge_image" ]]; then
+    [[ "$web_edge_image" =~ $web_edge_pattern ]] || die 'verified release has no allowed Web Edge image digest'
+  else
+    web_edge_image='docker.io/library/mrolescope-web-edge-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000'
+  fi
   export MROLESCOPE_API_IMAGE="$api_image"
   export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"
   export MROLESCOPE_WORKER_IMAGE="$worker_image"
+  export MROLESCOPE_WEB_EDGE_IMAGE="$web_edge_image"
 }
 
 load_database_secret() {

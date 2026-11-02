@@ -1,0 +1,87 @@
+user nginx;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /dev/stderr warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /dev/stdout;
+    sendfile on;
+    server_tokens off;
+
+    # This small initial limit is deliberately enforced before static and API
+    # delivery. It bounds password guessing and accidental high-rate use while
+    # leaving a later identity-provider replacement at the same edge seam.
+    limit_req_zone $binary_remote_addr zone=mrolescope_viewer:10m rate=10r/s;
+    limit_req_status 429;
+
+    # An IP literal or an unrecognised Host must never fall through to the
+    # product application. On TLS, reject during the handshake; on HTTP, close
+    # without redirecting or serving an ACME/static/API resource.
+    server {
+        listen 80 default_server;
+        server_name _;
+        return 444;
+    }
+
+    server {
+        listen 80;
+        server_name ${MROLESCOPE_WEB_HOSTNAME};
+
+        location ^~ /.well-known/acme-challenge/ {
+            root /usr/share/nginx/acme-challenge;
+            default_type text/plain;
+            try_files $uri =404;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    server {
+        listen 443 ssl default_server;
+        server_name _;
+        ssl_reject_handshake on;
+    }
+
+    server {
+        listen 443 ssl;
+        server_name ${MROLESCOPE_WEB_HOSTNAME};
+
+        ssl_certificate /etc/nginx/tls/fullchain.pem;
+        ssl_certificate_key /etc/nginx/tls/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_cache shared:TLS:10m;
+        ssl_session_timeout 10m;
+
+        # All HTTPS routes, including SPA assets and proxied data, authenticate
+        # before a file lookup or upstream request is attempted.
+        limit_req zone=mrolescope_viewer burst=20 nodelay;
+        auth_basic "mRoleScope private preview";
+        auth_basic_user_file /run/nginx/mrolescope.htpasswd;
+
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "same-origin" always;
+        add_header X-Frame-Options "DENY" always;
+
+        location ^~ /api/ {
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_pass http://api:8080;
+        }
+
+        location / {
+            root /usr/share/nginx/html;
+            try_files $uri $uri/ /index.html;
+        }
+    }
+}

@@ -79,4 +79,26 @@ sed -i '/^  ai-output-audit-diagnostic-prepare:/,/^  ai-plus-output-audit-diagno
   "$temporary_dir/missing-output-audit-diagnostic.yaml"
 expect_rejected missing-output-audit-diagnostic "$temporary_dir/missing-output-audit-diagnostic.yaml"
 
+# The browser boundary must remain opt-in until the manual domain/hosting gate,
+# and the Go API must stay entirely off host interfaces.
+cp "$source_compose" "$temporary_dir/web-edge-unprofiled.yaml"
+sed -i '/^  web-edge:/,/^  worker:/ s/    profiles: \[web\]/    profiles: [sync]/' \
+  "$temporary_dir/web-edge-unprofiled.yaml"
+expect_rejected web-edge-unprofiled "$temporary_dir/web-edge-unprofiled.yaml"
+
+cp "$source_compose" "$temporary_dir/web-edge-without-hash.yaml"
+sed -i '/^  web-edge:/,/^  worker:/ { /^      MROLESCOPE_WEB_AUTH_BCRYPT_HASH:/d; }' \
+  "$temporary_dir/web-edge-without-hash.yaml"
+expect_rejected web-edge-without-hash "$temporary_dir/web-edge-without-hash.yaml"
+
+cp "$source_compose" "$temporary_dir/api-host-port.yaml"
+sed -i '/^  worker:/i\    ports:\n      - "127.0.0.1:8080:8080"' \
+  "$temporary_dir/api-host-port.yaml"
+expect_rejected api-host-port "$temporary_dir/api-host-port.yaml"
+
+cp "$source_compose" "$temporary_dir/web-edge-backend.yaml"
+sed -i '/^  web-edge:/,/^  worker:/ s/    networks: \[edge\]/    networks: [backend, edge]/' \
+  "$temporary_dir/web-edge-backend.yaml"
+expect_rejected web-edge-backend "$temporary_dir/web-edge-backend.yaml"
+
 printf '%s\n' 'Compose checker review-session regression test passed'

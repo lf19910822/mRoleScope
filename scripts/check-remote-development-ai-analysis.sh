@@ -121,7 +121,7 @@ grep -Fqx 'rm -f /etc/systemd/system/mrolescope-ai-flash-trial.service' "$bootst
 
 grep -Fqx "readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'" "$bootstrap" \
   || die 'bootstrap must define the root-only AI output audit directory'
-grep -Fqx 'install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR"' "$bootstrap" \
+grep -Fqx 'install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR" "$TLS_DIR" "$ACME_CHALLENGE_DIR"' "$bootstrap" \
   || die 'bootstrap must create the root-only AI output audit directory'
 
 service_block() {

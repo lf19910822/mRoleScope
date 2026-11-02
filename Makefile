@@ -60,12 +60,14 @@ deploy-config-check:
 	bash scripts/check-remote-development-ai-analysis.sh
 	bash scripts/test-check-remote-development-compose.sh
 	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
+	bash scripts/test-mrolescope-deploy-web-edge.sh
 	@if [ -z "$(DEPLOY_COMPOSE)" ]; then \
 		printf '%s\n' 'Docker Compose v2 plugin is unavailable; static network-boundary checks passed, and CI/CVM will run the full Compose v2 config check.'; \
 	else \
 		MROLESCOPE_API_IMAGE=docker.io/mrolescopeverify/mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 		MROLESCOPE_MIGRATE_IMAGE=docker.io/mrolescopeverify/mrolescope-migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
 		MROLESCOPE_WORKER_IMAGE=docker.io/mrolescopeverify/mrolescope-worker@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+		MROLESCOPE_WEB_EDGE_IMAGE=docker.io/mrolescopeverify/mrolescope-web-edge@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd \
 		POSTGRES_DB=mrolescope_verify \
 		POSTGRES_USER=mrolescope_verify \
 		POSTGRES_PASSWORD=not-a-real-password \

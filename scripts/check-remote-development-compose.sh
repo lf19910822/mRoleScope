@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Guard the network boundary that lets the host reach only the API. Docker
-# cannot publish a port for a container attached exclusively to an internal
-# bridge network, so the API also needs the ordinary `edge` bridge.
+# Guard the network boundary that keeps PostgreSQL and the Go API private. The
+# optional Web Edge alone may publish 80/443 after the separate manual domain
+# gate; the API reaches it over the ordinary `edge` bridge.
 
 set -euo pipefail
 
@@ -57,10 +57,17 @@ grep -Fqx '    profiles: [candidate-analysis-v0.2]' "$compose_file" \
   || die 'only API and no-port worker may attach to the ordinary edge network'
 
 [[ "$(grep -Fxc '    ports:' "$compose_file")" -eq 1 ]] \
-  || die 'only API may publish a host port'
+  || die 'only Web Edge may publish host ports'
 
-grep -Fqx '      - "127.0.0.1:8080:8080"' "$compose_file" \
-  || die 'API must publish port 8080 only on the host loopback address'
+grep -Fqx '      - "80:80"' "$compose_file" \
+  || die 'Web Edge must publish HTTP only for redirects and ACME challenges'
+
+grep -Fqx '      - "443:443"' "$compose_file" \
+  || die 'Web Edge must publish the authenticated HTTPS entrypoint'
+
+if grep -Fq '8080:8080' "$compose_file"; then
+  die 'API port 8080 must never be published on a host interface'
+fi
 
 grep -Fqx '    internal: true' "$compose_file" \
   || die 'backend network must remain internal'
@@ -79,6 +86,36 @@ service_block() {
     in_block { print }
   ' "$compose_file"
 }
+
+check_web_edge() {
+  local block volume_block
+  block=$(service_block web-edge)
+  [[ -n "$block" ]] || die 'Web Edge service was not found'
+  grep -Fqx '    image: ${MROLESCOPE_WEB_EDGE_IMAGE:-docker.io/library/mrolescope-web-edge-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}' <<<"$block" \
+    || die 'Web Edge must use the supplied digest or a non-runnable legacy-release placeholder'
+  grep -Fqx '    profiles: [web]' <<<"$block" \
+    || die 'Web Edge must remain disabled until the manual web profile is enabled'
+  grep -Fqx '    networks: [edge]' <<<"$block" \
+    || die 'Web Edge may attach only to the ordinary edge network'
+  grep -Fqx '      MROLESCOPE_WEB_HOSTNAME: ${MROLESCOPE_WEB_HOSTNAME:-}' <<<"$block" \
+    || die 'Web Edge must receive its hostname only through root-owned runtime configuration'
+  grep -Fqx '      MROLESCOPE_WEB_AUTH_BCRYPT_HASH: ${MROLESCOPE_WEB_AUTH_BCRYPT_HASH:-}' <<<"$block" \
+    || die 'Web Edge must receive only a bcrypt hash through root-owned runtime configuration'
+  grep -Fqx '    read_only: true' <<<"$block" \
+    || die 'Web Edge root filesystem must remain read-only'
+  grep -Fqx '      - no-new-privileges:true' <<<"$block" \
+    || die 'Web Edge must prohibit privilege escalation'
+  grep -Fqx '      - type: bind' <<<"$block" \
+    || die 'Web Edge must mount only fixed TLS and ACME directories'
+  grep -Fqx '        source: /etc/mrolescope/tls' <<<"$block" \
+    || die 'Web Edge TLS directory must be fixed and root-owned on the host'
+  grep -Fqx '        source: /var/lib/mrolescope/acme-challenge' <<<"$block" \
+    || die 'Web Edge ACME directory must be fixed on the host'
+  [[ "$(grep -Fxc '        read_only: true' <<<"$block")" -eq 2 ]] \
+    || die 'Web Edge TLS and ACME mounts must both be read-only'
+}
+
+check_web_edge
 
 check_private_one_shot() {
   local service="$1" profile="$2" command="$3" block

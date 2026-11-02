@@ -30,6 +30,7 @@ jobs:
       api_image: docker.io/${{ vars.DOCKERHUB_USERNAME }}/mrolescope-api@${{ steps.build_api.outputs.digest }}
       migrate_image: docker.io/${{ vars.DOCKERHUB_USERNAME }}/mrolescope-migrate@${{ steps.build_migrate.outputs.digest }}
       worker_image: docker.io/${{ vars.DOCKERHUB_USERNAME }}/mrolescope-worker@${{ steps.build_worker.outputs.digest }}
+      web_edge_image: docker.io/${{ vars.DOCKERHUB_USERNAME }}/mrolescope-web-edge@${{ steps.build_web_edge.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -69,6 +70,8 @@ jobs:
           npm run type-check
           npm run test:unit -- --run
           npm run build
+      - name: Verify Web Edge authentication boundary
+        run: bash scripts/test-web-edge-container.sh
       - name: Verify Docker Hub deployment configuration
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
@@ -112,6 +115,16 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+      - id: build_web_edge
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.web-edge
+          push: true
+          tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/mrolescope-web-edge:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
   deploy:
     needs: verify-and-build
@@ -129,6 +142,7 @@ jobs:
           API_IMAGE: ${{ needs.verify-and-build.outputs.api_image }}
           MIGRATE_IMAGE: ${{ needs.verify-and-build.outputs.migrate_image }}
           WORKER_IMAGE: ${{ needs.verify-and-build.outputs.worker_image }}
+          WEB_EDGE_IMAGE: ${{ needs.verify-and-build.outputs.web_edge_image }}
         run: |
           set -euo pipefail
-          sudo -n /usr/local/sbin/mrolescope-deploy "$API_IMAGE" "$MIGRATE_IMAGE" "$WORKER_IMAGE"
+          sudo -n /usr/local/sbin/mrolescope-deploy "$API_IMAGE" "$MIGRATE_IMAGE" "$WORKER_IMAGE" "$WEB_EDGE_IMAGE"
