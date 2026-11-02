@@ -20,6 +20,10 @@ const (
 	// MaximumPageSize bounds every list query, including repository callers
 	// that bypass the HTTP handler.
 	MaximumPageSize = 100
+	// MaximumListSortRules bounds the public ordered list-sort interface. It
+	// keeps ordering expressive enough for a reader while preserving a small,
+	// predictable set of fixed SQL fragments.
+	MaximumListSortRules = 4
 )
 
 // ListSort is one of the supported deterministic list orders.
@@ -76,8 +80,8 @@ func ParseListSortRules(values []string) ([]SortRule, ListSort, error) {
 	if len(values) == 0 {
 		return nil, ListSortTitle, nil
 	}
-	if len(values) > 2 {
-		return nil, "", fmt.Errorf("at most two requirement sort rules are allowed")
+	if len(values) > MaximumListSortRules {
+		return nil, "", fmt.Errorf("at most %d list sort rules are allowed", MaximumListSortRules)
 	}
 	if len(values) == 1 && ListSort(values[0]) == ListSortTitle {
 		return nil, ListSortTitle, nil
@@ -128,8 +132,8 @@ func ParseListSortRules(values []string) ([]SortRule, ListSort, error) {
 }
 
 func validateSortRules(rules []SortRule) error {
-	if len(rules) > 2 {
-		return fmt.Errorf("at most two requirement sort rules are allowed")
+	if len(rules) > MaximumListSortRules {
+		return fmt.Errorf("at most %d list sort rules are allowed", MaximumListSortRules)
 	}
 	seenFields := make(map[SortField]struct{}, len(rules))
 	for _, rule := range rules {

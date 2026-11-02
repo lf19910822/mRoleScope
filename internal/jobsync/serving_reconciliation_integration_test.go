@@ -234,7 +234,6 @@ func TestServingListJobsComposesStructuredFilters(t *testing.T) {
 		"job families":   options.JobFamilies,
 		"main families":  options.MainJobFamilies,
 		"other families": options.OtherJobFamilies,
-		"technologies":   options.TechnologyKeywords,
 		"projects":       options.Projects,
 		"locations":      options.Locations,
 		"experience":     options.ExperienceYears,
@@ -248,12 +247,25 @@ func TestServingListJobsComposesStructuredFilters(t *testing.T) {
 			}
 		}
 	}
+	if len(options.TechnologyKeywords) == 0 {
+		t.Fatal("serving technology options are unexpectedly empty")
+	}
+	for _, option := range options.TechnologyKeywords {
+		if option.Value == "" || option.Label == "" || option.Category.Value == "" || option.Category.Label == "" {
+			t.Fatalf("serving technology option is incomplete: %#v", option)
+		}
+	}
 	if !containsServingFilterOption(options.Projects, "unrecognized") ||
-		!containsServingFilterOption(options.TechnologyKeywords, "go") ||
+		!containsServingTechnologyFilterOption(options.TechnologyKeywords, "go") ||
 		!containsServingFilterOption(options.MainJobFamilies, "backend") ||
 		!containsServingFilterOption(options.JobFamilies, "backend") ||
 		!containsServingFilterOption(options.JobFamilies, "security") {
 		t.Fatalf("serving filter options missed expected current values: %#v", options)
+	}
+	for _, option := range options.TechnologyKeywords {
+		if option.Value == "go" && (option.Category.Value != "programming-languages" || option.Category.Label != "编程语言") {
+			t.Fatalf("Go category = %#v", option.Category)
+		}
 	}
 
 	trueValue := true
@@ -320,6 +332,15 @@ func TestServingListJobsComposesStructuredFilters(t *testing.T) {
 }
 
 func containsServingFilterOption(options []jdserving.FilterOption, value string) bool {
+	for _, option := range options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func containsServingTechnologyFilterOption(options []jdserving.TechnologyKeywordFilterOption, value string) bool {
 	for _, option := range options {
 		if option.Value == value {
 			return true
@@ -849,7 +870,7 @@ func insertServingFilterFormalFacts(
 	technologyResultID := insertServingTechnologyResult(t, repository, bodyID, configurationID)
 	if _, err := repository.pool.Exec(context.Background(), `
 INSERT INTO technology_identities (technology_key, canonical_name, technology_kind)
-VALUES ($1, $2, 'programming_language')
+VALUES ($1, $2, 'programming-language')
 	ON CONFLICT (technology_key) DO NOTHING`, technologyKey, technologyName); err != nil {
 		t.Fatalf("insert serving filter technology identity: %v", err)
 	}

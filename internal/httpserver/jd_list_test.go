@@ -88,6 +88,8 @@ func TestJDListRoutePassesUnifiedJobFamiliesAndOrderedSortRules(t *testing.T) {
 		wantSortRules := []jdserving.SortRule{
 			{Field: jdserving.SortFieldExperience, Direction: jdserving.SortDirectionDescending},
 			{Field: jdserving.SortFieldEducation, Direction: jdserving.SortDirectionAscending},
+			{Field: jdserving.SortFieldFirstDiscovered, Direction: jdserving.SortDirectionDescending},
+			{Field: jdserving.SortFieldUrgent, Direction: jdserving.SortDirectionAscending},
 		}
 		if !reflect.DeepEqual(query.SortRules, wantSortRules) {
 			t.Fatalf("ordered sort rules = %#v, want %#v", query.SortRules, wantSortRules)
@@ -95,7 +97,7 @@ func TestJDListRoutePassesUnifiedJobFamiliesAndOrderedSortRules(t *testing.T) {
 		return jdserving.JobListResponse{}, nil
 	})
 	request := httptest.NewRequest(http.MethodGet,
-		"/api/v1/jobs?job_family=backend&job_family=ai_application&sort=experience_desc&sort=education_asc", nil)
+		"/api/v1/jobs?job_family=backend&job_family=ai_application&sort=experience_desc&sort=education_asc&sort=first_discovered_desc&sort=urgent_asc", nil)
 	response := httptest.NewRecorder()
 	New(nil, reader).ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -168,7 +170,7 @@ func TestJDListRouteRejectsInvalidStructuredValues(t *testing.T) {
 		"sort=invalid",
 		"sort=education_desc&sort=education_asc",
 		"sort=title&sort=experience_desc",
-		"sort=education_desc&sort=experience_desc&sort=education_asc",
+		"sort=education_desc&sort=experience_desc&sort=first_discovered_desc&sort=urgent_asc&sort=activity_state_desc",
 		"minimum_experience_year=-1",
 		"minimum_experience_year=10",
 		"minimum_experience_year=three",
@@ -201,16 +203,23 @@ func TestJDListRoutePreservesExplicitAllActivityStates(t *testing.T) {
 func TestJDFilterOptionsRouteReturnsOnlyDisplaySafeOptions(t *testing.T) {
 	reader := jdFilterOptionsReaderFunc(func(context.Context) (jdserving.FilterOptionsResponse, error) {
 		return jdserving.FilterOptionsResponse{
-			ActivityStates:     []jdserving.FilterOption{{Value: "effective", Label: "仍有效"}},
-			EducationLevels:    []jdserving.FilterOption{{Value: "bachelor", Label: "本科"}},
-			ExperienceYears:    []jdserving.FilterOption{{Value: "3", Label: "3 年"}},
-			JobFamilies:        []jdserving.FilterOption{{Value: "backend", Label: "后端"}},
-			Locations:          []jdserving.FilterOption{{Value: "上海", Label: "上海"}},
-			MainJobFamilies:    []jdserving.FilterOption{{Value: "backend", Label: "后端"}},
-			OtherJobFamilies:   []jdserving.FilterOption{},
-			Projects:           []jdserving.FilterOption{{Value: "genshin_impact", Label: "原神"}},
-			TechnologyKeywords: []jdserving.FilterOption{{Value: "go", Label: "Go"}},
-			UrgentOptions:      []jdserving.FilterOption{{Value: "true", Label: "紧急"}},
+			ActivityStates:   []jdserving.FilterOption{{Value: "effective", Label: "仍有效"}},
+			EducationLevels:  []jdserving.FilterOption{{Value: "bachelor", Label: "本科"}},
+			ExperienceYears:  []jdserving.FilterOption{{Value: "3", Label: "3 年"}},
+			JobFamilies:      []jdserving.FilterOption{{Value: "backend", Label: "后端"}},
+			Locations:        []jdserving.FilterOption{{Value: "上海", Label: "上海"}},
+			MainJobFamilies:  []jdserving.FilterOption{{Value: "backend", Label: "后端"}},
+			OtherJobFamilies: []jdserving.FilterOption{},
+			Projects:         []jdserving.FilterOption{{Value: "genshin_impact", Label: "原神"}},
+			TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{{
+				Value: "go",
+				Label: "Go",
+				Category: jdserving.FilterOption{
+					Value: "programming-languages",
+					Label: "编程语言",
+				},
+			}},
+			UrgentOptions: []jdserving.FilterOption{{Value: "true", Label: "紧急"}},
 		}, nil
 	})
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/filter-options", nil)
@@ -230,6 +239,15 @@ func TestJDFilterOptionsRouteReturnsOnlyDisplaySafeOptions(t *testing.T) {
 		len(payload.MainJobFamilies) != 1 || payload.MainJobFamilies[0].Value != "backend" ||
 		len(payload.TechnologyKeywords) != 1 {
 		t.Fatalf("filter-options payload = %#v", payload)
+	}
+	var rawPayload struct {
+		TechnologyKeywords []map[string]json.RawMessage `json:"technology_keywords"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &rawPayload); err != nil {
+		t.Fatalf("decode raw technology options: %v", err)
+	}
+	if len(rawPayload.TechnologyKeywords) != 1 || rawPayload.TechnologyKeywords[0]["category"] == nil {
+		t.Fatalf("technology keyword category = %#v", rawPayload.TechnologyKeywords)
 	}
 }
 

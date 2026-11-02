@@ -8,7 +8,7 @@ describe('JD browser list request', () => {
     const state: JDListState = {
       activityStates: ['effective'],
       educationLevels: ['bachelor', 'master'],
-      minimumExperienceYear: 0,
+      minimumExperienceYear: 3,
       firstDiscoveredFrom: '',
       firstDiscoveredUntil: '',
       isUrgent: undefined,
@@ -17,7 +17,7 @@ describe('JD browser list request', () => {
       page: 1,
       pageSize: 20,
       projects: ['genshin_impact', 'star_rail'],
-      sortRules: ['experience_desc', 'first_discovered_desc'],
+      sortRules: ['experience_desc', 'first_discovered_desc', 'education_desc', 'urgent_asc'],
       technologyKeywords: ['go', 'python'],
       title: '工程师',
     }
@@ -29,9 +29,14 @@ describe('JD browser list request', () => {
     expect(request.searchParams.getAll('project')).toEqual(['genshin_impact', 'star_rail'])
     expect(request.searchParams.getAll('job_family')).toEqual(['backend', 'ai_application'])
     expect(request.searchParams.getAll('main_job_family')).toEqual([])
-    expect(request.searchParams.getAll('sort')).toEqual(['experience_desc', 'first_discovered_desc'])
+    expect(request.searchParams.getAll('sort')).toEqual([
+      'experience_desc',
+      'first_discovered_desc',
+      'education_desc',
+      'urgent_asc',
+    ])
     expect(request.searchParams.getAll('education')).toEqual(['bachelor', 'master'])
-    expect(request.searchParams.get('minimum_experience_year')).toBe('0')
+    expect(request.searchParams.get('minimum_experience_year')).toBe('3')
     expect(request.searchParams.getAll('experience_year')).toEqual([])
     expect(request.searchParams.get('location')).toBe('上海')
     expect(request.searchParams.get('title')).toBe('工程师')

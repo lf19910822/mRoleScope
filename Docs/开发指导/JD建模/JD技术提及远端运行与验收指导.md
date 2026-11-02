@@ -28,7 +28,7 @@
 每一步均在 GitHub 的 `Remote development operations` 工作流中选择，且只可在受保护的 `main` 上运行。工作流以 `github.actor` 作为操作者/审核人，不接受自行填写的审核人名。
 
 1. **导入候选，不执行。** 选择 `seed-v0.2-dictionary`，确认文本为 `SEED_V02_DICTIONARY`。它把仓库内固定的[技术关键词归一化映射表 v0.2](technical-keyword-alias-map-v0.2.md)导入为候选/条件规则；重复运行不会重复插入。此步不启用任何规则、不创建分析结果，也不入队。
-2. **批准完整的已审阅规则集。** 常规路径选择 `approve-v0.2-reviewed-rules`，确认文本为 `APPROVE_V02_REVIEWED_RULES`。它不接受规则列表，而是原子地批准人工审阅表 A、B 已确认的全部固定规则，并为每条新启用规则保留独立审核记录；重试只复用既有决定，不重复写入。`approve-v0.2-rule`（确认文本 `APPROVE_V02_RULE`）保留给恢复或逐条审计，且仍只接受一个小写 v0.2 `rule_key`。两条路径都不能启用条件、歧义或未审阅规则。
+2. **批准完整的已审阅规则集。** 常规路径选择 `approve-v0.2-reviewed-rules`，确认文本为 `APPROVE_V02_REVIEWED_RULES`。它不接受规则列表，而是原子地批准人工审阅表 A、B 已确认的全部固定规则，并为每条新启用规则保留独立审核记录；重试只复用既有决定，不重复写入。 `approve-v0.2-rule`（确认文本 `APPROVE_V02_RULE`）保留给恢复或逐条审计，且仍只接受一个小写 v0.2 `rule_key`。两条路径都不能启用条件、歧义或未审阅规则。
 3. **准备候选配置。** 至少有一条确定性规则已获批准后，选择 `prepare-v0.2-analysis`，确认文本为 `PREPARE_V02_ANALYSIS`。它创建或复用固定的“解析器版本＋词典版本”候选配置，并把全部历史正文版本加入该候选配置的队列；不会抓取来源网站，不会发布结果。
 4. **运行隔离的候选分析。** 选择 `run-v0.2-candidate-analysis`，确认文本为 `RUN_V02_CANDIDATE_ANALYSIS`。它不触碰已发布配置，也不改变每日同步定时器。工作流输出只应包含状态和计数，绝不能含正文、命中片段、原始响应或凭据。
 5. **候选追赶与复核。** 分析期间如果产生新的正文版本，发布前必须重新检查并补齐候选队列；不得将候选结果与旧发布结果混为“当前结果”。对于首期的确定性精确词面，项目负责人在本地审核词典身份、词面、边界和排除政策，记录在[技术词典 v0.1 人工确认记录](技术词典v0.1人工确认记录.md)和[人工审阅表](技术词典v0.1人工审阅表.md)；CVM 对全部证据做字段哈希、坐标、别名、正式边界和冻结规则集的确定性重放校验，并对多命中与无命中正文做安全抽样。这个组合替代了为首期精确提及而显示/复制真实 JD 的人工阅览。模糊匹配、上下文消歧、年限/学历等语义提取不适用该替代门禁，仍必须另设远端人工文本复核。复核结论为“正确 / 错误 / 暂不确定”，不会覆盖自动结果。
@@ -53,137 +53,38 @@
 
 ## 首期 AI 语义解析：受控试跑与发布
 
-本节适用于已部署 AI 迁移和新版 root-owned 资产后。它只处理已经版本化的
-`description`、`jobRequire`、`addition`，技术词典仍由确定性分析配置提供；不接受
-任意模型、提示词、正文、配置 ID、SQL、路径、价格或批次参数。
+本节是当前 AI 运行口径。受控候选固定使用 `qwen-plus`、`ai-jd-result-v4` 提示词/Schema 及 `ai-semantic-validator-v4`；V1–V3 与 Flash 的配置、结果和审计工件只作为不可变历史读取，不能创建、执行、扩展、发布或复核。
 
-### 密钥与部署前提
+### 密钥、网络与输出审计边界
 
-- `MROLESCOPE_QWEN_WORKSPACE_ID` 与 `MROLESCOPE_QWEN_API_KEY` 只能由 CVM
-  操作者手工加入既有的 `/etc/mrolescope/secrets/remote-development.env`。前者是已确认的
-  北京业务空间标识，worker 只用它构造
-  `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`；后者是按量付费
-  百炼 API Key。该文件必须始终是 `root:root`、`0600`；密钥值不得进入 Git、GitHub
-  Actions 输入/输出、聊天、`.env`、镜像、Compose 文件或普通日志。缺失或非法 WorkspaceId
-  会在连接数据库或发送模型请求前安全失败，绝不退回旧通用端点。
-- 只有 `ai-plus-trial` 与 `ai-flash-trial` 两个一次性容器接收该环境变量，并只连接
-  `backend` 与专用 `ai-edge` 网络。准备、扩展、发布、状态容器没有模型密钥、COS
-  凭据、正文挂载或主机端口。
-- 先经受控部署工作流部署包含 `000010` 至 `000018` 迁移、worker 和 bootstrap 资产的
-  同一受保护 `main` 修订。随后由 CVM 的 root 操作者以固定提交重新运行 bootstrap，
-  使 `mrolescope-ai-analysis` 和五个 `mrolescope-ai-*.service` 单元落位；bootstrap
-  不创建或打印密钥，也不启动试跑。
-- 在未准备候选前，可以选择 `ai-status` 检查无正文的状态；它不发送模型请求。
+- `MROLESCOPE_QWEN_WORKSPACE_ID` 与 `MROLESCOPE_QWEN_API_KEY` 只能由 CVM 操作者写入 `/etc/mrolescope/secrets/remote-development.env`，文件必须为 `root:root:0600`。Workspace ID 仅用于构造北京业务空间专属端点；不允许回退到通用端点。两者都不得进入 Git、CI、镜像、Compose、普通日志或聊天。
+- 仅 `ai-plus-trial` 和 `ai-plus-output-audit-diagnostic` 获得模型密钥及 `backend, ai-edge` 网络；准备、扩展、发布、状态、复核和审计读取器没有 API Key、COS 凭据或主机端口。
+- 新的 Plus candidate 成功返回的原始输出可以只写入 `/var/lib/mrolescope/ai-output-audit`：目录 `root:root:0700`、工件 `0600`、保留 7 天、总量上限 64 MiB。写入者、TTY 审计读取器和无正文状态读取器以容器 root 身份访问唯一的固定挂载；其他服务无该挂载。写入无法预留或提交时，工作以 `output_audit_capture_failed` 安全结束，绝不为找回输出自动重发。
 
 ### GitHub Actions 固定操作
 
-仅在 GitHub 的 `Remote development operations` 工作流、受保护的 `main` 上运行下列
-操作。除 `ai-status`、`ai-logs` 外，确认文本必须逐字匹配。操作没有额外参数输入框；
-GitHub actor 也不会成为可选择的模型、提示词或发布人。AI 发布证明的发布人固定为
-`FAN`。
+仅在受保护 `main` 的 `Remote development operations` 工作流执行。下表的 operation 和确认语均是固定白名单，不接受模型、提示词、正文、配置 ID、SQL、路径、价格或批量参数。
 
 | 顺序 | operation | confirmation | 会做什么 | 不会做什么 |
 | --- | --- | --- | --- | --- |
-| 1 | `prepare-ai-trial` | `PREPARE_AI_TRIAL` | 对固定的 5 份分层正文建立同一输入契约下的 Plus 候选与 Flash 对照，创建共享的 10 逻辑任务/30 尝试/2.50 元预算组。 | 不调用模型，不发送正文，不扩大样本。 |
-| 2 | `run-ai-plus-trial` | `RUN_AI_PLUS_TRIAL` | 只执行固定的 `qwen-plus` 非思考试跑工作；每个逻辑任务至多三次，发送前预留预算。 | 不执行 Flash、不改变提示词或 token 上限、不处理扩展队列。 |
-| 3 | `run-ai-flash-trial` | `RUN_AI_FLASH_TRIAL` | 只执行同一批样本的固定 `qwen-flash` 成本/质量对照。 | 不成为默认模型或自动路由目标。 |
-| 4 | `ai-status` | 无 | 输出配置 ID、工作/尝试/复核状态及 token、金额等安全汇总。 | 不发送模型请求、不显示 JD/片段/原始响应/密钥。 |
-| 5 | `ai-logs` | 无 | 只读取当天五个 AI systemd 单元的 journal。 | 不读取容器原始请求/响应；输出仍须按本指南的无正文边界审阅。 |
-| 6 | `expand-ai-plus` | `EXPAND_AI_PLUS` | 仅在 5 份 Plus 试跑全部完成、全审且零重大错误后，把其余已完成确定性技术分析的正文**入队**。 | 不调用模型；不绕过生产批次预算；不发布。 |
-| 7 | `publish-ai-plus` | `PUBLISH_AI_PLUS` | 在所有已入队工作完成、试跑全审、`required_review` 全审、`spot_check` 20% 和 `routine` 5% 抽审均满足时，写入不可变发布证明并指向固定 Plus 配置。 | 不接受发布人、配置 ID 或任意复核结果；任一门禁失败时不移动发布指针。 |
+| 1 | `prepare-ai-trial` | `PREPARE_AI_TRIAL` | 为固定 5 份远端分层正文创建或复用一个 Plus candidate；上限为 5 个逻辑任务、15 次物理尝试、`10,000` 输入 / `5,000` 输出 Token、`2.50` 元。 | 不调用模型、不外发正文、不创建 Flash。 |
+| 2 | `run-ai-plus-trial` | `RUN_AI_PLUS_TRIAL` | 仅运行该固定 Plus 试跑。 | 不改变冻结契约、不运行扩展工作；实际模型调用仍须获得本流程外的单独授权。 |
+| 3 | `ai-status` / `ai-logs` | 无 | 输出无正文的状态、计数、用量、费用和安全错误类别；日志仅限固定 AI 单元。 | 不调用模型、不显示 JD、请求、原始输出、Workspace ID 或密钥。 |
+| 4 | `expand-ai-plus` | `EXPAND_AI_PLUS` | 在五份试跑工作都达到终态后，以同一 Plus 配置把其余合格正文入队。 | 不调用模型；不以 review、语义正确性、major/minor error 或 Flash 对照阻断。 |
+| 5 | `publish-ai-plus` | `PUBLISH_AI_PLUS` | 在范围内工作均终态、结构合格结果已持久化且安全计数/用量/失败证明完整时，将该配置设为未来新建或变化正文的默认配置。 | 不发布“仅五份样本”；不要求语义零错误、复核比例或 Flash 对照。 |
 
-### CVM 直连人工复核（不属于 GitHub Actions）
+### CVM 直接查看与可选审计
 
-真实 JD 只能在 CVM 终端短暂显示，因此人工复核**不能**从 GitHub Actions、`ai-logs`、
-`ai-status` 或聊天中执行。已取得 CVM root 操作权限的审核人可在直连终端逐次运行：
+`review-plus` 和 `audit-plus-contract` 不在 GitHub Actions 中。它们只能在 CVM 的直接 TTY 以 `ubuntu` 登录后通过 `sudo` 发起；显示的正文、重建输入和原始模型输出绝不能复制到聊天、截图、Git、CI 或普通文件。
 
-```bash
-sudo /usr/local/sbin/mrolescope-ai-analysis review-plus
-sudo /usr/local/sbin/mrolescope-ai-analysis review-flash
-```
+- `review-plus` 是可选的语义质量记录。它可以保存固定的审阅结论，但不改变结构合格结果，也不阻断扩展或人工发布。
+- `prepare-output-audit-diagnostic` 创建或复用独立的五份 Plus 诊断候选；`run-plus-output-audit-diagnostic` 执行它；`audit-status` 只显示捕获数、待审数、容量和安全类别；`audit-plus-contract` 由程序选择一个完整的待审计工件，并只接受固定契约结论。四项均不在 GitHub Actions 白名单中。
+- 输出审计只用于提示词、Schema、绑定或本地边界的受控开发诊断。它不能用来重发旧工作、覆盖历史结果或把语义判断变成发布门。
 
-每次命令只选择当前固定 Plus 候选或 Flash 对照中的一个未复核结构化结论，显示三段已版本化
-正文、持久化的结构化结论和证据位置；文本仅写到这次交互终端，不写 journal、数据库审计、
-GitHub 日志或本地文件。终端会提示输入且只接受 `accepted`、`not_reviewable`、`minor_error`
-或 `major_error`；后两者还必须从五类固定错误类别中选择一项。裁决人固定记录为 `FAN`，记录
-不可修改。输入非枚举值、配置不是当前受控试跑臂或没有待复核项都会安全停止，不会写入裁决。
+### 当前结构门、候选词与发布含义
 
-终端内容属于远端受控查看，不要复制到聊天、Git、Issue、CI 输出或截图。正文中的终端控制字符
-会被转义后再显示，避免不可信文本改写终端界面。5 份 Plus 的有效结论须重复上述命令，直至
-`ai-status` 的无正文汇总显示全部复核完成；Flash 的复核可用于成本/质量对照，但不是首版发布门。
-任一重大错误即停止扩展和发布。
+模型必须返回单一完整 JSON，匹配冻结 Schema，并正确绑定 `response_schema_version`、`request_id` 与请求正文；非 JSON、截断、混入解释文字或绑定错误安全失败，不能由程序修复或臆造结果。无效 `span_id`/证据 ID 只移除引用，不能映射到已治理 `technology_identity` 的 formal option 只移除该 option；其他可表示字段照常持久化，且不得留下跨正文证据。
 
-### 试跑验收与扩展停止点
+首期不以模型语义准确性阻断：年限、学历、角色、必要性、关系、熟练度与审阅建议均是模型投影，可供后续产品与质量改进使用。每个响应最多 3 个 `candidate_mentions`，系统同时最多保留 500 个不同的 `pending_review` 候选词；容量已满时只忽略新的候选词，不阻断该 JD 的其他字段。候选词永远不会自动成为正式技术身份、筛选 option 或统计口径。
 
-1. 先执行步骤 1，再分别执行步骤 2 与 3；运行任一模型前都必须确认密钥已由 root
-   按上述边界配置。缺少密钥时 worker 会在读取数据库配置或构造模型客户端前安全失败。
-2. 使用 `ai-status` 只读确认试跑安全汇总。5 份 Plus 与同一 5 份 Flash 必须保持固定样本；
-   任何 `not_analyzed`、预算停止、校验失败或安全失败都不能解释成学历/年限未配置。
-3. 在 CVM 的受控人工复核流程中审阅 5 份 Plus 的全部有效解析项；Flash 结果可用于同样受控的
-   成本/质量对照，但不构成首版发布门。只记录复核结论、ID、计数、错误类别和用量摘要。发现任一
-   重大错误时，不执行扩展或发布；
-   修订提示词、输入契约、校验器或模型档案必须创建新的候选配置并重新试跑。
-4. `expand-ai-plus` 只建立剩余工作项，特意不具有模型外呼能力。当前共享的 2.50 元预算
-   只适用于 5×2 试跑，**不得**用 `run-ai-plus-trial` 消费扩展后的工作项。
-5. 在允许任何正式 Plus 外呼之前，必须另行批准生产批次策略：每批正文数、请求/尝试/
-   输入 token/输出 token/人民币上限、一次确认覆盖一批还是全部剩余正文，以及每批后的
-   暂停与复核规则。在该决定和对应的新受控操作部署前，扩展队列是安全的停止状态，而非
-   可执行的正式分析队列。
-
-### 恢复与回退
-
-- 试跑的瞬时故障只可在固定重试上限内恢复；鉴权、请求、JSON、证据或策略错误不自动
-  重试。每次物理尝试都持久化并计入共享上限，进程中断后也不会使一次已预留请求消失。
-- 候选或试跑未通过时，不删除历史技术提及、正文版本、已完成 AI 结果或审计记录；旧的
-  已发布确定性分析基线持续有效。修正语义契约后创建新的 AI 候选，而不是覆盖旧配置。
-- 在 AI 配置尚未发布时，回退就是不执行 `publish-ai-plus`；扩展队列及候选结果保留作
-  审计，不触发日常同步或默认分析。
-- 当前首期没有 `withdraw-ai-plus` 这一受控操作。发布后的撤回策略必须在投入生产
-  批次前另行设计、测试并作为新的固定 operation 部署；不得通过直接 SQL、删除记录或
-  改写发布证明实施“回退”。部署资产本身若需回退，沿用既有受控部署工作流与已验证提交。
-
-### CVM 候选输出契约诊断（仅辅助开发）
-
-当 Plus 已实际返回模型结果、却被 `invalid_response_schema`、
-`invalid_evidence_reference` 或 `policy_rejected` 拒绝时，不能从 journal、GitHub
-Actions、数据库或聊天中寻找原文。已部署审计能力后，只有下列 CVM root-owned 固定操作可
-用于定位契约问题：
-
-1. `prepare-output-audit-diagnostic`：创建或复用一个**独立的**五条冻结样本 Plus 候选；不
-   调用模型，不创建 Flash 工作项，不改变原有 30 条 Plus/Flash 试跑及其历史。
-2. `run-plus-output-audit-diagnostic`：只执行上述五条 Plus 工作；外呼前仍受既有请求、token、
-   金额与尝试限制，并在模型成功返回、严格校验前捕获输出。它没有 Flash、扩展或发布能力。
-3. `audit-status`：仅输出当前固定审计候选/对照集合中、仍有工件的待审契约失败数，连同
-   捕获工件数、按固定安全错误码的计数和 `64 MiB` 容量的已用/可用汇总；不显示路径、哈希值、
-   JD、重建输入、模型输出、WorkspaceId 或凭据。它不会调用模型，也不会重新排队工作。
-4. `audit-plus-contract`：只能由 `FAN` 在**直接连接 CVM 的 TTY**运行；本环境将 `FAN` 固定
-   映射为从 `ubuntu` 登录并经 `sudo` 发起的会话，root 直登或其他 sudo 发起者会被拒绝。程序自行选择一个
-   已捕获、尚未审计的契约失败（优先五条诊断候选；若另行受控准备了常规试跑，再检查其
-   Plus 候选），显示净化后的模型输出和从冻结正文/配置重建的输入；只接受
-   `prompt_noncompliance`、`schema_contract_mismatch`、
-   `evidence_contract_mismatch`、`policy_contract_mismatch`、`unable_to_classify` 五种结论。
-
-`audit-flash-contract` 保持为同样受限、同样要求该 `ubuntu`→`sudo` 操作人链的 TTY 读取器，但只会读取已经由常规 Flash 对照试跑捕获
-的工件；本次五条诊断既不创建 Flash 工作也不得运行该操作。任何已过期或不完整的工件均不会
-阻塞后续仍完整、可审计的工件；下一次受控清理会移除不成对的响应/sidecar。
-
-这些操作不出现在 GitHub Actions 或普通 operations 助手中。诊断 Plus 容器是唯一额外的固定
-外呼写入者：它只获得百炼 Key、北京 WorkspaceId、`backend` 与 `ai-edge`，以及
-`/var/lib/mrolescope/ai-output-audit` 的固定写挂载；诊断准备没有 Key 或外网；审计会话和
-`audit-status` 只有只读审计挂载且没有 Key、COS、端口或外网。
-
-审计目录必须保持 `root:root:0700`，工件为 `0600`；成功返回的原始输出最多保留 7 天，未到期
-工件绝不为腾空间而删除，64 MiB 无法预留时工作安全失败为
-`output_audit_capture_failed`，不会重发模型。原始输出、重建输入和正文不得进入 PostgreSQL、
-Git、CI、GitHub Actions、journal、普通日志、COS 或本地工作区。此前旧规则下已经丢弃的输出
-不能恢复，不能直接重跑旧失败队列。
-
-worker 镜像的默认身份不是 root；凡是获得这一固定审计挂载的三类固定服务（两条常规试跑、五条
-诊断调用器、两条 TTY 审计和无文本状态读取器）必须显式使用容器 root 身份，才能访问
-`root:root:0700` 目录。它们仍是 `read_only` 根文件系统、固定命令、单一审计挂载，且没有 Docker
-socket、任意主机路径、任意参数或普通服务入口；其他服务不获得该挂载。这是维持“仅受控容器可读写
-原始输出”所必需的权限映射，不是放宽目录权限。
-
-五条诊断样本只用于定位响应/校验契约，**绝不构成**当前 5 条双模型试跑、Plus 全审、扩展或发布的
-替代门槛。回退时停止使用这四个固定诊断操作并回退已验证部署修订；数据库历史和未到期的
-root-only 工件不被普通服务读取，仍按 7 天规则自动清理。
+人工 `publish-ai-plus` 发布的是不可变 Plus 配置，而不是五份测试样本。该配置发布后，日常同步只为未来新增或正文变化的合格 JD 入队；已发布配置不会覆盖历史结果。尚未发布时，安全回退就是不执行发布，保留候选、结果、安全失败和审计工件作为历史。任何提示词、Schema、校验器、输入、定价或审计策略变化都必须建立一个新 candidate，不能覆盖旧配置。

@@ -25,3 +25,6 @@ web/coverage/
 var/
 artifacts/
 snapshots/
+
+Docs
+AGENTS.md

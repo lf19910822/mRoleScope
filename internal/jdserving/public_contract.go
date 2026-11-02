@@ -51,6 +51,15 @@ type FilterOption struct {
 	Value string `json:"value"`
 }
 
+// TechnologyKeywordFilterOption is a selectable formal technology mention
+// enriched with its display-safe browse category. The category is vocabulary
+// metadata, not a JD result, parser fact, or source attribute.
+type TechnologyKeywordFilterOption struct {
+	Category FilterOption `json:"category"`
+	Label    string       `json:"label"`
+	Value    string       `json:"value"`
+}
+
 // JobDetailResponse is the display-safe response for one opaque JD ID.
 type JobDetailResponse struct {
 	ActivityState       ActivityState          `json:"activity_state"`
@@ -95,16 +104,16 @@ type JobListResponse struct {
 // First-discovered date is selected through a client date control, rather
 // than an unbounded list of individual dates.
 type FilterOptionsResponse struct {
-	ActivityStates     []FilterOption `json:"activity_states"`
-	EducationLevels    []FilterOption `json:"education_levels"`
-	ExperienceYears    []FilterOption `json:"experience_years"`
-	JobFamilies        []FilterOption `json:"job_families"`
-	Locations          []FilterOption `json:"locations"`
-	MainJobFamilies    []FilterOption `json:"main_job_families"`
-	OtherJobFamilies   []FilterOption `json:"other_job_families"`
-	Projects           []FilterOption `json:"projects"`
-	TechnologyKeywords []FilterOption `json:"technology_keywords"`
-	UrgentOptions      []FilterOption `json:"urgent_options"`
+	ActivityStates     []FilterOption                  `json:"activity_states"`
+	EducationLevels    []FilterOption                  `json:"education_levels"`
+	ExperienceYears    []FilterOption                  `json:"experience_years"`
+	JobFamilies        []FilterOption                  `json:"job_families"`
+	Locations          []FilterOption                  `json:"locations"`
+	MainJobFamilies    []FilterOption                  `json:"main_job_families"`
+	OtherJobFamilies   []FilterOption                  `json:"other_job_families"`
+	Projects           []FilterOption                  `json:"projects"`
+	TechnologyKeywords []TechnologyKeywordFilterOption `json:"technology_keywords"`
+	UrgentOptions      []FilterOption                  `json:"urgent_options"`
 }
 
 // PageInfo contains the bounded, display-safe pagination state.
