@@ -111,6 +111,19 @@ func JobFamilyDictionaryDigest() string {
 	return digest
 }
 
+// JobFamilyDisplayName returns the user-facing label for a reviewed family
+// key. It is intentionally separate from title matching so serving callers do
+// not need to deserialize a parser/dictionary artifact.
+func JobFamilyDisplayName(key string) string {
+	asset, _ := loadDeterministicJobFamilyDictionary()
+	for _, family := range asset.Families {
+		if string(family.FamilyKey) == key {
+			return family.DisplayName
+		}
+	}
+	return key
+}
+
 // ParseJobFamilyTitle is the public pure parsing seam. It deliberately
 // receives no JD body, source-project metadata, technology, or AI fields.
 func ParseJobFamilyTitle(title string) (JobFamilyTitleResult, error) {

@@ -35,6 +35,23 @@ npm install
 npm run dev
 ```
 
+### Local acceptance preview with the read-only API
+
+The production Web Edge keeps the Vue application and `/api/` same-origin.
+For a non-public local preview, point Vite at a loopback API. Vite proxies only
+`/api/`; it does not make the API public.
+
+```sh
+VITE_API_PROXY_TARGET=http://127.0.0.1:18080 npm run dev
+```
+
+Open `http://127.0.0.1:5175/` on the same machine. The API target must be a
+current build of the read-only API using the current migrations: an older
+fixture API can return plausible-looking data while silently ignoring filters
+added later. This command is for local acceptance only; public serving
+continues to require the authenticated HTTPS Web Edge and the manual
+domain/hosting release gate.
+
 ### Type-Check, Compile and Minify for Production
 
 ```sh

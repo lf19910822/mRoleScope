@@ -1,0 +1,1 @@
+DROP VIEW IF EXISTS serving_jd_current_dimension_resolutions;

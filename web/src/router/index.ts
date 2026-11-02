@@ -1,23 +1,40 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
+import { createRouter, createWebHistory, type RouterHistory } from 'vue-router'
 
-const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
-    {
-      path: '/',
-      name: 'home',
-      component: HomeView,
-    },
-    {
-      path: '/about',
-      name: 'about',
-      // route level code-splitting
-      // this generates a separate chunk (About.[hash].js) for this route
-      // which is lazy-loaded when the route is visited.
-      component: () => import('../views/AboutView.vue'),
-    },
-  ],
-})
+import JobDetailView from '@/views/JobDetailView.vue'
+import JobListView from '@/views/JobListView.vue'
 
-export default router
+type JDScrollPosition = {
+  behavior?: ScrollOptions['behavior']
+  left?: number
+  top?: number
+}
+
+type JDRouterLocation = { name?: unknown }
+
+export function jdScrollBehavior(
+  to: JDRouterLocation,
+  from: JDRouterLocation,
+  savedPosition: JDScrollPosition | null | undefined,
+): JDScrollPosition | false {
+  if (savedPosition) {
+    return savedPosition
+  }
+  if (to.name === 'jobs' && from.name === 'jobs') {
+    return false
+  }
+  return { left: 0, top: 0 }
+}
+
+export function createJDRouter(history: RouterHistory) {
+  return createRouter({
+    history,
+    routes: [
+      { path: '/', redirect: { name: 'jobs' } },
+      { path: '/jobs', name: 'jobs', component: JobListView },
+      { path: '/jobs/:id', name: 'job-detail', component: JobDetailView, props: true },
+    ],
+    scrollBehavior: jdScrollBehavior,
+  })
+}
+
+export default createJDRouter(createWebHistory(import.meta.env.BASE_URL))

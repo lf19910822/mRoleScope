@@ -1461,6 +1461,93 @@ func (ns NullProjectTagResultStatus) Value() (driver.Value, error) {
 	return string(ns.ProjectTagResultStatus), nil
 }
 
+type ServingJdActivityState string
+
+const (
+	ServingJdActivityStateEffective       ServingJdActivityState = "effective"
+	ServingJdActivityStateConfirmedClosed ServingJdActivityState = "confirmed_closed"
+)
+
+func (e *ServingJdActivityState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ServingJdActivityState(s)
+	case string:
+		*e = ServingJdActivityState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ServingJdActivityState: %T", src)
+	}
+	return nil
+}
+
+type NullServingJdActivityState struct {
+	ServingJdActivityState ServingJdActivityState
+	Valid                  bool // Valid is true if ServingJdActivityState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullServingJdActivityState) Scan(value interface{}) error {
+	if value == nil {
+		ns.ServingJdActivityState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ServingJdActivityState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullServingJdActivityState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ServingJdActivityState), nil
+}
+
+type ServingJdFormalDimension string
+
+const (
+	ServingJdFormalDimensionEducation  ServingJdFormalDimension = "education"
+	ServingJdFormalDimensionExperience ServingJdFormalDimension = "experience"
+	ServingJdFormalDimensionTechnology ServingJdFormalDimension = "technology"
+	ServingJdFormalDimensionProject    ServingJdFormalDimension = "project"
+	ServingJdFormalDimensionJobFamily  ServingJdFormalDimension = "job_family"
+)
+
+func (e *ServingJdFormalDimension) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ServingJdFormalDimension(s)
+	case string:
+		*e = ServingJdFormalDimension(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ServingJdFormalDimension: %T", src)
+	}
+	return nil
+}
+
+type NullServingJdFormalDimension struct {
+	ServingJdFormalDimension ServingJdFormalDimension
+	Valid                    bool // Valid is true if ServingJdFormalDimension is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullServingJdFormalDimension) Scan(value interface{}) error {
+	if value == nil {
+		ns.ServingJdFormalDimension, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ServingJdFormalDimension.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullServingJdFormalDimension) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ServingJdFormalDimension), nil
+}
+
 type TechnologyAnalysisConfigurationStatus string
 
 const (
@@ -2615,6 +2702,89 @@ type RunJobVersionReference struct {
 	BodyContentVersionID    pgtype.UUID
 	ObservedAt              pgtype.Timestamptz
 	CreatedAt               pgtype.Timestamptz
+}
+
+// Latest current-inventory deterministic result per dimension; priority 0 is the observed source version and priority 1 is same-job fallback.
+type ServingJdCurrentDimensionResolution struct {
+	ID                             pgtype.UUID
+	ServingJdInventoryMembershipID pgtype.UUID
+	Dimension                      ServingJdFormalDimension
+	SelectionPriority              int16
+	ResolutionKey                  string
+	EducationRequirementResultID   pgtype.UUID
+	ExperienceRequirementResultID  pgtype.UUID
+	TechnologyAnalysisResultID     pgtype.UUID
+	ProjectTagResultID             pgtype.UUID
+	JobFamilyResultID              pgtype.UUID
+	CreatedAt                      pgtype.Timestamptz
+}
+
+// Latest published Serving membership for each observation scope; applications must not reconstruct it from ODS tables.
+type ServingJdCurrentInventoryMembership struct {
+	ID                      pgtype.UUID
+	PublishedRunID          pgtype.UUID
+	ObservationScopeID      pgtype.UUID
+	JobID                   pgtype.UUID
+	PresencePeriodID        pgtype.UUID
+	SourceMetadataVersionID pgtype.UUID
+	BodyContentVersionID    pgtype.UUID
+	ActivityState           ServingJdActivityState
+	Title                   string
+	Locations               []string
+	IsUrgent                bool
+	FirstDiscoveredAt       pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+}
+
+// Append-only selected formal-result references; later parsing appends a new resolution without mutating the source snapshot.
+type ServingJdDimensionResolution struct {
+	ID                             pgtype.UUID
+	ServingJdInventoryMembershipID pgtype.UUID
+	Dimension                      ServingJdFormalDimension
+	SelectionPriority              int16
+	ResolutionKey                  string
+	EducationRequirementResultID   pgtype.UUID
+	ExperienceRequirementResultID  pgtype.UUID
+	TechnologyAnalysisResultID     pgtype.UUID
+	ProjectTagResultID             pgtype.UUID
+	JobFamilyResultID              pgtype.UUID
+	CreatedAt                      pgtype.Timestamptz
+}
+
+// Append-only DWD snapshot members for each reconciled source publication; source and formal result identities remain directly traceable.
+type ServingJdInventoryMembership struct {
+	ID                      pgtype.UUID
+	PublishedRunID          pgtype.UUID
+	ObservationScopeID      pgtype.UUID
+	JobID                   pgtype.UUID
+	PresencePeriodID        pgtype.UUID
+	SourceMetadataVersionID pgtype.UUID
+	BodyContentVersionID    pgtype.UUID
+	ActivityState           ServingJdActivityState
+	Title                   string
+	Locations               []string
+	IsUrgent                bool
+	FirstDiscoveredAt       pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+}
+
+// Stable opaque browser identifiers, isolated from source and provenance identifiers.
+type ServingJdPublicIdentifier struct {
+	JobID     pgtype.UUID
+	PublicID  pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+}
+
+type ServingJdReconciliationAudit struct {
+	ID                 pgtype.UUID
+	PublishedRunID     pgtype.UUID
+	ObservationScopeID pgtype.UUID
+	JobID              pgtype.UUID
+	Stage              string
+	Severity           string
+	Code               string
+	OccurredAt         pgtype.Timestamptz
+	Diagnostics        []byte
 }
 
 type TechnologyAnalysisAuditEvent struct {

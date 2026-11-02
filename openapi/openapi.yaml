@@ -35,6 +35,151 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/jobs:
+    get:
+      summary: List the latest serving JD inventory
+      parameters:
+        - in: query
+          name: title
+          description: Case-insensitive title exact/substring search with a fixed typo-tolerance threshold; JD body text and synonyms are never searched.
+          schema:
+            type: string
+        - in: query
+          name: job_family
+          description: Repeated unified job-family filter. A JD matches when any selected value appears in either its primary or other job-family matches. Do not combine with the legacy main_job_family or other_job_family parameters.
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: main_job_family
+          description: Legacy primary-job-family-only filter. Retained for compatible callers; do not combine with job_family.
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: other_job_family
+          description: Legacy other-job-family-only filter. Retained for compatible callers; do not combine with job_family.
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: technology
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: education
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/EducationLevel'
+          style: form
+          explode: true
+        - in: query
+          name: experience_year
+          schema:
+            type: array
+            items: {type: integer, minimum: 1}
+          style: form
+          explode: true
+        - in: query
+          name: minimum_experience_year
+          description: Optional configured minimum-work-experience threshold. Zero means an explicit requirement is available; it does not include JDs with no configured requirement.
+          schema: {type: integer, minimum: 0, maximum: 9}
+        - in: query
+          name: project
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: location
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: activity_state
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [effective, confirmed_closed, all]
+          style: form
+          explode: true
+        - in: query
+          name: first_discovered_from
+          schema: {type: string, format: date}
+        - in: query
+          name: first_discovered_until
+          schema: {type: string, format: date}
+        - in: query
+          name: urgent
+          schema: {type: boolean}
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, minimum: 1, maximum: 100}
+        - in: query
+          name: sort
+          description: Repeated ordered scalar sort. Earlier values have higher priority; education and experience may each occur once with unavailable values last. First-discovered date, urgent marker, activity state, and title are also supported. A single title value is retained for compatible callers and cannot be combined.
+          schema:
+            type: array
+            maxItems: 2
+            items:
+              type: string
+              enum: [title, education_asc, education_desc, experience_asc, experience_desc, first_discovered_asc, first_discovered_desc, urgent_asc, urgent_desc, activity_state_asc, activity_state_desc, title_asc, title_desc]
+          style: form
+          explode: true
+      responses:
+        '200':
+          description: A paginated, display-safe JD list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '400':
+          description: The submitted list request is invalid.
+  /api/v1/jobs/filter-options:
+    get:
+      summary: List selectable structured JD filters
+      responses:
+        '200':
+          description: Display-safe filter values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilterOptionsResponse'
+  /api/v1/jobs/{id}:
+    get:
+      summary: Read one JD by its opaque public ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Display-safe JD detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetailResponse'
+        '404':
+          description: The JD is not present in the latest serving inventory.
 components:
   schemas:
     Status:
@@ -44,3 +189,164 @@ components:
         status:
           type: string
           enum: [ok, ready, not_ready]
+    ActivityState:
+      type: string
+      enum: [effective, confirmed_closed]
+    EducationLevel:
+      type: string
+      enum: [associate_or_lower, bachelor, master, doctor]
+    FilterOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+    EducationRequirement:
+      type: object
+      required: [explicit_requirement]
+      properties:
+        explicit_requirement:
+          type: boolean
+        lower_bound:
+          $ref: '#/components/schemas/EducationLevel'
+        upper_bound:
+          $ref: '#/components/schemas/EducationLevel'
+    ExperienceRequirement:
+      type: object
+      required: [explicit_requirement]
+      properties:
+        explicit_requirement:
+          type: boolean
+        minimum_years:
+          type: integer
+          minimum: 1
+    JobListItem:
+      type: object
+      required:
+        [id, title, locations, activity_state, first_discovered_date, is_urgent,
+         other_job_families, technology_keywords, projects]
+      properties:
+        id:
+          type: string
+          description: Opaque public JD ID.
+        title:
+          type: string
+        locations:
+          type: array
+          items:
+            type: string
+        activity_state:
+          $ref: '#/components/schemas/ActivityState'
+        first_discovered_date:
+          type: string
+          format: date
+        is_urgent:
+          type: boolean
+        main_job_family:
+          $ref: '#/components/schemas/FilterOption'
+        other_job_families:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        technology_keywords:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        education:
+          $ref: '#/components/schemas/EducationRequirement'
+        experience:
+          $ref: '#/components/schemas/ExperienceRequirement'
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+    JobListResponse:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobListItem'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    BodySections:
+      type: object
+      required: [responsibilities, requirements]
+      properties:
+        responsibilities:
+          type: string
+        requirements:
+          type: string
+        supplemental:
+          type: string
+    JobDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/JobListItem'
+        - type: object
+          required: [body]
+          properties:
+            body:
+              $ref: '#/components/schemas/BodySections'
+    FilterOptionsResponse:
+      type: object
+      required:
+        [activity_states, job_families, main_job_families, other_job_families, technology_keywords,
+         education_levels, experience_years, projects, locations, urgent_options]
+      properties:
+        activity_states:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        job_families:
+          type: array
+          description: Deduplicated unified vocabulary covering primary and other family hits.
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        main_job_families:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        other_job_families:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        technology_keywords:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        education_levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        experience_years:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+        urgent_options:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+    PageInfo:
+      type: object
+      required: [number, page_size, total]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0

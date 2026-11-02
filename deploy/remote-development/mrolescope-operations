@@ -59,14 +59,15 @@ show_status() {
   print_unit_state "$AI_PLUS_PUBLISH_SERVICE"
 
   printf '%s\n' '--- API health ---'
-  if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz; then
+  local api_container api_health
+  api_container=$(docker ps -q \
+    --filter 'label=com.docker.compose.project=mrolescope-remote-development' \
+    --filter 'label=com.docker.compose.service=api')
+  api_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$api_container" 2>/dev/null || true)
+  printf '%s\n' "container health: ${api_health:-unavailable}"
+  if [[ "$api_health" != healthy ]]; then
     failed=1
   fi
-  printf '\n'
-  if ! curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz; then
-    failed=1
-  fi
-  printf '\n'
 
   printf '%s\n' '--- containers ---'
   docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
