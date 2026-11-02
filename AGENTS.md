@@ -20,9 +20,17 @@
 ## 变更与数据安全
 
 - 改变可观察行为、数据模型、API 或运行流程前，先创建或更新对应 OpenSpec change；实现前确认 proposal/design/tasks 完整，完成后运行严格校验并如实更新任务状态。
+- 可使用 GitHub MCP 完成分支、Pull Request、受保护主线合并状态、Actions 运行和日志等 GitHub 操作；优先使用它，而非要求用户重复执行可自动完成的 GitHub 步骤。遵守仓库保护规则，绝不强推或绕过 PR 审查。
 - 绝不读取、打印、提交或写入密码、密钥、令牌、连接串等凭据；不要从其他进程、容器或环境中提取凭据。需要真实数据库时，由操作者在本机配置 `DATABASE_URL` / `TEST_DATABASE_URL`。
 - 不开放数据库或内部 API 到公网；DNS、域名、端口暴露、镜像推送、外部部署及向外部模型发送 JD 内容，均须得到用户对该次操作的明确授权。
 - 工作树可能包含用户未提交的改动。只修改与当前任务直接相关的文件；不用 `reset --hard`、`checkout --` 或清理命令覆盖、删除无关工作。
+
+## CVM 与私有数据库
+
+- mRoleScope CVM：`118.89.68.77`，实例 ID `ins-0wbo05kd`（上海）。本开发机可通过密钥使用 `root@118.89.68.77` 管理；不得使用密码认证或把私钥写入仓库。
+- PostgreSQL 不在开发机，也不监听 CVM 公网/宿主机端口。它以 CVM Docker Compose 的 `postgres` 服务运行在 `backend` 私有网络；同网络服务通过稳定的 Compose DNS `postgres:5432` 连接。当前容器名为 `mrolescope-remote-development-postgres-1`，但容器名/IP 都不是稳定契约，不要硬编码。
+- CVM API 以 Compose 的 `api` 服务运行，内部监听 `:8080`，加入 `backend` 和 `edge` 网络；同样不要硬编码其容器 IP。应用通过运行时 `DATABASE_URL` 在私网中连接数据库，连接串只保存在 CVM root 所有、`0600` 的运行时配置中，禁止读取或打印。
+- 需要审计或验证真实数据时，先用 `ssh root@118.89.68.77` 登录 CVM，再通过 Compose 的 `postgres`/`api` 服务从 Docker 私网执行范围明确的只读检查；先以 `docker compose ps` 识别运行中的服务，不能猜测容器 IP。开发机的 `127.0.0.1:5175` 是唯一前端预览入口；它要展示真实数据时，只能经获授权的本地回环 SSH 隧道访问 CVM 私网 API，绝不直接暴露数据库或 API。
 
 ## 实现、测试与前端
 
