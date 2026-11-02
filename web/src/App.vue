@@ -4,6 +4,8 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { oceanBreezeThemeOverrides } from '@/theme/ocean-breeze'
+import AppRequestLoader from '@/components/AppRequestLoader.vue'
+import { requestActivity } from '@/lib/request-activity'
 
 const route = useRoute()
 const navigationOpen = ref(false)
@@ -78,6 +80,7 @@ watch(
       <div class="app-shell__content">
         <RouterView />
       </div>
+      <AppRequestLoader :visible="requestActivity.visible.value" />
     </div>
   </NConfigProvider>
 </template>
@@ -162,7 +165,9 @@ watch(
   min-height: 46px;
   padding: 0 12px;
   text-decoration: none;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .app-navigation__link:hover {

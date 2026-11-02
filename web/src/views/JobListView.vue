@@ -9,6 +9,7 @@ import {
   type FilterOptionsResponse,
   type JobListResponse,
 } from '@/api/jd-api'
+import JobListSkeleton from '@/components/JobListSkeleton.vue'
 import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
 import {
   createDefaultListState,
@@ -32,6 +33,7 @@ const router = useRouter()
 const response = ref<JobListResponse>()
 const error = ref('')
 const isLoading = ref(false)
+let latestListRequest = 0
 const listState = computed(() => listStateFromRoute(route.query))
 const filterOptions = ref<FilterOptionsResponse>({
   activity_states: [],
@@ -159,7 +161,11 @@ function updateSortRuleKind(index: number, nextKind: SortKind | null): void {
   if (current === undefined || sortRuleParts(current).kind === nextKind) {
     return
   }
-  if (draft.sortRules.some((rule, ruleIndex) => ruleIndex !== index && sortRuleParts(rule).kind === nextKind)) {
+  if (
+    draft.sortRules.some(
+      (rule, ruleIndex) => ruleIndex !== index && sortRuleParts(rule).kind === nextKind,
+    )
+  ) {
     return
   }
   draft.sortRules.splice(index, 1, buildSortRule(nextKind, sortRuleParts(current).direction))
@@ -249,15 +255,24 @@ watch(
   listState,
   async (state) => {
     replaceDraft(state)
+    const request = ++latestListRequest
     isLoading.value = true
     error.value = ''
     try {
-      response.value = await getJobList(state)
+      const nextResponse = await getJobList(state)
+      if (request !== latestListRequest) {
+        return
+      }
+      response.value = nextResponse
     } catch (reason) {
-      response.value = undefined
+      if (request !== latestListRequest) {
+        return
+      }
       error.value = reason instanceof Error ? reason.message : '请求岗位数据失败'
     } finally {
-      isLoading.value = false
+      if (request === latestListRequest) {
+        isLoading.value = false
+      }
     }
   },
   { immediate: true },
@@ -361,7 +376,11 @@ onMounted(() => {
           </label>
           <label class="filter-field">
             <span>活跃状态</span>
-            <NSelect v-model:value="activityMode" :options="filterOptions.activity_states" placeholder="选择活跃状态" />
+            <NSelect
+              v-model:value="activityMode"
+              :options="filterOptions.activity_states"
+              placeholder="选择活跃状态"
+            />
           </label>
           <label class="filter-field">
             <span>紧急标记</span>
@@ -420,16 +439,39 @@ onMounted(() => {
                 </div>
               </label>
               <div class="sort-rule__actions">
-                <NButton size="small" tertiary :data-testid="`move-sort-rule-up-${index + 1}`" :disabled="index === 0" @click="moveSortRule(index, -1)">上移</NButton>
-                <NButton size="small" tertiary :data-testid="`move-sort-rule-down-${index + 1}`" :disabled="index === draft.sortRules.length - 1" @click="moveSortRule(index, 1)">下移</NButton>
+                <NButton
+                  size="small"
+                  tertiary
+                  :data-testid="`move-sort-rule-up-${index + 1}`"
+                  :disabled="index === 0"
+                  @click="moveSortRule(index, -1)"
+                  >上移</NButton
+                >
+                <NButton
+                  size="small"
+                  tertiary
+                  :data-testid="`move-sort-rule-down-${index + 1}`"
+                  :disabled="index === draft.sortRules.length - 1"
+                  @click="moveSortRule(index, 1)"
+                  >下移</NButton
+                >
                 <NButton size="small" tertiary @click="removeSortRule(index)">移除</NButton>
               </div>
             </li>
           </ol>
-          <div v-if="draft.sortRules.length < maximumSortRules" class="sort-rule-add" data-testid="sort-rule-add">
+          <div
+            v-if="draft.sortRules.length < maximumSortRules"
+            class="sort-rule-add"
+            data-testid="sort-rule-add"
+          >
             <label>
               <span>排序种类</span>
-              <NSelect v-model:value="sortKindToAdd" :options="availableSortKindOptions" clearable placeholder="选择种类" />
+              <NSelect
+                v-model:value="sortKindToAdd"
+                :options="availableSortKindOptions"
+                clearable
+                placeholder="选择种类"
+              />
             </label>
             <label>
               <span>排序方式</span>
@@ -441,7 +483,12 @@ onMounted(() => {
                 placeholder="选择方式"
               />
             </label>
-            <NButton secondary :disabled="sortKindToAdd === null || sortDirectionToAdd === null" @click="addSortRule">添加排序</NButton>
+            <NButton
+              secondary
+              :disabled="sortKindToAdd === null || sortDirectionToAdd === null"
+              @click="addSortRule"
+              >添加排序</NButton
+            >
           </div>
         </section>
       </div>
@@ -453,9 +500,12 @@ onMounted(() => {
     </section>
 
     <section aria-live="polite" class="list-result">
-      <p v-if="isLoading">正在读取岗位列表…</p>
-      <p v-else-if="error" class="error-message">{{ error }}</p>
-      <template v-else>
+      <JobListSkeleton v-if="isLoading && !response" />
+      <p v-else-if="error && !response" class="error-message" role="alert">{{ error }}</p>
+      <template v-else-if="response">
+        <p v-if="error" class="error-message list-result__refresh-error" role="alert">
+          {{ error }}
+        </p>
         <header class="result-heading">
           <div>
             <p class="section-kicker">岗位清单</p>
@@ -538,7 +588,11 @@ onMounted(() => {
           <p>没有符合当前条件的岗位。</p>
           <NButton tertiary @click="resetFilters">清除筛选条件</NButton>
         </div>
-        <div v-if="response && response.page.total > response.page.page_size" class="pagination" aria-label="列表分页">
+        <div
+          v-if="response && response.page.total > response.page.page_size"
+          class="pagination"
+          aria-label="列表分页"
+        >
           <NPagination
             :item-count="response.page.total"
             :page="response.page.number"

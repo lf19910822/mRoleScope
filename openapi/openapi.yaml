@@ -292,6 +292,24 @@ components:
           type: string
         supplemental:
           type: string
+        technology_highlights:
+          type: array
+          items:
+            $ref: '#/components/schemas/TechnologyHighlight'
+    TechnologyHighlight:
+      type: object
+      description: Display-safe Unicode code-point interval for a technology mention in the returned current JD body.
+      required: [section, start, end]
+      properties:
+        section:
+          type: string
+          enum: [responsibilities, requirements, supplemental]
+        start:
+          type: integer
+          minimum: 0
+        end:
+          type: integer
+          minimum: 1
     JobDetailResponse:
       allOf:
         - $ref: '#/components/schemas/JobListItem'
