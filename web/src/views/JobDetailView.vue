@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getJobDetail, type JobDetailResponse } from '@/api/jd-api'
+import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
+import JDSectionList from '@/components/JDSectionList.vue'
+import JDDetailReadabilityPrototype from '@/components/prototypes/JDDetailReadabilityPrototype.vue'
 import {
   formatActivityState,
   formatEducation,
@@ -15,19 +18,37 @@ const router = useRouter()
 const response = ref<JobDetailResponse>()
 const error = ref('')
 const isLoading = ref(false)
+let latestDetailRequest = 0
+const isReadabilityPrototype = computed(
+  () => import.meta.env.DEV && route.query.prototype === 'jd-detail',
+)
+const technologyKeywordsExpanded = ref(false)
+const hasCollapsibleTechnologyKeywords = computed(
+  () => (response.value?.technology_keywords.length ?? 0) > 8,
+)
 
 watch(
   () => String(route.params.id ?? ''),
   async (id) => {
+    const request = ++latestDetailRequest
     isLoading.value = true
     error.value = ''
+    technologyKeywordsExpanded.value = false
     try {
-      response.value = await getJobDetail(id)
+      const nextResponse = await getJobDetail(id)
+      if (request !== latestDetailRequest) {
+        return
+      }
+      response.value = nextResponse
     } catch (reason) {
-      response.value = undefined
+      if (request !== latestDetailRequest) {
+        return
+      }
       error.value = reason instanceof Error ? reason.message : '请求岗位详情失败'
     } finally {
-      isLoading.value = false
+      if (request === latestDetailRequest) {
+        isLoading.value = false
+      }
     }
   },
   { immediate: true },
@@ -42,9 +63,11 @@ function returnToList(): void {
   <main class="job-detail-page">
     <div class="tide-mark" aria-hidden="true"><span></span><span></span><span></span></div>
     <button class="back-button" type="button" @click="returnToList">← 返回岗位列表</button>
-    <p v-if="isLoading" aria-live="polite">正在读取岗位详情…</p>
-    <p v-else-if="error" class="error-message" role="alert">{{ error }}</p>
+    <JobDetailSkeleton v-if="isLoading && !response" />
+    <p v-else-if="error && !response" class="error-message" role="alert">{{ error }}</p>
+    <JDDetailReadabilityPrototype v-else-if="response && isReadabilityPrototype" :job="response" />
     <article v-else-if="response">
+      <p v-if="error" class="error-message job-detail-refresh-error" role="alert">{{ error }}</p>
       <header class="job-detail-header">
         <div>
           <p class="eyebrow">JD DETAIL</p>
@@ -91,7 +114,13 @@ function returnToList(): void {
       </section>
       <section v-if="response.technology_keywords.length" class="model-section">
         <h2>技术关键词</h2>
-        <div class="tag-list">
+        <div
+          :id="`job-technology-keywords-${response.id}`"
+          class="tag-list"
+          :class="{
+            'tag-list--collapsed': hasCollapsibleTechnologyKeywords && !technologyKeywordsExpanded,
+          }"
+        >
           <em
             v-for="technology in response.technology_keywords"
             :key="technology.value"
@@ -99,6 +128,20 @@ function returnToList(): void {
             >{{ technology.label }}</em
           >
         </div>
+        <button
+          v-if="hasCollapsibleTechnologyKeywords"
+          class="tag-list__toggle"
+          type="button"
+          :aria-controls="`job-technology-keywords-${response.id}`"
+          :aria-expanded="technologyKeywordsExpanded"
+          @click="technologyKeywordsExpanded = !technologyKeywordsExpanded"
+        >
+          {{
+            technologyKeywordsExpanded
+              ? '收起技术词'
+              : `展开全部技术词（${response.technology_keywords.length}）`
+          }}
+        </button>
       </section>
       <section v-if="response.projects.length" class="model-section">
         <h2>项目</h2>
@@ -111,15 +154,27 @@ function returnToList(): void {
 
       <section class="body-section">
         <h2>岗位职责</h2>
-        <p class="body-copy">{{ response.body.responsibilities }}</p>
+        <JDSectionList
+          :ranges="response.body.technology_highlights"
+          section="responsibilities"
+          :text="response.body.responsibilities"
+        />
       </section>
       <section class="body-section">
         <h2>任职要求</h2>
-        <p class="body-copy">{{ response.body.requirements }}</p>
+        <JDSectionList
+          :ranges="response.body.technology_highlights"
+          section="requirements"
+          :text="response.body.requirements"
+        />
       </section>
       <section v-if="response.body.supplemental" class="body-section">
         <h2>补充说明</h2>
-        <p class="body-copy">{{ response.body.supplemental }}</p>
+        <JDSectionList
+          :ranges="response.body.technology_highlights"
+          section="supplemental"
+          :text="response.body.supplemental"
+        />
       </section>
     </article>
   </main>
@@ -359,7 +414,22 @@ article section + section {
     padding: 36px 16px 56px;
   }
   .job-detail-header {
+    flex-direction: column;
+    gap: 12px;
     padding: 28px 22px 24px;
+  }
+  .job-detail-header > :first-child {
+    width: 100%;
+  }
+  .job-detail-state {
+    align-items: flex-start;
+    flex-direction: row;
+    gap: 6px;
+    order: -1;
+  }
+  .job-detail-header h1 {
+    font-size: clamp(1.75rem, 7.2vw, 1.9rem);
+    line-height: 1.12;
   }
   .formal-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -373,6 +443,22 @@ article section + section {
   .model-section {
     padding-left: 22px;
     padding-right: 22px;
+  }
+  .tag-list--collapsed {
+    max-height: 48px;
+    overflow: hidden;
+  }
+  .tag-list__toggle {
+    background: transparent;
+    border: 0;
+    color: #007bab;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin: 10px 0 0;
+    padding: 2px 0;
   }
   .body-section {
     margin-left: 22px;

@@ -31,6 +31,11 @@ func TestPublicJDDTOsExposeOnlyDisplaySafeFields(t *testing.T) {
 		Body: BodySections{
 			Responsibilities: "负责服务端功能开发",
 			Requirements:     "熟悉 Go",
+			TechnologyHighlights: []TechnologyHighlight{{
+				Section: BodySectionRequirements,
+				Start:   3,
+				End:     5,
+			}},
 		},
 	}
 	payload, err := json.Marshal(response)
@@ -38,6 +43,21 @@ func TestPublicJDDTOsExposeOnlyDisplaySafeFields(t *testing.T) {
 		t.Fatalf("marshal public JD detail: %v", err)
 	}
 	text := string(payload)
+	var raw struct {
+		Body struct {
+			TechnologyHighlights []map[string]json.RawMessage `json:"technology_highlights"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		t.Fatalf("decode public JD detail: %v", err)
+	}
+	if len(raw.Body.TechnologyHighlights) != 1 ||
+		len(raw.Body.TechnologyHighlights[0]) != 3 ||
+		raw.Body.TechnologyHighlights[0]["section"] == nil ||
+		raw.Body.TechnologyHighlights[0]["start"] == nil ||
+		raw.Body.TechnologyHighlights[0]["end"] == nil {
+		t.Fatalf("display-safe technology range = %#v", raw.Body.TechnologyHighlights)
+	}
 	for _, forbidden := range []string{
 		"job_id", "source_job_id", "presence_period", "published_run", "observation_scope",
 		"metadata_version", "body_content", "parser_version", "dictionary_version", "lexicon",
@@ -64,5 +84,8 @@ func TestPublicOpenAPIDoesNotDeclareInternalResponseProperties(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("OpenAPI declares forbidden response field vocabulary %q", forbidden)
 		}
+	}
+	if !strings.Contains(text, "TechnologyHighlight:") || !strings.Contains(text, "technology_highlights:") {
+		t.Fatal("OpenAPI does not describe display-safe technology highlights")
 	}
 }

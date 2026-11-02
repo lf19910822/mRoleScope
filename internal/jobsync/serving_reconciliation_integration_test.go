@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -591,6 +592,64 @@ func TestServingJDDetailReadsCurrentBodyForEffectiveAndConfirmedClosedJobs(t *te
 	}
 }
 
+func TestServingJDDetailPublishesOnlyCurrentBodyTechnologyHighlights(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 9, 2, 0, 0, 0, time.UTC)
+	first := publishFixtureRun(t, repository, scope, at, 1, []Observation{
+		integrationServingDetailObservation(
+			"detail-highlight", "详情高亮岗位", "使用 Go 服务", "熟悉 Python", "Docker 加分", at,
+		),
+	}, nil)
+	_, firstBodyID := servingFilterReference(t, repository, first.ID, "detail-highlight")
+	insertServingTechnologyHighlightFacts(t, repository, firstBodyID)
+
+	serving, err := jdserving.NewRepository(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("create serving repository: %v", err)
+	}
+	t.Cleanup(serving.Close)
+	if _, err := serving.ReconcilePublishedInventory(ctx); err != nil {
+		t.Fatalf("reconcile current technology highlight fixture: %v", err)
+	}
+	list, err := serving.ListJobs(ctx, jdserving.ListJobsQuery{Title: "详情高亮岗位"})
+	if err != nil || len(list.Items) != 1 {
+		t.Fatalf("list technology highlight fixture = %#v err:%v", list, err)
+	}
+	firstDetail, err := serving.GetJobDetail(ctx, list.Items[0].ID)
+	if err != nil {
+		t.Fatalf("read current technology highlight detail: %v", err)
+	}
+	wantHighlights := []jdserving.TechnologyHighlight{
+		{Section: jdserving.BodySectionResponsibilities, Start: 3, End: 5},
+		{Section: jdserving.BodySectionRequirements, Start: 3, End: 9},
+		{Section: jdserving.BodySectionSupplemental, Start: 0, End: 6},
+	}
+	if !reflect.DeepEqual(firstDetail.Body.TechnologyHighlights, wantHighlights) {
+		t.Fatalf("current body technology highlights = %#v, want %#v", firstDetail.Body.TechnologyHighlights, wantHighlights)
+	}
+
+	publishFixtureRun(t, repository, scope, at.Add(time.Minute), 1, []Observation{
+		integrationServingDetailObservation(
+			"detail-highlight", "详情高亮岗位", "更新后的职责", "更新后的要求", "", at.Add(time.Minute),
+		),
+	}, nil)
+	if _, err := serving.ReconcilePublishedInventory(ctx); err != nil {
+		t.Fatalf("reconcile fallback technology highlight fixture: %v", err)
+	}
+	latestDetail, err := serving.GetJobDetail(ctx, list.Items[0].ID)
+	if err != nil {
+		t.Fatalf("read fallback technology highlight detail: %v", err)
+	}
+	if len(latestDetail.Body.TechnologyHighlights) != 0 {
+		t.Fatalf("older fallback result must not highlight current body: %#v", latestDetail.Body.TechnologyHighlights)
+	}
+}
+
 func TestServingListQueryPlansStayInsideServingBoundaryAtDeployedScale(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -1016,6 +1075,73 @@ RETURNING id::text`, bodyID, configurationID).Scan(&resultID); err != nil {
 		t.Fatalf("insert deterministic technology result: %v", err)
 	}
 	return resultID
+}
+
+func insertServingTechnologyHighlightFacts(t *testing.T, repository *Repository, bodyID string) {
+	t.Helper()
+	ctx := context.Background()
+	var dictionaryID, configurationID, resultID string
+	if err := repository.pool.QueryRow(ctx, `
+INSERT INTO technology_dictionary_versions (
+    version_label, content_sha256, status, source_document, created_by
+) VALUES ('serving-detail-highlight-dictionary', $1, 'candidate', 'synthetic test', 'test')
+RETURNING id::text`, strings.Repeat("c", 64)).Scan(&dictionaryID); err != nil {
+		t.Fatalf("insert serving highlight dictionary: %v", err)
+	}
+	if err := repository.pool.QueryRow(ctx, `
+INSERT INTO technology_analysis_configurations (
+    parser_version, dictionary_version_id, rule_set_sha256, status, created_by
+) VALUES ('serving-detail-highlight-parser', $1, $2, 'candidate', 'test')
+RETURNING id::text`, dictionaryID, strings.Repeat("d", 64)).Scan(&configurationID); err != nil {
+		t.Fatalf("insert serving highlight configuration: %v", err)
+	}
+	if err := repository.pool.QueryRow(ctx, `
+INSERT INTO technology_analysis_results (
+    body_content_version_id, parser_version, dictionary_version_id,
+    configuration_id, status, completed_at
+) VALUES ($1, 'serving-detail-highlight-parser', $2, $3, 'complete', now())
+RETURNING id::text`, bodyID, dictionaryID, configurationID).Scan(&resultID); err != nil {
+		t.Fatalf("insert serving highlight result: %v", err)
+	}
+
+	for _, evidence := range []struct {
+		alias, sourceField string
+		start, end         int
+	}{
+		{alias: "Go", sourceField: "description", start: 3, end: 5},
+		{alias: "Python", sourceField: "jobRequire", start: 3, end: 9},
+		{alias: "Docker", sourceField: "addition", start: 0, end: 6},
+	} {
+		var identityID, ruleID, mentionID string
+		if err := repository.pool.QueryRow(ctx, `
+INSERT INTO technology_identities (technology_key, canonical_name, technology_kind)
+VALUES ($1, $2, 'programming-language')
+RETURNING id::text`, "serving-highlight-"+strings.ToLower(evidence.alias), evidence.alias).Scan(&identityID); err != nil {
+			t.Fatalf("insert serving highlight identity: %v", err)
+		}
+		if err := repository.pool.QueryRow(ctx, `
+INSERT INTO technology_dictionary_rules (
+    dictionary_version_id, technology_identity_id, rule_key, alias, state,
+    case_mode, boundary_mode, rule_summary
+) VALUES ($1, $2, $3, $4, 'candidate', 'sensitive', 'exact', 'synthetic test rule')
+RETURNING id::text`, dictionaryID, identityID, "serving-highlight-"+strings.ToLower(evidence.alias), evidence.alias).Scan(&ruleID); err != nil {
+			t.Fatalf("insert serving highlight rule: %v", err)
+		}
+		if err := repository.pool.QueryRow(ctx, `
+INSERT INTO technology_mentions (analysis_result_id, technology_identity_id)
+VALUES ($1, $2)
+RETURNING id::text`, resultID, identityID).Scan(&mentionID); err != nil {
+			t.Fatalf("insert serving highlight mention: %v", err)
+		}
+		if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_mention_evidence (
+    technology_mention_id, source_field, normalization_version, normalized_field_sha256,
+    dictionary_rule_id, matched_alias, codepoint_start, codepoint_end
+) VALUES ($1, $2, 'synthetic-body-v1', $3, $4, $5, $6, $7)`,
+			mentionID, evidence.sourceField, strings.Repeat("0", 64), ruleID, evidence.alias, evidence.start, evidence.end); err != nil {
+			t.Fatalf("insert serving highlight evidence: %v", err)
+		}
+	}
 }
 
 func insertServingProjectResult(t *testing.T, repository *Repository, metadataID, normalizedTitle string) string {

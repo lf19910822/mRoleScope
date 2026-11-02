@@ -184,14 +184,15 @@ type ListJobsQuery struct {
 }
 
 type listMembershipRow struct {
-	ActivityState       string
-	FirstDiscoveredDate string
-	ID                  string
-	IsUrgent            bool
-	Locations           []string
-	MembershipID        string
-	Title               string
-	Total               int
+	ActivityState        string
+	BodyContentVersionID string
+	FirstDiscoveredDate  string
+	ID                   string
+	IsUrgent             bool
+	Locations            []string
+	MembershipID         string
+	Title                string
+	Total                int
 }
 
 // ListJobs reads only the current Serving inventory and its selected formal

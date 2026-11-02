@@ -20,12 +20,32 @@ const (
 	EducationLevelMaster           EducationLevel = "master"
 )
 
+// BodySection identifies one viewer-approved normalized JD body field. It is
+// deliberately narrower than the source field names used in storage.
+type BodySection string
+
+const (
+	BodySectionResponsibilities BodySection = "responsibilities"
+	BodySectionRequirements     BodySection = "requirements"
+	BodySectionSupplemental     BodySection = "supplemental"
+)
+
+// TechnologyHighlight is a display-safe Unicode code-point interval in one
+// current returned body section. It does not carry a matched alias, rule,
+// parser, result, source-body, or provenance identifier.
+type TechnologyHighlight struct {
+	End     int         `json:"end"`
+	Section BodySection `json:"section"`
+	Start   int         `json:"start"`
+}
+
 // BodySections are the viewer-approved, normalized JD body fields. A missing
 // supplemental section is omitted rather than represented as an empty error.
 type BodySections struct {
-	Requirements     string  `json:"requirements"`
-	Responsibilities string  `json:"responsibilities"`
-	Supplemental     *string `json:"supplemental,omitempty"`
+	Requirements         string                `json:"requirements"`
+	Responsibilities     string                `json:"responsibilities"`
+	Supplemental         *string               `json:"supplemental,omitempty"`
+	TechnologyHighlights []TechnologyHighlight `json:"technology_highlights,omitempty"`
 }
 
 // EducationRequirement presents only the education meaning expressed by the
