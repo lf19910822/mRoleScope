@@ -35,6 +35,30 @@ The newly written migrated-PostgreSQL scenario is included but was skipped
 locally because `TEST_DATABASE_URL` is not configured; the scoped CVM audit
 above validates the production data shape without mutating it.
 
-Remaining before deployment: a desktop/390px acceptance of this final build
-through the private API path, then a private, deployed detail endpoint
-acceptance read. Deployment itself is not performed by this validation note.
+The local checks did not include an interactive browser viewport review. That
+visual acceptance remains a manual product-review activity; it is not
+represented as a completed automated validation task.
+
+## Immutable-image deployment and private API acceptance — 2026-11-02
+
+GitHub Actions run
+[`41454559426`](https://github.com/lf19910822/mRoleScope/actions/runs/41454559426)
+completed successfully for main commit `c98ea22f`. It ran the build, test,
+network-boundary, and web-edge-boundary checks; pushed the four runtime images
+by digest; then invoked the CVM's root-owned allowlist deployment command.
+
+Post-deployment, the CVM API and PostgreSQL Compose services both reported
+healthy. A short-lived, read-only, capability-dropped Python container joined
+only the existing private backend network and read one current API list entry
+and its detail. It printed only this structural summary:
+
+| Check | Result |
+| --- | ---: |
+| List entries read | 1 |
+| Non-empty JD body sections | 3 |
+| Technology highlight intervals | 2 |
+| Public highlight fields | `section`, `start`, `end` only |
+
+The acceptance command did not print or persist JD text, public IDs,
+credentials, connection strings, aliases, provenance, or internal processing
+metadata. The temporary container was removed automatically.
