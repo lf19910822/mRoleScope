@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { NPagination } from 'naive-ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
 
@@ -60,7 +61,7 @@ describe('JD browser flows', () => {
     wrapper.unmount()
   })
 
-  it('moves to the next stable page through the visible pagination control', async () => {
+  it('uses numbered pages, page_size, and a quick jump without a cursor', async () => {
     const requests: string[] = []
     vi.stubGlobal(
       'fetch',
@@ -72,9 +73,8 @@ describe('JD browser flows', () => {
         requests.push(path)
         const request = new URL(path, 'https://jd-observatory.invalid')
         const page = Number(request.searchParams.get('page') ?? '1')
-        return new Response(
-          JSON.stringify({ items: [], page: { number: page, page_size: 20, total: 21 } }),
-        )
+        const pageSize = Number(request.searchParams.get('page_size') ?? '20')
+        return new Response(JSON.stringify({ items: [], page: { number: page, page_size: pageSize, total: 167 } }))
       }),
     )
     const router = createJDRouter(createMemoryHistory())
@@ -83,14 +83,24 @@ describe('JD browser flows', () => {
     const wrapper = mount(JobListView, { global: { plugins: [router] } })
     await flushPromises()
 
-    const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一页')
-    expect(nextButton).toBeDefined()
-    await nextButton?.trigger('click')
+    const pagination = wrapper.getComponent(NPagination)
+    expect(pagination.props('showQuickJumper')).toBe(true)
+    expect(pagination.props('showSizePicker')).toBe(true)
+    await pagination.vm.$emit('update:page', 4)
     await flushPromises()
 
-    const request = new URL(requests[requests.length - 1] ?? '', 'https://jd-observatory.invalid')
-    expect(request.searchParams.get('page')).toBe('2')
-    expect(router.currentRoute.value.query.page).toBe('2')
+    let request = new URL(requests[requests.length - 1] ?? '', 'https://jd-observatory.invalid')
+    expect(request.searchParams.get('page')).toBe('4')
+    expect(request.searchParams.get('cursor')).toBeNull()
+    expect(router.currentRoute.value.query.page).toBe('4')
+
+    const onPageSizeChange = pagination.props('onUpdate:pageSize') as (pageSize: number) => void
+    onPageSizeChange(50)
+    await flushPromises()
+    request = new URL(requests[requests.length - 1] ?? '', 'https://jd-observatory.invalid')
+    expect(request.searchParams.get('page')).toBe('1')
+    expect(request.searchParams.get('page_size')).toBe('50')
+    expect(request.searchParams.get('cursor')).toBeNull()
 
     wrapper.unmount()
   })

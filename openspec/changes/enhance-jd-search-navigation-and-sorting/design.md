@@ -50,11 +50,11 @@ optional `MinimumExperienceYears` threshold, and an ordered
 or `title`) and direction (`asc` or `desc`); it is parsed from repeated
 public `sort` values such as `experience_desc`.
 
-The module accepts zero, one, or two structured sort rules; zero means the
+The module accepts zero through four structured sort rules; zero means the
 existing stable title/relevance order. A field cannot occur twice regardless
 of direction. `sort=title` remains accepted only as the old equivalent of
 zero structured rules. The parser rejects an unknown value, a duplicate
-field, more than two rules, a title rule combined with another rule, or a
+field, more than four rules, a title rule combined with another rule, or a
 request mixing new `job_family` values with legacy main/other-family values.
 The latter makes cross-generation shared links unambiguous rather than
 silently intersecting unrelated selector styles.
@@ -107,7 +107,7 @@ SQL fragment for each validated sort rule, in received order:
 
 1. configured-value marker (`NULL` ranks last) for education and experience,
 2. the fact in the requested direction,
-3. the next rule, when present,
+3. each later rule in received order, up to the four-rule limit,
 4. `lower(title), public_id` as the stable final tie-breaker.
 
 The browser never sorts a received page: that would make page totals and later
@@ -139,19 +139,27 @@ The Vue list state replaces main/other family arrays with `jobFamilies`, the
 legacy exact experience selection with `minimumExperienceYear`, and the scalar
 sort with `sortRules`. Serializing repeated values preserves their order in
 the query string, so copied URLs retain both filter and priority meaning. The
-work-experience control presents an `≥` marker, a single selection from the
-fixed 0–9 range, and an unrestricted state; it is not populated from the
-database's incidental current values.
+work-experience control is one ordinary select labelled `最低工作年限`, with
+`不限` plus fixed `1 年及以上` through `9 年及以上` choices; it is not populated
+from the database's incidental current values. The API retains zero as a
+compatible input for pre-existing shared links, but the browser never offers
+it as a new selection.
 
 The sort-builder UI presents every selected rule as a priority label followed
 by separate `排序种类` and `排序方式` selects, plus accessible move-earlier,
-move-later, and removal controls. The add row uses the same two selectors.
-Changing a kind retains the chosen direction unless that direction has no
-meaning for that kind. A kind already present in another rule cannot be
-selected. The list view uses a quieter two-surface composition: a concise
-search heading, a filter card with grouped fields, and a visually distinct
-sort card. It keeps Ocean Breeze colours and keyboard focus but removes the
-large blue sort block and dense all-equal field grid.
+move-later, and removal controls. It permits at most four rules. The add row
+uses the same two selectors. Changing a kind retains the chosen direction
+unless that direction has no meaning for that kind. A kind already present in
+another rule cannot be selected. The list view uses a quieter two-surface
+composition: a concise search heading, a filter card with grouped fields, and
+a visually distinct sort card. It keeps Ocean Breeze colours and keyboard
+focus but removes system-explanatory copy and the dense threshold-button row.
+
+Pagination remains offset based. The browser serializes `page` and
+`page_size`, displays numbered page controls, lets the visitor choose a
+bounded page size, and supplies a direct page-number jump. It never accepts
+or emits a cursor token. Changing page size returns to page one; changing page
+preserves the selected filters and ordered sort rules.
 
 The router returns no new scroll position for a navigation whose source and
 destination are both the JD-list route; Vue consequently leaves the viewport

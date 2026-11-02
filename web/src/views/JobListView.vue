@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NInput, NSelect, type SelectOption } from 'naive-ui'
+import { NButton, NInput, NPagination, NSelect, type SelectOption } from 'naive-ui'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -50,6 +50,13 @@ const activityMode = ref<ActivityState | 'all'>('effective')
 const urgentValue = ref<string | null>(null)
 const sortKindToAdd = ref<SortKind | null>(null)
 const sortDirectionToAdd = ref<SortDirection | null>(null)
+const maximumSortRules = 4
+const pageSizes = [20, 50, 100]
+
+const minimumExperienceOptions: SelectOption[] = Array.from({ length: 9 }, (_, index) => ({
+  label: `${index + 1} 年及以上`,
+  value: index + 1,
+}))
 
 const sortKindOptions: SelectOption[] = [
   { value: 'experience', label: '最低工作年限' },
@@ -137,6 +144,7 @@ function stateFromDraft(): JDListState {
       activityMode.value === 'all' ? ['effective', 'confirmed_closed'] : [activityMode.value],
     isUrgent: urgentValue.value === null ? undefined : urgentValue.value === 'true',
     jobFamilies: [...draft.jobFamilies],
+    minimumExperienceYear: draft.minimumExperienceYear ?? undefined,
     sortRules: [...draft.sortRules],
     page: 1,
   }
@@ -168,7 +176,7 @@ function addSortRule(): void {
   if (
     sortKindToAdd.value === null ||
     sortDirectionToAdd.value === null ||
-    draft.sortRules.length >= 2 ||
+    draft.sortRules.length >= maximumSortRules ||
     draft.sortRules.some((rule) => sortRuleParts(rule).kind === sortKindToAdd.value)
   ) {
     return
@@ -176,14 +184,6 @@ function addSortRule(): void {
   draft.sortRules.push(buildSortRule(sortKindToAdd.value, sortDirectionToAdd.value))
   sortKindToAdd.value = null
   sortDirectionToAdd.value = null
-}
-
-function selectMinimumExperienceYear(year: number): void {
-  draft.minimumExperienceYear = year
-}
-
-function clearMinimumExperienceYear(): void {
-  draft.minimumExperienceYear = undefined
 }
 
 function removeSortRule(index: number): void {
@@ -222,6 +222,16 @@ function changePage(page: number): void {
   void router.push({
     name: 'jobs',
     query: listStateToRoute({ ...listState.value, page }),
+  })
+}
+
+function changePageSize(pageSize: number): void {
+  if (!pageSizes.includes(pageSize)) {
+    return
+  }
+  void router.push({
+    name: 'jobs',
+    query: listStateToRoute({ ...listState.value, page: 1, pageSize }),
   })
 }
 
@@ -264,18 +274,16 @@ onMounted(() => {
       <div>
         <p class="eyebrow">JD OBSERVATORY · CURRENT INVENTORY</p>
         <h1>岗位检索</h1>
-        <p class="heading-copy">从标题与正式建模字段中，收敛值得阅读的岗位。</p>
+        <p class="heading-copy">查找符合条件的岗位。</p>
       </div>
-      <p class="heading-note">最新岗位视图</p>
     </header>
 
     <section class="filter-panel" aria-label="岗位筛选">
       <div class="filter-panel__heading">
         <div>
           <p class="section-kicker">检索条件</p>
-          <h2>从一个标题开始</h2>
+          <h2>筛选岗位</h2>
         </div>
-        <p>同类条件取并集，不同条件取交集。</p>
       </div>
       <div class="title-search">
         <label for="job-title-search">标题</label>
@@ -322,32 +330,16 @@ onMounted(() => {
               placeholder="选择学历要求"
             />
           </label>
-          <section class="experience-threshold" aria-label="最低工作年限">
-            <div class="experience-threshold__label">
-              <span>最低工作年限</span><strong aria-hidden="true">≥</strong>
-            </div>
-            <div class="experience-threshold__options" role="radiogroup" aria-label="最低工作年限阈值">
-              <button
-                type="button"
-                role="radio"
-                data-testid="minimum-experience-any"
-                :aria-checked="draft.minimumExperienceYear === undefined"
-                :class="{ 'is-selected': draft.minimumExperienceYear === undefined }"
-                @click="clearMinimumExperienceYear"
-              >不限</button>
-              <button
-                v-for="year in 10"
-                :key="year - 1"
-                type="button"
-                role="radio"
-                :data-testid="`minimum-experience-${year - 1}`"
-                :aria-checked="draft.minimumExperienceYear === year - 1"
-                :class="{ 'is-selected': draft.minimumExperienceYear === year - 1 }"
-                @click="selectMinimumExperienceYear(year - 1)"
-              >{{ year - 1 }}</button>
-            </div>
-            <p>仅筛选已明确最低年限的岗位。</p>
-          </section>
+          <label class="filter-field">
+            <span>最低工作年限</span>
+            <NSelect
+              v-model:value="draft.minimumExperienceYear"
+              :options="minimumExperienceOptions"
+              clearable
+              data-testid="minimum-experience-select"
+              placeholder="不限"
+            />
+          </label>
           <label class="filter-field">
             <span>项目</span>
             <NSelect
@@ -397,11 +389,9 @@ onMounted(() => {
           <div class="sort-panel__heading">
             <div>
               <p class="section-kicker">排序方案</p>
-              <h3>先比什么，再比什么</h3>
+              <h3>排序</h3>
             </div>
-            <p>最多两项；第一项优先。</p>
           </div>
-          <p class="field-hint">学历和工作年限没有明确值时始终置后。其余排序使用岗位当前的结构化信息。</p>
           <ol v-if="draft.sortRules.length" class="sort-rule-list">
             <li
               v-for="(rule, index) in draft.sortRules"
@@ -439,7 +429,7 @@ onMounted(() => {
               </div>
             </li>
           </ol>
-          <div v-if="draft.sortRules.length < 2" class="sort-rule-add">
+          <div v-if="draft.sortRules.length < maximumSortRules" class="sort-rule-add" data-testid="sort-rule-add">
             <label>
               <span>排序种类</span>
               <NSelect v-model:value="sortKindToAdd" :options="availableSortKindOptions" clearable placeholder="选择种类" />
@@ -476,7 +466,6 @@ onMounted(() => {
               <strong>{{ response?.page.total ?? 0 }}</strong> 个匹配岗位
             </h2>
           </div>
-          <p>选择一项，阅读完整 JD</p>
         </header>
         <ul v-if="response?.items.length" class="job-list">
           <li v-for="job in response.items" :key="job.id">
@@ -552,24 +541,18 @@ onMounted(() => {
           <p>没有符合当前条件的岗位。</p>
           <NButton tertiary @click="resetFilters">清除筛选条件</NButton>
         </div>
-        <div
-          v-if="response && response.page.total > response.page.page_size"
-          class="pagination"
-          aria-label="列表分页"
-        >
-          <NButton
-            :disabled="response.page.number === 1"
-            @click="changePage(response.page.number - 1)"
-            >上一页</NButton
-          >
-          <span>第 {{ response.page.number }} 页</span>
-          <NButton
-            :disabled="
-              response.page.number >= Math.ceil(response.page.total / response.page.page_size)
-            "
-            @click="changePage(response.page.number + 1)"
-            >下一页</NButton
-          >
+        <div v-if="response && response.page.total > response.page.page_size" class="pagination" aria-label="列表分页">
+          <NPagination
+            :item-count="response.page.total"
+            :page="response.page.number"
+            :page-size="response.page.page_size"
+            :page-sizes="pageSizes"
+            :page-slot="7"
+            show-quick-jumper
+            show-size-picker
+            @update:page="changePage"
+            @update:pageSize="changePageSize"
+          />
         </div>
       </template>
     </section>
@@ -753,68 +736,6 @@ p {
   outline: 0;
 }
 
-.experience-threshold {
-  background: #eef8fb;
-  border: 1px solid #cfe6ed;
-  border-radius: 10px;
-  grid-column: 1 / -1;
-  padding: 13px 14px 12px;
-}
-
-.experience-threshold__label {
-  align-items: baseline;
-  color: #406980;
-  display: flex;
-  font-size: 0.78rem;
-  font-weight: 700;
-  gap: 6px;
-  letter-spacing: 0.025em;
-  margin-bottom: 10px;
-}
-
-.experience-threshold__label strong {
-  color: #007bab;
-  font-size: 1.1rem;
-  letter-spacing: 0;
-}
-
-.experience-threshold__options {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: 1.5fr repeat(10, minmax(26px, 1fr));
-}
-
-.experience-threshold__options button {
-  background: #fff;
-  border: 1px solid #c8dde5;
-  border-radius: 7px;
-  color: #406980;
-  cursor: pointer;
-  font-size: 0.77rem;
-  font-weight: 700;
-  min-height: 30px;
-  padding: 0 5px;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.experience-threshold__options button:hover,
-.experience-threshold__options button:focus-visible {
-  border-color: #008287;
-  outline: 0;
-}
-
-.experience-threshold__options button.is-selected {
-  background: #007bab;
-  border-color: #007bab;
-  color: #fff;
-}
-
-.experience-threshold > p {
-  color: #72818a;
-  font-size: 0.72rem;
-  margin: 9px 0 0;
-}
-
 .sort-panel {
   background: linear-gradient(145deg, #edf8fb 0%, #f8fcfe 72%);
   border: 1px solid #cfe4eb;
@@ -834,20 +755,6 @@ p {
   color: #17323d;
   font-size: 1rem;
   margin: 0;
-}
-
-.sort-panel__heading > p {
-  color: #5b7785;
-  font-size: 0.72rem;
-  margin: 2px 0 0;
-  text-align: right;
-}
-
-.field-hint {
-  color: #72818a;
-  font-size: 0.76rem;
-  line-height: 1.45;
-  margin: 0 0 12px;
 }
 
 .sort-rule-list {
@@ -1102,13 +1009,8 @@ p {
   align-items: center;
   border-top: 1px solid #e3ebf0;
   display: flex;
-  gap: 14px;
   justify-content: flex-end;
   padding: 18px 28px;
-}
-.pagination span {
-  color: #626a6f;
-  font-size: 0.85rem;
 }
 
 @media (max-width: 1080px) {
@@ -1141,12 +1043,6 @@ p {
   .filter-grid {
     grid-template-columns: 1fr;
     padding: 15px;
-  }
-  .experience-threshold__options {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-  .experience-threshold__options button:first-child {
-    grid-column: span 2;
   }
   .sort-rule {
     align-items: stretch;
@@ -1187,6 +1083,7 @@ p {
     line-height: 1.3;
   }
   .pagination {
+    flex-wrap: wrap;
     justify-content: center;
     padding-left: 18px;
     padding-right: 18px;
