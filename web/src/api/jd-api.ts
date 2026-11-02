@@ -8,6 +8,10 @@ export interface FilterOption {
   value: string
 }
 
+export interface TechnologyKeywordFilterOption extends FilterOption {
+  category: FilterOption
+}
+
 export interface EducationRequirement {
   explicit_requirement: boolean
   lower_bound?: EducationLevel
@@ -62,7 +66,7 @@ export interface FilterOptionsResponse {
   main_job_families: FilterOption[]
   other_job_families: FilterOption[]
   projects: FilterOption[]
-  technology_keywords: FilterOption[]
+  technology_keywords: TechnologyKeywordFilterOption[]
   urgent_options: FilterOption[]
 }
 
