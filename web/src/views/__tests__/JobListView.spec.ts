@@ -22,7 +22,13 @@ const filterOptionsResponse = {
   main_job_families: [{ value: 'backend', label: '后端' }],
   other_job_families: [],
   projects: [{ value: 'genshin_impact', label: '原神' }],
-  technology_keywords: [{ value: 'go', label: 'Go' }],
+  technology_keywords: [
+    {
+      value: 'go',
+      label: 'Go',
+      category: { value: 'programming-languages', label: '编程语言' },
+    },
+  ],
   urgent_options: [{ value: 'true', label: '紧急招聘' }],
 }
 

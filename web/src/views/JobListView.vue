@@ -9,6 +9,7 @@ import {
   type FilterOptionsResponse,
   type JobListResponse,
 } from '@/api/jd-api'
+import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
 import {
   createDefaultListState,
   listStateFromRoute,
@@ -310,13 +311,9 @@ onMounted(() => {
           </label>
           <label class="filter-field">
             <span>技术关键词</span>
-            <NSelect
-              v-model:value="draft.technologyKeywords"
+            <TechnologyKeywordSelect
+              v-model="draft.technologyKeywords"
               :options="filterOptions.technology_keywords"
-              clearable
-              filterable
-              multiple
-              placeholder="搜索或选择技术关键词"
             />
           </label>
           <label class="filter-field">

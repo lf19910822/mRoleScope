@@ -203,6 +203,16 @@ components:
           type: string
         label:
           type: string
+    TechnologyKeywordFilterOption:
+      type: object
+      required: [value, label, category]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        category:
+          $ref: '#/components/schemas/FilterOption'
     EducationRequirement:
       type: object
       required: [explicit_requirement]
@@ -316,7 +326,7 @@ components:
         technology_keywords:
           type: array
           items:
-            $ref: '#/components/schemas/FilterOption'
+            $ref: '#/components/schemas/TechnologyKeywordFilterOption'
         education_levels:
           type: array
           items:
