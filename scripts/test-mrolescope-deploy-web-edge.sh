@@ -71,8 +71,24 @@ fi
 MOCK
 chmod 0755 "$temporary_dir/bin/curl"
 
+# The real helper must retain its root-only and caller-identity guards. This
+# unit test exercises its image allowlist under an ordinary CI user, so the
+# isolated copy replaces process-identity and root-ownership guards; it
+# continues to run all image-input, release-record, rollback, and readiness
+# logic.
+grep -Fqx '[[ "${EUID}" -eq 0 ]] || die "must be invoked through sudo"' "$source_helper" \
+  || die 'deployment helper no longer has its root-only guard'
+grep -Fqx 'if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "mrolescope-deploy" ]]; then' "$source_helper" \
+  || die 'deployment helper no longer has its allowed-caller guard'
+grep -Fqx '  [[ "$metadata" == "root:root:${expected_mode}" ]]' "$source_helper" \
+  || die 'deployment helper no longer checks root file ownership and mode'
+grep -Fqx '[[ "$(stat -c '\''%U:%G:%a'\'' "$RELEASE_DIR")" == '\''root:root:700'\'' ]] || die "release directory must be root:root mode 0700"' "$source_helper" \
+  || die 'deployment helper no longer checks release-directory ownership and mode'
+
 # Render a test-only copy with its fixed production paths redirected to the
-# temporary directory. The helper's validation logic itself is not changed.
+# temporary directory. The source helper's identity and root-ownership guards
+# are asserted above and replaced below because this test has no real sudo
+# service account or root-owned fixture files.
 sed \
   -e "s|/opt/mrolescope/remote-development.compose.yaml|$temporary_dir/compose.yaml|" \
   -e "s|/etc/mrolescope/secrets/remote-development.env|$temporary_dir/runtime.env|" \
@@ -80,6 +96,10 @@ sed \
   -e "s|/var/lib/mrolescope/releases|$temporary_dir/releases|g" \
   -e "s|PATH='/usr/sbin:/usr/bin:/sbin:/bin'|PATH='$temporary_dir/bin:/usr/sbin:/usr/bin:/sbin:/bin'|" \
   -e 's/attempt <= 20/attempt <= 1/g' \
+  -e 's/^\[\[ "${EUID}" -eq 0 \]\] || die "must be invoked through sudo"$/true # test-only identity bypass/' \
+  -e 's/^if \[\[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "mrolescope-deploy" \]\]; then$/if false; then # test-only identity bypass/' \
+  -e '/^is_root_owned_mode() {$/,/^}$/c\is_root_owned_mode() { return 0; } # test-only ownership bypass' \
+  -e 's/^\[\[ "$(stat -c '\''%U:%G:%a'\'' "$RELEASE_DIR")" == '\''root:root:700'\'' \]\] || die "release directory must be root:root mode 0700"$/true # test-only release ownership bypass/' \
   "$source_helper" >"$temporary_dir/mrolescope-deploy"
 chmod 0750 "$temporary_dir/mrolescope-deploy"
 
