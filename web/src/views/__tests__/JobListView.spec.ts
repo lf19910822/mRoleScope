@@ -43,6 +43,38 @@ afterEach(() => {
 })
 
 describe('JD list filters', () => {
+  it('reserves the list reading area with a matching skeleton before its first result', async () => {
+    let resolveList: (response: Response) => void = () => undefined
+    const pendingList = new Promise<Response>((resolve) => {
+      resolveList = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input) === '/api/v1/jobs/filter-options') {
+          return Promise.resolve(new Response(JSON.stringify(filterOptionsResponse)))
+        }
+        return pendingList
+      }),
+    )
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'jobs' })
+    await router.isReady()
+    const wrapper = mount(JobListView, { global: { plugins: [router] } })
+
+    const loadingRegion = wrapper.get('[role="status"]')
+    expect(loadingRegion.attributes('aria-busy')).toBe('true')
+    expect(loadingRegion.text()).toContain('正在读取岗位列表')
+    expect(wrapper.find('.result-heading').exists()).toBe(false)
+
+    resolveList(new Response(JSON.stringify(emptyListResponse)))
+    await flushPromises()
+
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('.result-heading').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('uses the active default and carries unified job-family unions with cross-field intersections into API requests', async () => {
     const requests: string[] = []
     vi.stubGlobal(
@@ -77,10 +109,7 @@ describe('JD list filters', () => {
     await flushPromises()
 
     const filteredRequest = latestRequest(requests)
-    expect(filteredRequest.searchParams.getAll('job_family')).toEqual([
-      'backend',
-      'ai_application',
-    ])
+    expect(filteredRequest.searchParams.getAll('job_family')).toEqual(['backend', 'ai_application'])
     expect(filteredRequest.searchParams.getAll('project')).toEqual(['genshin_impact', 'star_rail'])
     expect(filteredRequest.searchParams.getAll('technology')).toEqual(['go', 'python'])
     expect(filteredRequest.searchParams.getAll('activity_state')).toEqual(['effective'])
@@ -121,7 +150,10 @@ describe('JD list filters', () => {
     expect(wrapper.get('[data-testid="sort-kind-4"]').text()).toContain('紧急标记')
     expect(wrapper.find('[data-testid="sort-rule-add"]').exists()).toBe(false)
     await wrapper.get('[data-testid="move-sort-rule-up-2"]').trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '应用筛选')?.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '应用筛选')
+      ?.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query.sort).toEqual([
       'first_discovered_desc',
@@ -149,9 +181,9 @@ describe('JD list filters', () => {
     const wrapper = mount(JobListView, { global: { plugins: [router] } })
     await flushPromises()
 
-    const threshold = wrapper.findAllComponents(NSelect).find(
-      (select) => select.attributes('data-testid') === 'minimum-experience-select',
-    )
+    const threshold = wrapper
+      .findAllComponents(NSelect)
+      .find((select) => select.attributes('data-testid') === 'minimum-experience-select')
     if (threshold === undefined) {
       throw new Error('minimum experience selector was not rendered')
     }
@@ -170,12 +202,18 @@ describe('JD list filters', () => {
     expect(wrapper.text()).not.toContain('同类条件取并集')
     expect(wrapper.text()).not.toContain('仅筛选已明确最低年限的岗位')
     await threshold.vm.$emit('update:value', 5)
-    await wrapper.findAll('button').find((button) => button.text() === '应用筛选')?.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '应用筛选')
+      ?.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query.minimum_experience_year).toBe('5')
 
     await threshold.vm.$emit('update:value', null)
-    await wrapper.findAll('button').find((button) => button.text() === '应用筛选')?.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '应用筛选')
+      ?.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query.minimum_experience_year).toBeUndefined()
 

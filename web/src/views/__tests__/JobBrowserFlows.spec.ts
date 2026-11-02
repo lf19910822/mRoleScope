@@ -24,6 +24,74 @@ afterEach(() => {
 })
 
 describe('JD browser flows', () => {
+  it('keeps the last list visible through replacement reads and ignores a late stale response', async () => {
+    type Deferred = { resolve: (response: Response) => void; reject: (reason: Error) => void }
+    const pending = new Map<string, Deferred>()
+    const jobResponse = (id: string, title: string) =>
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              activity_state: 'effective',
+              first_discovered_date: '2026-10-30',
+              id,
+              is_urgent: false,
+              locations: ['上海'],
+              other_job_families: [],
+              projects: [],
+              technology_keywords: [],
+              title,
+            },
+          ],
+          page: { number: 1, page_size: 20, total: 1 },
+        }),
+      )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options') {
+          return Promise.resolve(new Response(JSON.stringify(options)))
+        }
+        const title = new URL(path, 'https://jd-observatory.invalid').searchParams.get('title')
+        if (title === null) {
+          return Promise.resolve(jobResponse('first', 'First job'))
+        }
+        return new Promise<Response>((resolve, reject) => pending.set(title, { resolve, reject }))
+      }),
+    )
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'jobs' })
+    await router.isReady()
+    const wrapper = mount(JobListView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('First job')
+
+    await router.push({ name: 'jobs', query: { title: 'older' } })
+    await flushPromises()
+    await router.push({ name: 'jobs', query: { title: 'newer' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('First job')
+
+    pending.get('older')?.resolve(jobResponse('older', 'Stale job'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('First job')
+    expect(wrapper.text()).not.toContain('Stale job')
+
+    pending.get('newer')?.resolve(jobResponse('newer', 'Newest job'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('Newest job')
+
+    await router.push({ name: 'jobs', query: { title: 'failed' } })
+    await flushPromises()
+    pending.get('failed')?.reject(new Error('network unavailable'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('Newest job')
+    expect(wrapper.text()).toContain('network unavailable')
+
+    wrapper.unmount()
+  })
+
   it('sends a fuzzy title query and allows effective and confirmed-closed inventory views', async () => {
     const requests: string[] = []
     vi.stubGlobal(
@@ -74,7 +142,9 @@ describe('JD browser flows', () => {
         const request = new URL(path, 'https://jd-observatory.invalid')
         const page = Number(request.searchParams.get('page') ?? '1')
         const pageSize = Number(request.searchParams.get('page_size') ?? '20')
-        return new Response(JSON.stringify({ items: [], page: { number: page, page_size: pageSize, total: 167 } }))
+        return new Response(
+          JSON.stringify({ items: [], page: { number: page, page_size: pageSize, total: 167 } }),
+        )
       }),
     )
     const router = createJDRouter(createMemoryHistory())

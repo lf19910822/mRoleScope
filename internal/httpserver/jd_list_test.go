@@ -140,20 +140,28 @@ func TestJDDetailRouteReturnsOnlyTypedServingDetail(t *testing.T) {
 			Body: jdserving.BodySections{
 				Responsibilities: "负责服务端",
 				Requirements:     "熟悉 Go",
+				TechnologyHighlights: []jdserving.TechnologyHighlight{{
+					Section: jdserving.BodySectionRequirements,
+					Start:   3,
+					End:     5,
+				}},
 			},
 		}, nil
 	})
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/jd_opaque", nil)
 	response := httptest.NewRecorder()
 	New(nil, reader).ServeHTTP(response, request)
-	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "supplemental") {
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "supplemental") ||
+		strings.Contains(response.Body.String(), "matched_alias") || strings.Contains(response.Body.String(), "source_field") {
 		t.Fatalf("detail response = status:%d body:%s", response.Code, response.Body.String())
 	}
 	var payload jdserving.JobDetailResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode typed detail response: %v", err)
 	}
-	if payload.ID != "jd_opaque" || payload.Body.Responsibilities != "负责服务端" || payload.ActivityState != jdserving.ActivityStateConfirmedClosed {
+	if payload.ID != "jd_opaque" || payload.Body.Responsibilities != "负责服务端" ||
+		payload.ActivityState != jdserving.ActivityStateConfirmedClosed || len(payload.Body.TechnologyHighlights) != 1 ||
+		payload.Body.TechnologyHighlights[0] != (jdserving.TechnologyHighlight{Section: jdserving.BodySectionRequirements, Start: 3, End: 5}) {
 		t.Fatalf("typed detail response = %#v", payload)
 	}
 }

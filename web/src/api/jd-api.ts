@@ -1,4 +1,8 @@
 import { activityStateQueryValues, type JDListState } from '@/lib/list-state'
+import type { JDDetailBodySection, TechnologyHighlightRange } from '@/lib/highlighted-text'
+import { requestActivity } from '@/lib/request-activity'
+
+export type { JDDetailBodySection, TechnologyHighlightRange }
 
 export type ActivityState = 'effective' | 'confirmed_closed'
 export type EducationLevel = 'associate_or_lower' | 'bachelor' | 'master' | 'doctor'
@@ -54,6 +58,7 @@ export interface JobDetailResponse extends JobListItem {
     requirements: string
     responsibilities: string
     supplemental?: string
+    technology_highlights?: TechnologyHighlightRange[]
   }
 }
 
@@ -80,11 +85,16 @@ export class JDAPIError extends Error {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { Accept: 'application/json' } })
-  if (!response.ok) {
-    throw new JDAPIError(`请求岗位数据失败（${response.status}）`, response.status)
+  const settle = requestActivity.begin()
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (!response.ok) {
+      throw new JDAPIError(`请求岗位数据失败（${response.status}）`, response.status)
+    }
+    return (await response.json()) as T
+  } finally {
+    settle()
   }
-  return (await response.json()) as T
 }
 
 function appendAll(parameters: URLSearchParams, name: string, values: string[]): void {
