@@ -1265,6 +1265,24 @@ INSERT INTO technology_mention_evidence (
 			t.Fatalf("insert serving highlight evidence: %v", err)
 		}
 	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_dictionary_versions
+SET status = 'published', published_at = now()
+WHERE id = $1`, dictionaryID); err != nil {
+		t.Fatalf("publish serving highlight dictionary: %v", err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_configurations
+SET status = 'published', published_at = now()
+WHERE id = $1`, configurationID); err != nil {
+		t.Fatalf("publish serving highlight configuration: %v", err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_publication_state
+SET configuration_id = $1, updated_at = now()
+WHERE singleton = true`, configurationID); err != nil {
+		t.Fatalf("advance serving highlight publication pointer: %v", err)
+	}
 }
 
 func insertServingProjectResult(t *testing.T, repository *Repository, metadataID, normalizedTitle string) string {

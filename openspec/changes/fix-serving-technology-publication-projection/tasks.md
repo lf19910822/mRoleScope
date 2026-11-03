@@ -2,7 +2,7 @@
 
 ## 1. Regression coverage
 
-- [ ] 1.1 Add a failing PostgreSQL integration test that rejects a newer
+- [x] 1.1 Add a failing PostgreSQL integration test that rejects a newer
   unpublished technology configuration and exposes Go only after the active
   publication pointer advances and Serving reconciles.
 - [x] 1.2 Add failing worker orchestration tests for release success, reused
@@ -17,7 +17,7 @@
 
 ## 3. Verification and delivery
 
-- [ ] 3.1 Run focused and full Go tests, deployment configuration checks,
+- [x] 3.1 Run focused and full Go tests, deployment configuration checks,
   strict OpenSpec validation, and `git diff --check`.
 - [ ] 3.2 Deploy only the approved immutable image path, invoke the existing
   fixed v0.3 upgrade operation to retry projection, and verify aggregate
