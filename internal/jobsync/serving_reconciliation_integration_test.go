@@ -184,6 +184,113 @@ SELECT
 	}
 }
 
+func TestServingReconciliationUsesOnlyActiveTechnologyPublication(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 3, 2, 0, 0, 0, time.UTC)
+	run := publishFixtureRun(t, repository, scope, at, 1, []Observation{
+		integrationObservationWithTitleAndBody("发布配置投影", "serving-active-technology", at),
+	}, nil)
+	_, bodyID := canonicalReferenceForRun(t, repository, run.ID)
+
+	v02ConfigurationID := insertPublishedAnalysisConfiguration(t, repository)
+	v02ResultID := insertServingTechnologyResult(t, repository, bodyID, v02ConfigurationID)
+	insertServingTechnologyMention(t, repository, v02ResultID, "python", "Python")
+
+	const (
+		v03DictionaryID    = "00000000-0000-4000-8000-000000000804"
+		v03ConfigurationID = "00000000-0000-4000-8000-000000000805"
+	)
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_dictionary_versions (
+    id, version_label, content_sha256, status, source_document, created_by
+) VALUES ($1, 'synthetic-candidate-dictionary', $2, 'candidate', 'synthetic test', 'test')`,
+		v03DictionaryID, strings.Repeat("c", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_analysis_configurations (
+    id, parser_version, dictionary_version_id, rule_set_sha256, status, created_by
+) VALUES ($1, 'synthetic-candidate-parser', $2, $3, 'candidate', 'test')`,
+		v03ConfigurationID, v03DictionaryID, strings.Repeat("d", 64)); err != nil {
+		t.Fatal(err)
+	}
+	v03ResultID := insertServingTechnologyResult(t, repository, bodyID, v03ConfigurationID)
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_results
+SET completed_at = now() + interval '1 minute'
+WHERE id = $1`, v03ResultID); err != nil {
+		t.Fatal(err)
+	}
+	insertServingTechnologyMention(t, repository, v03ResultID, "go", "Go")
+
+	serving, err := jdserving.NewRepository(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(serving.Close)
+	if _, err := serving.ReconcilePublishedInventory(ctx); err != nil {
+		t.Fatal(err)
+	}
+	beforeRelease, err := serving.ListFilterOptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsServingTechnologyFilterOption(beforeRelease.TechnologyKeywords, "go") ||
+		!containsServingTechnologyFilterOption(beforeRelease.TechnologyKeywords, "python") {
+		t.Fatalf("unpublished technology candidate leaked into serving options: %#v", beforeRelease.TechnologyKeywords)
+	}
+
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_configurations
+SET status = 'superseded'
+WHERE id = $1`, v02ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_dictionary_versions
+SET status = 'published', published_at = now()
+WHERE id = $1`, v03DictionaryID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_configurations
+SET status = 'published', published_at = now()
+WHERE id = $1`, v03ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_publication_state
+SET configuration_id = $1, updated_at = now()
+WHERE singleton = true`, v03ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := serving.ReconcilePublishedInventory(ctx); err != nil {
+		t.Fatal(err)
+	}
+	afterRelease, err := serving.ListFilterOptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsServingTechnologyFilterOption(afterRelease.TechnologyKeywords, "go") ||
+		containsServingTechnologyFilterOption(afterRelease.TechnologyKeywords, "python") {
+		t.Fatalf("published technology options = %#v, want only active Go result", afterRelease.TechnologyKeywords)
+	}
+
+	var membershipID string
+	if err := repository.pool.QueryRow(ctx, `
+SELECT id::text
+FROM serving_jd_current_inventory_memberships
+WHERE observation_scope_id = $1`, scope.ID).Scan(&membershipID); err != nil {
+		t.Fatal(err)
+	}
+	assertServingCurrentDimension(t, repository, membershipID, "technology", 0, v03ResultID)
+}
+
 func TestServingListJobsComposesStructuredFilters(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -1070,6 +1177,29 @@ RETURNING id::text`, bodyID, configurationID).Scan(&resultID); err != nil {
 	return resultID
 }
 
+func insertServingTechnologyMention(t *testing.T, repository *Repository, resultID, technologyKey, canonicalName string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_identities (technology_key, canonical_name, technology_kind)
+VALUES ($1, $2, 'programming-language')
+ON CONFLICT (technology_key) DO NOTHING`, technologyKey, canonicalName); err != nil {
+		t.Fatalf("insert serving technology identity: %v", err)
+	}
+	var technologyID string
+	if err := repository.pool.QueryRow(ctx, `
+SELECT id::text
+FROM technology_identities
+WHERE technology_key = $1`, technologyKey).Scan(&technologyID); err != nil {
+		t.Fatalf("load serving technology identity: %v", err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+INSERT INTO technology_mentions (analysis_result_id, technology_identity_id)
+VALUES ($1, $2)`, resultID, technologyID); err != nil {
+		t.Fatalf("insert serving technology mention: %v", err)
+	}
+}
+
 func insertServingTechnologyHighlightFacts(t *testing.T, repository *Repository, bodyID string) {
 	t.Helper()
 	ctx := context.Background()
@@ -1134,6 +1264,24 @@ INSERT INTO technology_mention_evidence (
 			mentionID, evidence.sourceField, strings.Repeat("0", 64), ruleID, evidence.alias, evidence.start, evidence.end); err != nil {
 			t.Fatalf("insert serving highlight evidence: %v", err)
 		}
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_dictionary_versions
+SET status = 'published', published_at = now()
+WHERE id = $1`, dictionaryID); err != nil {
+		t.Fatalf("publish serving highlight dictionary: %v", err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_configurations
+SET status = 'published', published_at = now()
+WHERE id = $1`, configurationID); err != nil {
+		t.Fatalf("publish serving highlight configuration: %v", err)
+	}
+	if _, err := repository.pool.Exec(ctx, `
+UPDATE technology_analysis_publication_state
+SET configuration_id = $1, updated_at = now()
+WHERE singleton = true`, configurationID); err != nil {
+		t.Fatalf("advance serving highlight publication pointer: %v", err)
 	}
 }
 

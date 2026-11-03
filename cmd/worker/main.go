@@ -1093,9 +1093,21 @@ func runV03ReleaseUpgrade(arguments []string) {
 	}
 	defer repository.Close()
 
-	summary, err := repository.ReleaseV03Upgrade(ctx, os.Getenv("MROLESCOPE_RELEASE_PUBLISHER"))
+	summary, servingSummary, err := publishV03UpgradeAndReconcile(
+		ctx,
+		repository,
+		cfg.DatabaseURL,
+		os.Getenv("MROLESCOPE_RELEASE_PUBLISHER"),
+		newServingInventoryReconciler,
+	)
 	if err != nil {
-		slog.Error(jdanalysis.SafeOperationMessage(err))
+		if summary.Published {
+			// The immutable release already committed.  A repeated fixed v0.3
+			// operation safely reuses it and retries only this Serving projection.
+			slog.Error("v0.3 release committed but serving projection refresh failed; retry the fixed v0.3 release operation")
+		} else {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+		}
 		os.Exit(1)
 	}
 	slog.Info("v0.3 technology analysis upgrade published",
@@ -1110,7 +1122,61 @@ func runV03ReleaseUpgrade(arguments []string) {
 		"evidence_total", summary.EvidenceTotal,
 		"invalid_evidence", summary.InvalidEvidence,
 		"reused", summary.Reused,
+		"serving_reconciled_runs", servingSummary.ReconciledRuns,
+		"serving_memberships_created", servingSummary.MembershipsCreated,
+		"serving_memberships_reused", servingSummary.MembershipsReused,
+		"serving_retryable_failures", servingSummary.RetryableFailures,
 	)
+}
+
+// v03UpgradeReleaser keeps the immutable release gate independent from its
+// post-commit Serving projection.  The production repository and test fakes
+// both satisfy this narrow seam.
+type v03UpgradeReleaser interface {
+	ReleaseV03Upgrade(context.Context, string) (jdanalysis.ReleaseSummary, error)
+}
+
+// servingInventoryReconciler exposes exactly the read-model refresh needed
+// after a technology release; it deliberately cannot mutate source facts.
+type servingInventoryReconciler interface {
+	ReconcilePublishedInventory(context.Context) (jdserving.ReconciliationSummary, error)
+	Close()
+}
+
+type servingInventoryReconcilerFactory func(context.Context, string) (servingInventoryReconciler, error)
+
+func newServingInventoryReconciler(ctx context.Context, databaseURL string) (servingInventoryReconciler, error) {
+	repository, err := jdserving.NewRepository(ctx, databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	return repository, nil
+}
+
+// publishV03UpgradeAndReconcile commits the fixed immutable v0.3 upgrade
+// before refreshing Serving.  Projection errors deliberately do not roll back
+// the release; rerunning the same fixed operation receives the reused release
+// summary and retries reconciliation.
+func publishV03UpgradeAndReconcile(
+	ctx context.Context,
+	releaseRepository v03UpgradeReleaser,
+	databaseURL, publisher string,
+	newServingRepository servingInventoryReconcilerFactory,
+) (jdanalysis.ReleaseSummary, jdserving.ReconciliationSummary, error) {
+	summary, err := releaseRepository.ReleaseV03Upgrade(ctx, publisher)
+	if err != nil {
+		return summary, jdserving.ReconciliationSummary{}, err
+	}
+	servingRepository, err := newServingRepository(ctx, databaseURL)
+	if err != nil {
+		return summary, jdserving.ReconciliationSummary{}, fmt.Errorf("initialize serving projection after v0.3 release: %w", err)
+	}
+	defer servingRepository.Close()
+	servingSummary, err := servingRepository.ReconcilePublishedInventory(ctx)
+	if err != nil {
+		return summary, servingSummary, fmt.Errorf("reconcile serving projection after v0.3 release: %w", err)
+	}
+	return summary, servingSummary, nil
 }
 
 func runV02BaselineWithdrawal(ctx context.Context, repository *jdanalysis.Repository, publisher string, category jdanalysis.WithdrawalCategory) {
