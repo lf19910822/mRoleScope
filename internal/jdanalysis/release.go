@@ -13,6 +13,7 @@ const (
 	// the first baseline. It is attested with every release event rather than
 	// accepting a caller-provided policy label.
 	V02ReleaseGateVersion    = "technology-mentions-v0.2-release-gate-v1"
+	V03ReleaseGateVersion    = "technology-mentions-v0.3-release-gate-v1"
 	FallbackReleasePublisher = "FAN"
 )
 
@@ -132,7 +133,7 @@ WHERE configuration_id = $1 AND event_type = 'published'`, configuration.ID).Sca
 		return ReleaseSummary{}, ErrReleaseGateFailed
 	}
 
-	if err := validateFrozenV02RuleSet(ctx, tx, dictionaryID, configuration); err != nil {
+	if err := validateFrozenRuleSet(ctx, tx, dictionaryID, configuration, V02ApprovedRuleKeys(), "v0.2"); err != nil {
 		return ReleaseSummary{}, err
 	}
 	queued, err := enqueueAllBodyVersions(ctx, tx, configuration.ID)
@@ -215,6 +216,182 @@ INSERT INTO technology_analysis_release_events (
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ReleaseSummary{}, fmt.Errorf("commit v0.2 baseline release: %w", err)
+	}
+	summary.Publisher = publisher
+	summary.Published = true
+	return summary, nil
+}
+
+// ReleaseV03Upgrade is the only release path for the fixed Go/Golang
+// correction. It can supersede only the active v0.2 baseline after a complete
+// v0.3 reanalysis; callers cannot choose a target dictionary or configuration.
+func (repository *Repository) ReleaseV03Upgrade(ctx context.Context, authenticatedPublisher string) (ReleaseSummary, error) {
+	publisher := resolvedReleasePublisher(authenticatedPublisher)
+	configurationID, err := repository.v03ConfigurationID(ctx)
+	if err != nil {
+		return ReleaseSummary{}, err
+	}
+	release, acquired, err := repository.TryAcquireConfigurationLock(ctx, configurationID)
+	if err != nil {
+		return ReleaseSummary{}, err
+	}
+	if !acquired {
+		return ReleaseSummary{}, ErrConfigurationBusy
+	}
+	defer release()
+
+	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ReleaseSummary{}, fmt.Errorf("begin v0.3 upgrade release: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := ensurePublicationState(ctx, tx); err != nil {
+		return ReleaseSummary{}, err
+	}
+
+	var currentConfigurationID *string
+	if err := tx.QueryRow(ctx, `
+SELECT configuration_id::text
+FROM technology_analysis_publication_state
+WHERE singleton = true
+FOR UPDATE`).Scan(&currentConfigurationID); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("lock analysis publication state for v0.3 release: %w", err)
+	}
+
+	dictionaryID, dictionaryStatus, err := lockV03Dictionary(ctx, tx)
+	if err != nil {
+		return ReleaseSummary{}, err
+	}
+	configuration, err := lockReleaseConfiguration(ctx, tx, configurationID, dictionaryID)
+	if err != nil {
+		return ReleaseSummary{}, err
+	}
+	summary := ReleaseSummary{
+		ConfigurationID: configuration.ID, DictionaryVersionID: dictionaryID,
+		RuleSetSHA256: configuration.RuleSetSHA256, ReleaseGateVersion: V03ReleaseGateVersion,
+	}
+
+	if dictionaryStatus == "published" && configuration.Status == "published" &&
+		currentConfigurationID != nil && *currentConfigurationID == configuration.ID {
+		if err := tx.QueryRow(ctx, `
+SELECT publisher
+FROM technology_analysis_release_events
+WHERE configuration_id = $1 AND event_type = 'published'`, configuration.ID).Scan(&summary.Publisher); err != nil {
+			return ReleaseSummary{}, fmt.Errorf("load v0.3 release attestation: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return ReleaseSummary{}, fmt.Errorf("commit reused v0.3 release: %w", err)
+		}
+		summary.Published = true
+		summary.Reused = true
+		return summary, nil
+	}
+	if dictionaryStatus != "candidate" || configuration.Status != "candidate" || currentConfigurationID == nil {
+		return ReleaseSummary{}, ErrReleaseGateFailed
+	}
+
+	var currentDictionaryVersion, currentDictionaryStatus, currentConfigurationStatus string
+	if err := tx.QueryRow(ctx, `
+SELECT version.version_label, version.status::text, configuration.status::text
+FROM technology_analysis_configurations AS configuration
+JOIN technology_dictionary_versions AS version ON version.id = configuration.dictionary_version_id
+WHERE configuration.id = $1
+FOR UPDATE`, *currentConfigurationID).Scan(&currentDictionaryVersion, &currentDictionaryStatus, &currentConfigurationStatus); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("lock current v0.2 configuration for v0.3 upgrade: %w", err)
+	}
+	if currentDictionaryVersion != CandidateV02Seed().VersionLabel || currentDictionaryStatus != "published" || currentConfigurationStatus != "published" {
+		return ReleaseSummary{}, ErrReleaseGateFailed
+	}
+
+	if err := validateFrozenRuleSet(ctx, tx, dictionaryID, configuration, V03ApprovedRuleKeys(), "v0.3"); err != nil {
+		return ReleaseSummary{}, err
+	}
+	queued, err := enqueueAllBodyVersions(ctx, tx, configuration.ID)
+	if err != nil {
+		return ReleaseSummary{}, err
+	}
+	summary.Queued = queued
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM technology_analysis_work_items
+WHERE configuration_id = $1 AND status <> 'complete'`, configuration.ID).Scan(&summary.Pending); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("count incomplete v0.3 analysis work: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM job_body_content_versions AS body
+LEFT JOIN technology_analysis_results AS result
+  ON result.body_content_version_id = body.id
+ AND result.configuration_id = $1
+ AND result.status = 'complete'
+WHERE result.id IS NULL`, configuration.ID).Scan(&summary.MissingResults); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("count missing v0.3 analysis results: %w", err)
+	}
+	if summary.Pending != 0 || summary.MissingResults != 0 {
+		if err := appendConfigurationAuditTx(ctx, tx, configuration.ID, "candidate_not_ready", map[string]int{
+			"queued": queued, "pending": summary.Pending, "missing_results": summary.MissingResults,
+		}); err != nil {
+			return ReleaseSummary{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return ReleaseSummary{}, fmt.Errorf("commit v0.3 release catch-up: %w", err)
+		}
+		return summary, ErrCandidateNotReady
+	}
+
+	summary.EvidenceTotal, summary.InvalidEvidence, err = validateReleaseEvidence(ctx, tx, configuration.ID)
+	if err != nil {
+		return ReleaseSummary{}, err
+	}
+	if summary.InvalidEvidence != 0 {
+		if err := appendConfigurationAuditTx(ctx, tx, configuration.ID, "release_validation_failed", map[string]int{
+			"invalid_evidence": summary.InvalidEvidence,
+		}); err != nil {
+			return ReleaseSummary{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return ReleaseSummary{}, fmt.Errorf("commit v0.3 evidence validation result: %w", err)
+		}
+		return summary, ErrReleaseGateFailed
+	}
+
+	if _, err := tx.Exec(ctx, `
+UPDATE technology_dictionary_versions
+SET status = 'published', published_at = now(), retired_at = NULL
+WHERE id = $1 AND status = 'candidate'`, dictionaryID); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("publish v0.3 dictionary: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE technology_analysis_configurations
+SET status = 'published', published_at = now(), failed_at = NULL, safe_failure_code = NULL
+WHERE id = $1 AND status = 'candidate'`, configuration.ID); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("publish v0.3 analysis configuration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE technology_analysis_configurations
+SET status = 'superseded'
+WHERE id = $1 AND status = 'published'`, *currentConfigurationID); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("supersede v0.2 analysis configuration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE technology_analysis_publication_state
+SET configuration_id = $1, updated_at = now()
+WHERE singleton = true`, configuration.ID); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("advance v0.3 analysis publication pointer: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO technology_analysis_release_events (
+    configuration_id, dictionary_version_id, event_type, rule_set_sha256,
+    release_gate_version, publisher
+) VALUES ($1, $2, 'published', $3, $4, $5)`,
+		configuration.ID, dictionaryID, configuration.RuleSetSHA256, V03ReleaseGateVersion, publisher); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("record v0.3 release attestation: %w", err)
+	}
+	if err := appendConfigurationAuditTx(ctx, tx, configuration.ID, "candidate_published", map[string]int{"queued": queued}); err != nil {
+		return ReleaseSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ReleaseSummary{}, fmt.Errorf("commit v0.3 upgrade release: %w", err)
 	}
 	summary.Publisher = publisher
 	summary.Published = true
@@ -354,6 +531,26 @@ LIMIT 1`, CandidateV02Seed().VersionLabel, V01ParserVersion).Scan(&configuration
 	return configurationID, nil
 }
 
+func (repository *Repository) v03ConfigurationID(ctx context.Context) (string, error) {
+	var configurationID string
+	err := repository.pool.QueryRow(ctx, `
+SELECT configuration.id::text
+FROM technology_analysis_configurations AS configuration
+JOIN technology_dictionary_versions AS version ON version.id = configuration.dictionary_version_id
+WHERE version.version_label = $1
+  AND configuration.parser_version = $2
+  AND configuration.status IN ('candidate', 'published')
+ORDER BY configuration.created_at DESC
+LIMIT 1`, CandidateV03Seed().VersionLabel, V01ParserVersion).Scan(&configurationID)
+	if err == pgx.ErrNoRows {
+		return "", ErrCandidateNotReady
+	}
+	if err != nil {
+		return "", fmt.Errorf("find v0.3 release configuration: %w", err)
+	}
+	return configurationID, nil
+}
+
 func lockV02Dictionary(ctx context.Context, tx pgx.Tx) (string, string, error) {
 	var dictionaryID, status string
 	err := tx.QueryRow(ctx, `
@@ -366,6 +563,22 @@ FOR UPDATE`, CandidateV02Seed().VersionLabel).Scan(&dictionaryID, &status)
 	}
 	if err != nil {
 		return "", "", fmt.Errorf("lock v0.2 dictionary: %w", err)
+	}
+	return dictionaryID, status, nil
+}
+
+func lockV03Dictionary(ctx context.Context, tx pgx.Tx) (string, string, error) {
+	var dictionaryID, status string
+	err := tx.QueryRow(ctx, `
+SELECT id::text, status::text
+FROM technology_dictionary_versions
+WHERE version_label = $1
+FOR UPDATE`, CandidateV03Seed().VersionLabel).Scan(&dictionaryID, &status)
+	if err == pgx.ErrNoRows {
+		return "", "", ErrCandidateNotReady
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("lock v0.3 dictionary: %w", err)
 	}
 	return dictionaryID, status, nil
 }
@@ -387,10 +600,10 @@ FOR UPDATE`, configurationID, dictionaryID).Scan(
 	return configuration, nil
 }
 
-func validateFrozenV02RuleSet(ctx context.Context, tx pgx.Tx, dictionaryID string, configuration releaseConfiguration) error {
+func validateFrozenRuleSet(ctx context.Context, tx pgx.Tx, dictionaryID string, configuration releaseConfiguration, expectedRuleKeys []string, policyVersion string) error {
 	snapshot, err := (&Repository{}).loadEnabledRuleSet(ctx, tx, dictionaryID)
 	if err != nil {
-		return fmt.Errorf("load v0.2 release rule set: %w", err)
+		return fmt.Errorf("load %s release rule set: %w", policyVersion, err)
 	}
 	if snapshot.SHA256 != configuration.RuleSetSHA256 {
 		return ErrReleaseGateFailed
@@ -399,14 +612,14 @@ func validateFrozenV02RuleSet(ctx context.Context, tx pgx.Tx, dictionaryID strin
 SELECT rule.rule_key, rule.state::text, rule.approved_by IS NOT NULL AND rule.approved_at IS NOT NULL
 FROM technology_analysis_configuration_rules AS snapshot
 JOIN technology_dictionary_rules AS rule ON rule.id = snapshot.dictionary_rule_id
-WHERE snapshot.configuration_id = $1
-ORDER BY rule.rule_key`, configuration.ID)
+	WHERE snapshot.configuration_id = $1
+	ORDER BY rule.rule_key`, configuration.ID)
 	if err != nil {
-		return fmt.Errorf("load frozen v0.2 release rule-set members: %w", err)
+		return fmt.Errorf("load frozen %s release rule-set members: %w", policyVersion, err)
 	}
 	defer rows.Close()
-	expected := make(map[string]struct{}, len(V02ApprovedRuleKeys()))
-	for _, ruleKey := range V02ApprovedRuleKeys() {
+	expected := make(map[string]struct{}, len(expectedRuleKeys))
+	for _, ruleKey := range expectedRuleKeys {
 		expected[ruleKey] = struct{}{}
 	}
 	actual := make(map[string]struct{}, len(expected))
@@ -414,7 +627,7 @@ ORDER BY rule.rule_key`, configuration.ID)
 		var ruleKey, state string
 		var approved bool
 		if err := rows.Scan(&ruleKey, &state, &approved); err != nil {
-			return fmt.Errorf("scan frozen v0.2 release rule-set member: %w", err)
+			return fmt.Errorf("scan frozen %s release rule-set member: %w", policyVersion, err)
 		}
 		if state != string(RuleEnabled) || !approved {
 			return ErrReleaseGateFailed
@@ -425,7 +638,7 @@ ORDER BY rule.rule_key`, configuration.ID)
 		actual[ruleKey] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate frozen v0.2 release rule-set members: %w", err)
+		return fmt.Errorf("iterate frozen %s release rule-set members: %w", policyVersion, err)
 	}
 	if len(actual) != len(expected) || len(actual) != len(snapshot.RuleIDs) {
 		return ErrReleaseGateFailed

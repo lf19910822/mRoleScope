@@ -10,6 +10,7 @@
 - 候选词典：当前使用 `seed-v0.2-dictionary`、`approve-v0.2-reviewed-rules`、`approve-v0.2-rule` 和 `prepare-v0.2-analysis`，都只能转交给 root-owned 的 `mrolescope-dictionary`。批量批准入口不接受规则列表，只遍历仓库内人工审阅白名单并在单一事务中逐条记录决定；单条入口仅用于恢复或逐条审计。仓储层会拒绝不在人工审阅白名单内的 v0.2 规则。它不能接收正文、SQL、镜像、路径、数据库 URL 或自定义词典内容。v0.1 入口保留仅供历史候选记录审计，不用于当前分析。
 - 隔离候选分析：`run-v0.2-candidate-analysis` 只能启动独立的 `mrolescope-candidate-analysis-v0.2.service`。它只消费固定的未发布 v0.2 候选配置；日常 `run-pending-analysis` 仍只消费已发布配置。
 - 首版发布与撤回：`publish-v0.2-baseline`、`withdraw-v0.2-material-result-quality` 和 `withdraw-v0.2-security-privacy` 只能转交给 root-owned 的 `mrolescope-release`。它只使用部署记录中已验证的 worker digest，固定运行 v0.2 的发布门禁或两种撤回类别之一；不接收配置 ID、SQL、路径、镜像、词典内容、正文或自由文本理由。
+- Go 词典升级：v0.3 通过 `seed-v0.3-dictionary`、`approve-v0.3-reviewed-rules`、`prepare-v0.3-analysis`、`run-v0.3-candidate-analysis` 和 `publish-v0.3-upgrade` 逐步执行。它固定只升级到包含 `Go`/`Golang` 的 v0.3 规则集，不能选择任意版本、配置、SQL、镜像或正文；候选未完成时 v0.2 保持 Serving 生效。
 - 回填与分析容器仅在 `backend` 网络，未映射端口、未挂载采集目录，也不接收 COS 凭据或 edge 网络。
 - 同步成功后会 best-effort 启动分析服务。分析失败不会回滚同步、COS 归档或岗位可见期；待处理项保持在数据库中，稍后可重试固定分析操作。
 
@@ -34,6 +35,17 @@
 5. **候选追赶与复核。** 分析期间如果产生新的正文版本，发布前必须重新检查并补齐候选队列；不得将候选结果与旧发布结果混为“当前结果”。对于首期的确定性精确词面，项目负责人在本地审核词典身份、词面、边界和排除政策，记录在[技术词典 v0.1 人工确认记录](技术词典v0.1人工确认记录.md)和[人工审阅表](技术词典v0.1人工审阅表.md)；CVM 对全部证据做字段哈希、坐标、别名、正式边界和冻结规则集的确定性重放校验，并对多命中与无命中正文做安全抽样。这个组合替代了为首期精确提及而显示/复制真实 JD 的人工阅览。模糊匹配、上下文消歧、年限/学历等语义提取不适用该替代门禁，仍必须另设远端人工文本复核。复核结论为“正确 / 错误 / 暂不确定”，不会覆盖自动结果。
 6. **执行受控发布。** 完成第 5 步并确认候选分析无待处理/失败项后，选择 `publish-v0.2-baseline`，确认文本为 `PUBLISH_V02_BASELINE`。操作会在与来源发布互斥的事务内再次将所有正文版本加入候选队列并复核：候选队列和全部正文结果完整、冻结规则集仍等于当前已批准规则、每条证据的字段哈希/规范化版本/Unicode 坐标/别名/`[A-Za-z0-9_-]` 边界/冻结规则成员均有效。任何门禁失败都会保持词典、配置和发布指针不变，只返回安全计数或错误类别。
 7. **确认原子发布结果。** 门禁通过时，v0.2 词典和其冻结分析配置在同一事务中一起标为已发布，并写入不可修改的发布证明：配置 ID、词典 ID、规则集哈希、固定门禁版本、发布人和时间。发布人优先使用 GitHub Actions 已认证的 `github.actor`；该身份不可用时受控代码固定记录为 `FAN`，不能手工填写。重复发布同一版本只返回既有证明，不重复写入。发布后词典规则、别名、边界和批准状态均冻结；任何调整都必须创建 v0.3 候选并对历史正文完整重算，不能把词典覆盖增长解释成岗位需求增长。
+
+## v0.3 Go / Golang 词典升级
+
+本节只适用于部署了含 v0.3 worker 与 root-owned 资产的受保护修订之后。v0.2 已发布，不能原地增补规则；下列操作形成独立候选，并且在升级成功前 v0.2 仍是唯一 Serving 配置。
+
+1. 选择 `seed-v0.3-dictionary`，确认文本 `SEED_V03_DICTIONARY`；它仅导入固定的 [v0.3 映射表](technical-keyword-alias-map-v0.3.md)，其中 `Go` 和 `Golang` 是同一 Go 编程语言身份的大小写不敏感、完整 ASCII 标识符规则。
+2. 选择 `approve-v0.3-reviewed-rules`，确认文本 `APPROVE_V03_REVIEWED_RULES`；它原子批准 v0.3 固定白名单。`approve-v0.3-rule`（确认文本 `APPROVE_V03_RULE`）只供恢复或逐条审计使用，且仍受该白名单限制。
+3. 选择 `prepare-v0.3-analysis`，确认文本 `PREPARE_V03_ANALYSIS`，再选择 `run-v0.3-candidate-analysis`，确认文本 `RUN_V03_CANDIDATE_ANALYSIS`。二者只在 PostgreSQL 私网处理全部历史正文版本，不访问来源站、COS 或外部模型。
+4. 只在候选无待处理/失败项、规则集完整且证据坐标重放通过后，选择 `publish-v0.3-upgrade`，确认文本 `PUBLISH_V03_UPGRADE`。操作在单一事务中发布 v0.3、将活动指针从 v0.2 移到 v0.3，并将 v0.2 配置标为 `superseded`；v0.2 词典、结果、证据和首版发布证明都保留，不会删除或改写。
+
+任一步失败或未完成时，不运行发布操作；v0.2 指针保持不动。正常升级不使用 v0.2 的撤回入口，也不能通过直接 SQL 或删除记录“切换版本”。
 
 ## 恢复与回退
 

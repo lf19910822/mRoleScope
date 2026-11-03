@@ -75,6 +75,53 @@ func TestReleaseV02BaselineRejectsIncompleteCandidateWithoutChangingPublication(
 	assertReleaseEvent(t, repository, prepared.ConfigurationID, imported.DictionaryVersionID, "published", "", "", 0)
 }
 
+func TestReleaseV03UpgradeAtomicallyAdvancesThePublishedConfiguration(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	_, _, _, _ = insertSyntheticAnalysisPrerequisites(t, repository)
+
+	v02ConfigurationID, v02DictionaryID := prepareCompleteV02ReleaseCandidate(t, repository)
+	if _, err := repository.ReleaseV02Baseline(ctx, "github-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+
+	v03Seed := CandidateV03Seed()
+	v03Imported, err := repository.ImportCandidateDictionary(ctx, v03Seed, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ApproveAllV03ReviewedRules(ctx, "remote-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	v03Prepared, err := repository.PrepareCandidateConfigurationForDictionary(ctx, v03Seed.VersionLabel, V01ParserVersion, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Processor{Repository: repository}).ProcessPending(ctx, v03Prepared.ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := repository.ReleaseV03Upgrade(ctx, "github-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Published || first.Reused || first.ConfigurationID != v03Prepared.ConfigurationID || first.DictionaryVersionID != v03Imported.DictionaryVersionID {
+		t.Fatalf("v0.3 release = %#v", first)
+	}
+	assertPublishedConfiguration(t, repository, v03Prepared.ConfigurationID, "published")
+	assertConfigurationStatus(t, repository, v02ConfigurationID, "superseded")
+	assertDictionaryStatus(t, repository, v02DictionaryID, "published")
+	assertDictionaryStatus(t, repository, v03Imported.DictionaryVersionID, "published")
+
+	second, err := repository.ReleaseV03Upgrade(ctx, "other-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Published || !second.Reused || second.ConfigurationID != first.ConfigurationID {
+		t.Fatalf("reused v0.3 release = %#v", second)
+	}
+}
+
 func TestReleaseV02BaselineRequiresTheCompleteReviewedRulePolicy(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()

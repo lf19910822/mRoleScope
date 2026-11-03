@@ -227,3 +227,45 @@ WHERE version.version_label = $1`, seed.VersionLabel).Scan(&enabled, &decisions,
 		t.Fatalf("repeated v0.2 bulk approval = %#v", second)
 	}
 }
+
+func TestV03ApprovalAddsOnlyReviewedGoAliasesToTheCompletedPolicy(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	_, _, _, _ = insertSyntheticAnalysisPrerequisites(t, repository)
+
+	seed := CandidateV03Seed()
+	if _, err := repository.ImportCandidateDictionary(ctx, seed, "remote-operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ApproveV03ReviewedRule(ctx, "unreal-engine.01", "remote-reviewer"); err == nil {
+		t.Fatal("unreviewed v0.3 contextual rule was approved")
+	}
+	approval, err := repository.ApproveV03ReviewedRule(ctx, "go.02", "remote-reviewer")
+	if err != nil || approval.Reused || approval.RuleKey != "go.02" {
+		t.Fatalf("reviewed v0.3 Golang approval = %#v err=%v", approval, err)
+	}
+
+	first, err := repository.ApproveAllV03ReviewedRules(ctx, "remote-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Approved != len(V03ApprovedRuleKeys())-1 || first.Reused != 1 {
+		t.Fatalf("first v0.3 bulk approval = %#v", first)
+	}
+
+	var enabledGoAliases int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM technology_dictionary_rules AS rule
+JOIN technology_dictionary_versions AS version ON version.id = rule.dictionary_version_id
+WHERE version.version_label = $1
+  AND rule.technology_identity_id = (
+      SELECT id FROM technology_identities WHERE technology_key = 'go'
+  )
+  AND rule.state = 'enabled'`, seed.VersionLabel).Scan(&enabledGoAliases); err != nil {
+		t.Fatal(err)
+	}
+	if enabledGoAliases != 2 {
+		t.Fatalf("enabled v0.3 Go aliases = %d, want 2", enabledGoAliases)
+	}
+}

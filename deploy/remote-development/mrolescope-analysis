@@ -83,8 +83,8 @@ load_database_secret() {
 }
 
 [[ "${EUID}" -eq 0 ]] || die 'must run as root'
-[[ "$#" -eq 1 && ( "$1" == 'pending' || "$1" == 'candidate-v0.1' || "$1" == 'candidate-v0.2' ) ]] \
-  || die 'usage: mrolescope-analysis <pending|candidate-v0.1|candidate-v0.2>'
+[[ "$#" -eq 1 && ( "$1" == 'pending' || "$1" == 'candidate-v0.1' || "$1" == 'candidate-v0.2' || "$1" == 'candidate-v0.3' ) ]] \
+  || die 'usage: mrolescope-analysis <pending|candidate-v0.1|candidate-v0.2|candidate-v0.3>'
 is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition must be root:root mode 0644'
 [[ -d "$RELEASE_DIR" && "$(stat -c '%U:%G:%a' "$RELEASE_DIR")" == 'root:root:700' ]] || die 'release directory must be root:root mode 0700'
 command -v docker >/dev/null 2>&1 || die 'docker is required'
@@ -107,5 +107,9 @@ case "$1" in
   candidate-v0.2)
     compose --profile candidate-analysis-v0.2 run --rm --no-deps candidate-analysis-v0.2
     log 'v0.2 candidate analysis completed'
+    ;;
+  candidate-v0.3)
+    compose --profile candidate-analysis-v0.3 run --rm --no-deps candidate-analysis-v0.3
+    log 'v0.3 candidate analysis completed'
     ;;
 esac

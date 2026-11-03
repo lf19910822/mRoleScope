@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify the first-baseline release lifecycle is limited to fixed v0.2
+# Verify the fixed v0.2 baseline and v0.3 upgrade release lifecycles.
 # operations. The runner may convey only its authenticated actor; it cannot
 # choose an analysis configuration, SQL, image, Compose path, or free text.
 
@@ -28,8 +28,8 @@ for service in analysis-release-v0.2 analysis-withdraw-v0.2-quality analysis-wit
   grep -Fqx "    compose --profile release-v0.2 run --rm --no-deps ${service}" "$release_helper" \
     || die "release helper must invoke only fixed ${service}"
 done
-grep -Fqx "    die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security> <authenticated-operator>'" "$release_helper" \
-  || die 'release helper must expose only fixed v0.2 lifecycle operations'
+grep -Fqx "    die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security|publish-v0.3-upgrade> <authenticated-operator>'" "$release_helper" \
+  || die 'release helper must expose only fixed v0.2/v0.3 lifecycle operations'
 
 for operation in publish-v0.2-baseline withdraw-v0.2-material-result-quality withdraw-v0.2-security-privacy; do
   grep -Fqx "  ${operation})" "$operations_helper" \
@@ -37,12 +37,18 @@ for operation in publish-v0.2-baseline withdraw-v0.2-material-result-quality wit
   grep -Fqx "          - ${operation}" "$workflow" \
     || die "workflow must expose the fixed ${operation} choice"
 done
+grep -Fqx '  publish-v0.3-upgrade)' "$operations_helper" \
+  || die 'operations helper must allowlist the fixed v0.3 upgrade publication'
+grep -Fqx '          - publish-v0.3-upgrade' "$workflow" \
+  || die 'workflow must expose the fixed v0.3 upgrade publication choice'
 grep -Fqx '          PUBLISHER: ${{ github.actor }}' "$workflow" \
   || die 'workflow must derive the release publisher from the authenticated actor'
 for confirmation in PUBLISH_V02_BASELINE WITHDRAW_V02_MATERIAL_RESULT_QUALITY_DEFECT WITHDRAW_V02_SECURITY_PRIVACY_INCIDENT; do
   grep -Fqx "              expected='${confirmation}'" "$workflow" \
     || die "workflow must require the ${confirmation} confirmation"
 done
+grep -Fqx "              expected='PUBLISH_V03_UPGRADE'" "$workflow" \
+  || die 'workflow must require the PUBLISH_V03_UPGRADE confirmation'
 
 grep -Fqx "readonly RELEASE_HELPER_DESTINATION='/usr/local/sbin/mrolescope-release'" "$bootstrap" \
   || die 'bootstrap must install the root-owned release helper'
@@ -64,5 +70,22 @@ for service in analysis-release-v0.2 analysis-withdraw-v0.2-quality analysis-wit
     die "${service} must not receive COS, edge-network, ports, or volumes"
   fi
 done
+
+service=analysis-release-v0.3
+block=$(awk -v service="$service" '
+  $0 == "  " service ":" { in_block = 1; next }
+  in_block && /^  [A-Za-z0-9][A-Za-z0-9-]*:$/ { exit }
+  in_block { print }
+' "$compose_file")
+[[ -n "$block" ]] || die 'analysis-release-v0.3 Compose service was not found'
+grep -Fqx '    profiles: [release-v0.3]' <<<"$block" \
+  || die 'analysis-release-v0.3 must use only the release-v0.3 profile'
+grep -Fqx '    command: ["release-v0.3", "publish-upgrade"]' <<<"$block" \
+  || die 'analysis-release-v0.3 must use the fixed v0.3 upgrade command'
+grep -Fqx '    networks: [backend]' <<<"$block" \
+  || die 'analysis-release-v0.3 must use only the internal backend network'
+if grep -Eq '^[[:space:]]+(COS_|ports:|volumes:)|^[[:space:]]+networks:.*edge' <<<"$block"; then
+  die 'analysis-release-v0.3 must not receive COS, edge-network, ports, or volumes'
+fi
 
 printf '%s\n' 'remote-development release lifecycle check passed'

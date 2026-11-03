@@ -23,6 +23,11 @@ on:
           - approve-v0.2-reviewed-rules
           - prepare-v0.2-analysis
           - run-v0.2-candidate-analysis
+          - seed-v0.3-dictionary
+          - approve-v0.3-rule
+          - approve-v0.3-reviewed-rules
+          - prepare-v0.3-analysis
+          - run-v0.3-candidate-analysis
           - prepare-ai-trial
           - run-ai-plus-trial
           - expand-ai-plus
@@ -32,6 +37,7 @@ on:
           - publish-v0.2-baseline
           - withdraw-v0.2-material-result-quality
           - withdraw-v0.2-security-privacy
+          - publish-v0.3-upgrade
           - sync-logs
       rule_key:
         description: Required only when approving one reviewed candidate rule
@@ -105,6 +111,21 @@ jobs:
             run-v0.2-candidate-analysis)
               expected='RUN_V02_CANDIDATE_ANALYSIS'
               ;;
+            seed-v0.3-dictionary)
+              expected='SEED_V03_DICTIONARY'
+              ;;
+            approve-v0.3-rule)
+              expected='APPROVE_V03_RULE'
+              ;;
+            approve-v0.3-reviewed-rules)
+              expected='APPROVE_V03_REVIEWED_RULES'
+              ;;
+            prepare-v0.3-analysis)
+              expected='PREPARE_V03_ANALYSIS'
+              ;;
+            run-v0.3-candidate-analysis)
+              expected='RUN_V03_CANDIDATE_ANALYSIS'
+              ;;
             prepare-ai-trial)
               expected='PREPARE_AI_TRIAL'
               ;;
@@ -126,6 +147,9 @@ jobs:
             withdraw-v0.2-security-privacy)
               expected='WITHDRAW_V02_SECURITY_PRIVACY_INCIDENT'
               ;;
+            publish-v0.3-upgrade)
+              expected='PUBLISH_V03_UPGRADE'
+              ;;
             *)
               echo 'Unsupported fixed operation.' >&2
               exit 1
@@ -145,17 +169,17 @@ jobs:
         run: |
           set -euo pipefail
           case "$OPERATION" in
-            seed-v0.1-dictionary|prepare-v0.1-analysis|seed-v0.2-dictionary|approve-v0.2-reviewed-rules|prepare-v0.2-analysis)
+            seed-v0.1-dictionary|prepare-v0.1-analysis|seed-v0.2-dictionary|approve-v0.2-reviewed-rules|prepare-v0.2-analysis|seed-v0.3-dictionary|approve-v0.3-reviewed-rules|prepare-v0.3-analysis)
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$REVIEWER"
               ;;
-            approve-v0.1-rule|approve-v0.2-rule)
+            approve-v0.1-rule|approve-v0.2-rule|approve-v0.3-rule)
               [[ "$RULE_KEY" =~ ^[a-z0-9][a-z0-9.-]{0,127}$ ]] || {
                 echo 'rule_key must be a lowercase reviewed rule key.' >&2
                 exit 1
               }
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$RULE_KEY" "$REVIEWER"
               ;;
-            publish-v0.2-baseline|withdraw-v0.2-material-result-quality|withdraw-v0.2-security-privacy)
+            publish-v0.2-baseline|withdraw-v0.2-material-result-quality|withdraw-v0.2-security-privacy|publish-v0.3-upgrade)
               sudo -n /usr/local/sbin/mrolescope-operations "$OPERATION" "$PUBLISHER"
               ;;
             *)

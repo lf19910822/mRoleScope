@@ -237,3 +237,70 @@ func TestCandidateV02SeedUsesCaseInsensitiveExactMatchingOnlyForBTableNames(t *t
 		t.Fatalf("case-insensitive exact Docker matches = %#v", matches)
 	}
 }
+
+func TestCandidateV03AddsCaseInsensitiveGoAndGolangWithoutChangingV02(t *testing.T) {
+	v02 := CandidateV02Seed()
+	v03 := CandidateV03Seed()
+	if v03.VersionLabel != "technology-keyword-alias-map-v0.3" {
+		t.Fatalf("v0.3 label = %q", v03.VersionLabel)
+	}
+	if err := v03.Validate(); err != nil {
+		t.Fatalf("v0.3 seed is invalid: %v", err)
+	}
+
+	var v02Go, v03Go, v03Golang DictionaryRule
+	for _, rule := range v02.Rules {
+		if rule.RuleKey == "go.01" {
+			v02Go = rule
+		}
+	}
+	for _, rule := range v03.Rules {
+		switch rule.RuleKey {
+		case "go.01":
+			v03Go = rule
+		case "go.02":
+			v03Golang = rule
+		}
+	}
+	if v02Go.State != RuleConditional || v02Go.CaseMode != CaseSensitive {
+		t.Fatalf("v0.2 Go rule was mutated: %#v", v02Go)
+	}
+	for _, rule := range []DictionaryRule{v03Go, v03Golang} {
+		if rule.TechnologyKey != "go" || rule.CanonicalName != "Go" ||
+			rule.TechnologyKind != "programming-language" || rule.State != RuleCandidate ||
+			rule.CaseMode != CaseInsensitive || rule.BoundaryMode != BoundaryASCIIIdentifier {
+			t.Fatalf("v0.3 Go alias policy = %#v", rule)
+		}
+	}
+	if !V03RuleApprovalEligible("go.01") || !V03RuleApprovalEligible("go.02") {
+		t.Fatal("v0.3 Go aliases are not approval-eligible")
+	}
+	if V02RuleApprovalEligible("go.01") {
+		t.Fatal("v0.2 Go policy was widened")
+	}
+}
+
+func TestV03GoAliasesMatchASCIICaseVariantsWithIdentifierBoundaries(t *testing.T) {
+	seed := CandidateV03Seed()
+	rules := make([]DictionaryRule, 0, 2)
+	for _, rule := range seed.Rules {
+		if rule.RuleKey == "go.01" || rule.RuleKey == "go.02" {
+			rule.State = RuleEnabled
+			rule.Approval = &Approval{Reviewer: "reviewer", Decided: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC), Rationale: "synthetic v0.3 approval"}
+			rules = append(rules, rule)
+		}
+	}
+	matcher := mustMatcher(t, rules...)
+	matches, err := matcher.MatchField(SourceFieldJobRequire, "Go go GOLANG golang go-zero go_micro gopher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 4 {
+		t.Fatalf("v0.3 Go matches = %#v", matches)
+	}
+	for _, match := range matches {
+		if match.TechnologyKey != "go" || match.CanonicalName != "Go" {
+			t.Fatalf("Go alias normalized incorrectly: %#v", match)
+		}
+	}
+}
