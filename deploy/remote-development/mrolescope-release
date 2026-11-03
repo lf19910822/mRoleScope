@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Root-owned adapter for the fixed v0.2 first-baseline release lifecycle.
+# Root-owned adapter for the fixed v0.2 baseline and v0.3 upgrade lifecycles.
 # It accepts only an allowlisted action and the GitHub workflow's authenticated
 # actor. It never accepts a configuration ID, dictionary content, SQL, image,
 # Compose file, path, source text, or free-form withdrawal explanation.
@@ -93,7 +93,7 @@ command -v flock >/dev/null 2>&1 || die 'flock is required'
 load_release
 load_database_secret
 
-[[ "$#" -eq 2 ]] || die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security> <authenticated-operator>'
+[[ "$#" -eq 2 ]] || die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security|publish-v0.3-upgrade> <authenticated-operator>'
 operation="$1"
 publisher="${2:-$FALLBACK_PUBLISHER}"
 [[ "$publisher" =~ $OPERATOR_PATTERN ]] || die 'authenticated publisher identity is invalid'
@@ -108,6 +108,10 @@ case "$operation" in
     compose --profile release-v0.2 run --rm --no-deps analysis-release-v0.2
     log 'v0.2 analysis baseline publication completed'
     ;;
+  publish-v0.3-upgrade)
+    compose --profile release-v0.3 run --rm --no-deps analysis-release-v0.3
+    log 'v0.3 technology analysis upgrade publication completed'
+    ;;
   withdraw-v0.2-quality)
     compose --profile release-v0.2 run --rm --no-deps analysis-withdraw-v0.2-quality
     log 'v0.2 analysis baseline material-quality withdrawal completed'
@@ -117,6 +121,6 @@ case "$operation" in
     log 'v0.2 analysis baseline security-privacy withdrawal completed'
     ;;
   *)
-    die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security> <authenticated-operator>'
+    die 'usage: mrolescope-release <publish-v0.2|withdraw-v0.2-quality|withdraw-v0.2-security|publish-v0.3-upgrade> <authenticated-operator>'
     ;;
 esac

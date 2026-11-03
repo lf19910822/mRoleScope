@@ -263,6 +263,26 @@ func CandidateV02Seed() DictionarySeed {
 	return seed
 }
 
+// CandidateV03Seed retains the completed v0.2 policy as immutable history and
+// adds the separately reviewed Go programming-language aliases.  A new seed
+// identity forces full historical reanalysis rather than rewriting v0.2.
+func CandidateV03Seed() DictionarySeed {
+	seed := CandidateV02Seed()
+	seed.VersionLabel = "technology-keyword-alias-map-v0.3"
+	seed.SourceDocument = "Docs/开发指导/JD建模/technical-keyword-alias-map-v0.3.md"
+	for index := range seed.Rules {
+		rule := &seed.Rules[index]
+		if rule.RuleKey != "go.01" && rule.RuleKey != "go.02" {
+			continue
+		}
+		rule.State = RuleCandidate
+		rule.CaseMode = CaseInsensitive
+		rule.BoundaryMode = BoundaryASCIIIdentifier
+		rule.Summary = "reviewed Go programming-language alias; ASCII case-insensitive with explicit identifier boundary"
+	}
+	return seed
+}
+
 // V02ApprovedRuleKeys is the fixed policy allowlist derived from the local
 // human review. It is deliberately separate from candidate import: every key
 // still requires the durable, authenticated approval operation before use.
@@ -325,6 +345,25 @@ func V02ApprovedRuleKeys() []string {
 // permits a candidate rule to reach the durable approval operation.
 func V02RuleApprovalEligible(ruleKey string) bool {
 	for _, approvedRuleKey := range V02ApprovedRuleKeys() {
+		if ruleKey == approvedRuleKey {
+			return true
+		}
+	}
+	return false
+}
+
+// V03ApprovedRuleKeys preserves the completed v0.2 allowlist and adds only
+// the separately reviewed Go aliases.  The list is intentionally closed so a
+// caller cannot promote an imported conditional/candidate rule by key.
+func V03ApprovedRuleKeys() []string {
+	approved := append([]string(nil), V02ApprovedRuleKeys()...)
+	return append(approved, "go.01", "go.02")
+}
+
+// V03RuleApprovalEligible reports whether the fixed v0.3 review permits one
+// candidate rule to reach the durable approval operation.
+func V03RuleApprovalEligible(ruleKey string) bool {
+	for _, approvedRuleKey := range V03ApprovedRuleKeys() {
 		if ruleKey == approvedRuleKey {
 			return true
 		}

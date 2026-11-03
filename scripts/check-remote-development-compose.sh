@@ -17,7 +17,7 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 24 ]] \
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 30 ]] \
   || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal audits may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
@@ -47,10 +47,16 @@ grep -Fqx '    profiles: [candidate-analysis]' "$compose_file" \
 grep -Fqx '    profiles: [candidate-analysis-v0.2]' "$compose_file" \
   || die 'v0.2 candidate analysis must remain an explicitly requested one-shot profile'
 
+grep -Fqx '    profiles: [candidate-analysis-v0.3]' "$compose_file" \
+  || die 'v0.3 candidate analysis must remain an explicitly requested one-shot profile'
+
 [[ "$(grep -Fxc '    profiles: [release-v0.2]' "$compose_file")" -eq 3 ]] \
   || die 'the fixed v0.2 release lifecycle services must remain explicitly requested'
 
-[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 7 ]] \
+[[ "$(grep -Fxc '    profiles: [release-v0.3]' "$compose_file")" -eq 1 ]] \
+  || die 'the fixed v0.3 upgrade release service must remain explicitly requested'
+
+[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 11 ]] \
   || die 'the fixed dictionary lifecycle services must remain explicitly requested'
 
 [[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \
@@ -136,9 +142,11 @@ check_private_one_shot analysis analysis '["analyze"]'
 check_private_one_shot backfill backfill '["backfill-versioned-content"]'
 check_private_one_shot candidate-analysis candidate-analysis '["analyze-candidate-v0.1"]'
 check_private_one_shot candidate-analysis-v0.2 candidate-analysis-v0.2 '["analyze-candidate-v0.2"]'
+check_private_one_shot candidate-analysis-v0.3 candidate-analysis-v0.3 '["analyze-candidate-v0.3"]'
 check_private_one_shot analysis-release-v0.2 release-v0.2 '["release-v0.2", "publish"]'
 check_private_one_shot analysis-withdraw-v0.2-quality release-v0.2 '["release-v0.2", "withdraw-quality"]'
 check_private_one_shot analysis-withdraw-v0.2-security release-v0.2 '["release-v0.2", "withdraw-security"]'
+check_private_one_shot analysis-release-v0.3 release-v0.3 '["release-v0.3", "publish-upgrade"]'
 check_private_one_shot dictionary-seed dictionary '["dictionary-v0.1", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-approve dictionary '["dictionary-v0.1", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-prepare dictionary '["dictionary-v0.1", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
@@ -146,6 +154,10 @@ check_private_one_shot dictionary-v0.2-seed dictionary '["dictionary-v0.2", "see
 check_private_one_shot dictionary-v0.2-approve dictionary '["dictionary-v0.2", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-v0.2-approve-reviewed dictionary '["dictionary-v0.2", "approve-reviewed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot dictionary-v0.2-prepare dictionary '["dictionary-v0.2", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.3-seed dictionary '["dictionary-v0.3", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.3-approve dictionary '["dictionary-v0.3", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.3-approve-reviewed dictionary '["dictionary-v0.3", "approve-reviewed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
+check_private_one_shot dictionary-v0.3-prepare dictionary '["dictionary-v0.3", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]'
 check_private_one_shot ai-output-audit-diagnostic-prepare ai-output-audit-diagnostic '["analyze-ai", "prepare-output-audit-diagnostic"]'
 
 check_terminal_review() {

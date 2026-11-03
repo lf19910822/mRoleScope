@@ -270,13 +270,33 @@ func (repository *Repository) ApproveV02ReviewedRule(ctx context.Context, ruleKe
 // accepts no caller-provided rule keys, so contextual and unreviewed terms
 // cannot be promoted through the bulk path.
 func (repository *Repository) ApproveAllV02ReviewedRules(ctx context.Context, reviewer string) (DictionaryBulkApprovalSummary, error) {
+	return repository.approveAllReviewedRules(ctx, reviewer, CandidateV02Seed().VersionLabel, V02ApprovedRuleKeys(), "v0.2")
+}
+
+// ApproveV03ReviewedRule is the only per-rule v0.3 approval path. It can
+// promote only the fixed reviewed policy, including the two Go aliases.
+func (repository *Repository) ApproveV03ReviewedRule(ctx context.Context, ruleKey, reviewer string) (DictionaryApprovalSummary, error) {
+	if !V03RuleApprovalEligible(ruleKey) {
+		return DictionaryApprovalSummary{}, fmt.Errorf("dictionary rule is not approved by the v0.3 review")
+	}
+	return repository.ApproveCandidateRule(ctx, CandidateV03Seed().VersionLabel, ruleKey, reviewer)
+}
+
+// ApproveAllV03ReviewedRules atomically enables the fixed v0.3 review policy.
+// It adds only the two separately reviewed Go aliases to the complete v0.2
+// policy, without making any contextual rule caller-selectable.
+func (repository *Repository) ApproveAllV03ReviewedRules(ctx context.Context, reviewer string) (DictionaryBulkApprovalSummary, error) {
+	return repository.approveAllReviewedRules(ctx, reviewer, CandidateV03Seed().VersionLabel, V03ApprovedRuleKeys(), "v0.3")
+}
+
+func (repository *Repository) approveAllReviewedRules(ctx context.Context, reviewer, dictionaryVersionLabel string, ruleKeys []string, policyVersion string) (DictionaryBulkApprovalSummary, error) {
 	if !validOperator(reviewer) {
 		return DictionaryBulkApprovalSummary{}, fmt.Errorf("candidate dictionary reviewer is invalid")
 	}
 
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return DictionaryBulkApprovalSummary{}, fmt.Errorf("begin v0.2 bulk dictionary approval: %w", err)
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("begin %s bulk dictionary approval: %w", policyVersion, err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
@@ -285,33 +305,33 @@ func (repository *Repository) ApproveAllV02ReviewedRules(ctx context.Context, re
 SELECT status::text
 FROM technology_dictionary_versions
 WHERE version_label = $1
-FOR UPDATE`, CandidateV02Seed().VersionLabel).Scan(&dictionaryStatus); err != nil {
-		return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock v0.2 dictionary version for approval: %w", err)
+FOR UPDATE`, dictionaryVersionLabel).Scan(&dictionaryStatus); err != nil {
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock %s dictionary version for approval: %w", policyVersion, err)
 	}
 	if dictionaryStatus == "published" {
 		if err := tx.Commit(ctx); err != nil {
-			return DictionaryBulkApprovalSummary{}, fmt.Errorf("commit reused frozen v0.2 dictionary approval: %w", err)
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("commit reused frozen %s dictionary approval: %w", policyVersion, err)
 		}
-		return DictionaryBulkApprovalSummary{Reused: len(V02ApprovedRuleKeys())}, nil
+		return DictionaryBulkApprovalSummary{Reused: len(ruleKeys)}, nil
 	}
 	if dictionaryStatus != "candidate" {
-		return DictionaryBulkApprovalSummary{}, fmt.Errorf("v0.2 dictionary version is immutable")
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("%s dictionary version is immutable", policyVersion)
 	}
 
 	summary := DictionaryBulkApprovalSummary{}
-	for _, ruleKey := range V02ApprovedRuleKeys() {
+	for _, ruleKey := range ruleKeys {
 		var ruleID, state string
 		err := tx.QueryRow(ctx, `
 SELECT rule.id::text, rule.state::text
 FROM technology_dictionary_rules AS rule
 JOIN technology_dictionary_versions AS version ON version.id = rule.dictionary_version_id
 WHERE version.version_label = $1 AND rule.rule_key = $2
-FOR UPDATE`, CandidateV02Seed().VersionLabel, ruleKey).Scan(&ruleID, &state)
+FOR UPDATE`, dictionaryVersionLabel, ruleKey).Scan(&ruleID, &state)
 		if err == pgx.ErrNoRows {
-			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed v0.2 dictionary rule is unavailable for approval")
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed %s dictionary rule is unavailable for approval", policyVersion)
 		}
 		if err != nil {
-			return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock reviewed v0.2 dictionary rule for approval: %w", err)
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock reviewed %s dictionary rule for approval: %w", policyVersion, err)
 		}
 
 		switch state {
@@ -322,21 +342,21 @@ FOR UPDATE`, CandidateV02Seed().VersionLabel, ruleKey).Scan(&ruleID, &state)
 UPDATE technology_dictionary_rules
 SET state = 'enabled', approved_by = $2, approved_at = now()
 WHERE id = $1`, ruleID, reviewer); err != nil {
-				return DictionaryBulkApprovalSummary{}, fmt.Errorf("enable reviewed v0.2 dictionary rule: %w", err)
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("enable reviewed %s dictionary rule: %w", policyVersion, err)
 			}
 			if _, err := tx.Exec(ctx, `
 INSERT INTO technology_dictionary_rule_decisions (rule_id, decision, reviewer, rationale)
-VALUES ($1, 'approved_enabled', $2, 'approved through the fixed v0.2 reviewed bulk remote operation')`, ruleID, reviewer); err != nil {
-				return DictionaryBulkApprovalSummary{}, fmt.Errorf("record reviewed v0.2 dictionary approval: %w", err)
+VALUES ($1, 'approved_enabled', $2, $3)`, ruleID, reviewer, "approved through the fixed "+policyVersion+" reviewed bulk remote operation"); err != nil {
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("record reviewed %s dictionary approval: %w", policyVersion, err)
 			}
 			summary.Approved++
 		default:
-			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed v0.2 dictionary rule requires a context-aware policy")
+			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed %s dictionary rule requires a context-aware policy", policyVersion)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return DictionaryBulkApprovalSummary{}, fmt.Errorf("commit v0.2 bulk dictionary approval: %w", err)
+		return DictionaryBulkApprovalSummary{}, fmt.Errorf("commit %s bulk dictionary approval: %w", policyVersion, err)
 	}
 	return summary, nil
 }
