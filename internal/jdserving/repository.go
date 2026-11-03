@@ -361,6 +361,9 @@ SELECT result.id::text,
        (CASE WHEN result.body_content_version_id = $2::uuid THEN 0 ELSE 1 END)::smallint
 FROM technology_analysis_results AS result
 JOIN job_body_content_versions AS body ON body.id = result.body_content_version_id
+JOIN technology_analysis_publication_state AS publication
+  ON publication.singleton = true
+ AND publication.configuration_id = result.configuration_id
 WHERE body.job_id = $1::uuid
   AND result.status = 'complete'
   AND result.completed_at IS NOT NULL
