@@ -26,4 +26,11 @@ describe('JobTrendView', () => {
     expect(narrowStyles).toMatch(/\.job-trend-view__rail \{[\s\S]*?display:\s*none;/u)
     expect(narrowStyles).toMatch(/\.job-trend-view__mobile-panel \{[\s\S]*?display:\s*block;/u)
   })
+
+  it('provides an all-history reset control that restores only the chart viewport', () => {
+    expect(source).toContain('data-testid="reset-trend-view"')
+    expect(source).toContain("type: 'dataZoom'")
+    expect(source).toContain('start: 0')
+    expect(source).toContain('end: 100')
+  })
 })

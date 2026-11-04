@@ -60,6 +60,29 @@ describe('job trend chart option', () => {
     expect(option.legend.selected).toEqual({ '技术关键词 · Go': false })
   })
 
+  it('reserves a separate legend band when eight curves share the chart', () => {
+    const option = createTrendChartOption(
+      Array.from({ length: 8 }, (_, index) => {
+        const curve = row()
+        curve.id = `trend-${index + 1}`
+        curve.condition.value = `technology-${index + 1}`
+        curve.series = {
+          ...curve.series!,
+          curve: {
+            ...curve.series!.curve,
+            label: `Technology ${index + 1}`,
+            value: `technology-${index + 1}`,
+          },
+        }
+        return curve
+      }),
+      'all',
+    )
+
+    expect(option.grid.bottom).toBeGreaterThanOrEqual(72)
+    expect(option.legend).toMatchObject({ bottom: 8, left: 46, right: 24, type: 'scroll' })
+  })
+
   it('keeps a rendered line labelled with its last applied condition while its next condition is still a draft', () => {
     const pending = row()
     pending.appliedCondition = {
