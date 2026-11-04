@@ -152,7 +152,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
       @click="toggleMenu"
       @keydown="onTriggerKeydown"
     >
-      <span :class="{ 'technology-keyword-select__placeholder': selectedOptions.length === 0 }">{{ triggerText }}</span>
+      <span :class="{ 'technology-keyword-select__placeholder': selectedOptions.length === 0 }">{{
+        triggerText
+      }}</span>
       <span class="technology-keyword-select__chevron" aria-hidden="true">⌄</span>
     </button>
 
@@ -175,7 +177,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
         />
       </label>
 
-      <div v-if="selectedOptions.length" class="technology-keyword-select__selected" data-testid="technology-keyword-selected">
+      <div
+        v-if="selectedOptions.length"
+        class="technology-keyword-select__selected"
+        data-testid="technology-keyword-selected"
+      >
         <span>已选择</span>
         <div class="technology-keyword-select__chips">
           <button
@@ -189,7 +195,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
             {{ option.label }} <span aria-hidden="true">×</span>
           </button>
         </div>
-        <button type="button" class="technology-keyword-select__clear" @click="clearSelection">清空</button>
+        <button type="button" class="technology-keyword-select__clear" @click="clearSelection">
+          清空
+        </button>
       </div>
 
       <div class="technology-keyword-select__browser">
@@ -199,12 +207,18 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
             :key="category.value"
             type="button"
             class="technology-keyword-select__category"
-            :class="{ 'technology-keyword-select__category--active': !isSearching && category.value === activeCategoryValue }"
-            :aria-current="!isSearching && category.value === activeCategoryValue ? 'true' : undefined"
+            :class="{
+              'technology-keyword-select__category--active':
+                !isSearching && category.value === activeCategoryValue,
+            }"
+            :aria-current="
+              !isSearching && category.value === activeCategoryValue ? 'true' : undefined
+            "
             :data-testid="`technology-category-${category.value}`"
             @click="selectCategory(category.value)"
           >
-            <span>{{ category.label }}</span><small>{{ category.count }}</small>
+            <span>{{ category.label }}</span
+            ><small>{{ category.count }}</small>
           </button>
         </nav>
 
@@ -224,11 +238,15 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
               :data-testid="`technology-keyword-${option.value}`"
               @click="toggleSelection(option.value)"
             >
-              <span class="technology-keyword-select__checkbox" aria-hidden="true">{{ isSelected(option.value) ? '✓' : '' }}</span>
+              <span class="technology-keyword-select__checkbox" aria-hidden="true">{{
+                isSelected(option.value) ? '✓' : ''
+              }}</span>
               <span>{{ option.label }}</span>
               <small v-if="isSearching">{{ categoryOf(option).label }}</small>
             </button>
-            <p v-if="visibleOptions.length === 0" class="technology-keyword-select__empty">未找到匹配的技术关键词。</p>
+            <p v-if="visibleOptions.length === 0" class="technology-keyword-select__empty">
+              未找到匹配的技术关键词。
+            </p>
           </div>
         </section>
       </div>
@@ -254,7 +272,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   min-height: 40px;
   padding: 0 13px;
   text-align: left;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
   width: 100%;
 }
 
@@ -281,13 +301,17 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   background: #fff;
   border: 1px solid #e3ebf0;
   border-radius: 14px;
-  box-shadow: 0 9px 28px 0 rgba(11, 37, 50, 0.1), 0 12px 48px 16px rgba(11, 37, 50, 0.04);
-  left: 0;
+  box-shadow:
+    0 9px 28px 0 rgba(11, 37, 50, 0.1),
+    0 12px 48px 16px rgba(11, 37, 50, 0.04);
+  left: auto;
   margin-top: 7px;
-  min-width: min(640px, calc(100vw - 48px));
+  min-width: 0;
   overflow: hidden;
   position: absolute;
+  right: 0;
   top: 100%;
+  width: min(640px, 100%);
   z-index: 20;
 }
 
@@ -364,7 +388,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 .technology-keyword-select__browser {
   border-top: 1px solid #e3ebf0;
   display: grid;
-  grid-template-columns: minmax(156px, 33%) 1fr;
+  grid-template-columns: minmax(164px, 43%) minmax(0, 1fr);
   min-height: 332px;
 }
 
@@ -372,6 +396,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   background: #fbfdfe;
   border-right: 1px solid #e3ebf0;
   max-height: 372px;
+  overscroll-behavior: contain;
   overflow-y: auto;
   padding: 8px;
 }
@@ -390,6 +415,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   min-height: 34px;
   padding: 0 8px;
   text-align: left;
+  white-space: nowrap;
   width: 100%;
 }
 
@@ -437,6 +463,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 
 .technology-keyword-select__terms {
   max-height: 326px;
+  overscroll-behavior: contain;
   overflow-y: auto;
 }
 
@@ -515,10 +542,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
     min-width: min(100%, calc(100vw - 32px));
   }
 
-  .technology-keyword-select__browser {
-    grid-template-columns: 126px minmax(0, 1fr);
-  }
-
   .technology-keyword-select__categories {
     padding: 6px;
   }
@@ -527,5 +550,85 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
     font-size: 0.74rem;
     padding: 0 6px;
   }
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__trigger) {
+  background: #19323c;
+  border-color: #31505c;
+  color: #ecf6f7;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__trigger:hover),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__trigger:focus-visible),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__trigger--open) {
+  border-color: #39b5a3;
+  box-shadow: 0 0 0 2px rgba(57, 181, 163, 0.24);
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__placeholder),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__chevron),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__selected),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term-panel header span),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term small),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__empty) {
+  color: #9bb8c0;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__menu) {
+  background: #17303a;
+  border-color: #31505c;
+  box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.7);
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__search),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__categories) {
+  background: #142a33;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__browser),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__categories) {
+  border-color: #294752;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__search-icon),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term-panel header) {
+  color: #b5d7df;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__search input),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__category),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term) {
+  color: #dceff1;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__chip),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__category--active),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term--selected) {
+  background: #1d4a55;
+  color: #a9e5d7;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__category:hover),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__category:focus-visible),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term:hover),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__term:focus-visible) {
+  background: #203f4a;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__clear) {
+  color: #73c9dd;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__checkbox) {
+  border-color: #5c8390;
+}
+
+:global(
+  .app-shell[data-color-scheme='dark']
+    .technology-keyword-select__term--selected
+    .technology-keyword-select__checkbox
+) {
+  background: #39b5a3;
+  border-color: #39b5a3;
 }
 </style>

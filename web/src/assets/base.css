@@ -44,11 +44,16 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+@media (prefers-color-scheme: dark) {
+  :root {
+    background: #0d1b22;
+    color: #ecf6f7;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at 5% 0%, rgba(38, 117, 143, 0.2), transparent 24rem),
+      linear-gradient(135deg, #0d1b22 0%, #10242d 52%, #102927 100%);
+    color: #ecf6f7;
   }
 }

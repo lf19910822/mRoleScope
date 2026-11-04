@@ -52,13 +52,3 @@ unmounting content, or changing the page's reserved height.
 - **WHEN** an already rendered detail begins loading a different JD
 - **THEN** the previous detail remains geometrically stable behind refresh
   feedback until the new response is ready
-
-### Requirement: Motion-aware loading treatment
-The browser SHALL use the same branded loading treatment in list and detail
-views and MUST reduce or stop its nonessential motion when the visitor prefers
-reduced motion.
-
-#### Scenario: Reduced motion is enabled
-- **WHEN** the visitor has requested reduced motion
-- **THEN** the loading treatment remains visible without continuous decorative
-  animation

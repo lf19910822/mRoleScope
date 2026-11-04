@@ -41,6 +41,16 @@
 - 公开页面默认只展示仍有效岗位；筛选的同类条件取并集、不同维度取交集。多值岗位族不区分主/副作为筛选条件，主/副仅在 JD 结果中说明。
 - 本地预览只绑定回环地址，并固定使用 `http://127.0.0.1:5175/`；不得因端口被占用自动改用其他端口。没有可用本机数据库时，不得设法复用其他运行实例的连接信息。
 
+## 前端素材库
+
+### 页面布局
+https://www.shadcn-vue.com/blocks?utm_source=chatgpt.com#dashboard-01
+https://refero.design/pages/c5295ca8-04aa-4ec6-bd63-7c5159f24333?page_types[id][]=28&order=trending&source=search
+
+### 组件
+https://inspira-ui.com/docs/en/components?utm_source=chatgpt.com
+https://uiverse.io/?utm_source=chatgpt.com
+
 ## 交付要求
 
 - 交付前至少运行与改动相称的格式、测试、构建和 `git diff --check`；报告已运行的命令及确实跳过或未能运行的检查。

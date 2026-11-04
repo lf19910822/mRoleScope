@@ -13,10 +13,26 @@
 - [x] 2.3 Build semantic ordered, unordered, lead-in, and fallback body-section components using the Ocean Breeze requirements-ledger treatment; verify focused component tests retain all text and use appropriate list semantics.
 - [x] 2.4 Integrate the typed detail client and body components into `JobDetailView`, replacing the dense paragraph presentation while retaining absent-supplemental behavior; verify detail-view tests cover a recognized list, a fallback body, and highlighted text.
 - [ ] 2.5 Check desktop and 390px viewports against the supplied Ocean Breeze baseline; verify long CJK/technical text wraps without horizontal overflow, row markers remain readable, and normal/fallback text stays selectable.
+- [x] 2.6 Move the selected floating-island pointer response from the development-only prototype into the production list component, with bounded `1.05` scale/`±4deg` tilt, a 360ms reset, touch exclusion, and focused component tests.
+- [x] 2.7 Keep inactive source-list text outside the 3D compositing treatment; enable the selected 3D effect only while its mouse row is active, with a focused regression test.
+- [x] 2.8 Accept a closing-parenthesis ordinal when its source requirement begins with a number, while retaining decimal, version, and enumeration-comma protections; verify the focused parser regression test and full front-end suite pass.
+- [x] 2.9 Render one unambiguous top-level Arabic or Chinese ordinal as a single ordered source-item surface, while keeping the repeated-marker threshold for bullet lists; verify a single enumeration-comma ordinal regression test and the full front-end suite pass.
+- [x] 2.10 Accept an enumeration-comma ordinal when its source requirement begins with a number, so the first item of a numbered list cannot become lead text; retain dot-style decimal/version protection and verify the parser regression and full front-end suite pass.
+- [x] 2.11 Replace the verbose technology-keyword disclosure copy with the compact `+ 展开` / `− 收起` native button at every viewport width; preserve ARIA state/controls and verify the detail and prototype expand/collapse tests plus the full front-end suite pass.
+- [x] 2.12 Recognize source-proven `基础` / `加分项` headings around an ordinal reset, render each group as a separate semantic list, and retain a full-text fallback for unheaded resets; verify parser and component regressions plus the full front-end suite pass.
+- [x] 2.13 Retain source-proven `基础` / `加分项` groups when a group starts at `1` but later skips an ordinal, without inventing the missing marker; retain fallback for an equivalent ungrouped gap and verify the real-pattern parser regression plus the full front-end suite pass.
+- [x] 2.14 Recognize a one-horizontal-space numeric-dot ordinal without accepting spaced decimal/version fragments; preserve the source marker/numeral and verify a focused parser regression plus the full front-end suite pass.
+- [x] 2.15 Render two-or-more compact hyphen entries within a proven ordinal source item as a nested semantic bullet list; retain the parent preamble, lone compact hyphens, and hyphenated terms as source prose, and verify parser/component regressions plus the full front-end suite pass.
+- [x] 2.16 Write failing detail/component regressions proving that an over-eight keyword collection initially renders only eight labels and that source-item rows remain static under pointer movement; replace the ineffective CSS-only disclosure with a bounded preview and remove the floating-island handlers and styles, then run the full front-end suite.
+- [x] 2.17 Write a failing regression for numeric-leading items inside a
+      source-proven consecutive numeric-dot sequence, then promote only its
+      interior ambiguous candidates without content-form whitelists; retain
+      fallback behavior for edge/isolated decimal and version candidates and
+      verify parser/component regressions plus the full front-end suite pass.
 
 ## 3. Stable application loading feedback
 
-- [x] 3.1 Add a token/reference-counted browser request coordinator and one application-shell loading layer with a delayed Ocean Breeze tide treatment; verify unit tests cover overlapping requests, settling order, failures, accessible status, and reduced-motion behavior.
+- [x] 3.1 Add a token/reference-counted browser request coordinator and one application-shell loading layer with a delayed Ocean Breeze tide treatment; verify unit tests cover overlapping requests, settling order, failures, and accessible status.
 - [x] 3.2 Add geometry-matched initial skeletons for the JD list and detail, then replace inline text-only loading branches; verify view tests show skeletons only before a first successful response and reserve the normal content region.
 - [x] 3.3 Retain each view's latest successful response during replacement fetches and ignore stale route/filter responses; verify browser-flow tests cover filter, pagination, and detail transitions without unmounting existing content or changing scroll position while loading.
 

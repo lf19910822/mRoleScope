@@ -168,13 +168,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .job-detail-skeleton__shape,
-  .job-detail-skeleton__ring {
-    animation: none;
-  }
-}
-
 @media (max-width: 650px) {
   .job-detail-skeleton {
     min-height: 720px;

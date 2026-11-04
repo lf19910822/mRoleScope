@@ -150,18 +150,18 @@ describe('JD presentation', () => {
     await flushPromises()
 
     const card = wrapper.find('.job-card')
-    expect(card.text()).toContain('主岗位族')
-    expect(card.text()).toContain('后端')
-    expect(card.text()).toContain('其他命中岗位族')
+    expect(card.find('.job-card__headline-family').text()).toContain('后端')
+    expect(card.text()).not.toContain('主岗位族')
+    expect(card.text()).toContain('副岗位族')
     expect(card.text()).toContain('AI 应用')
     expect(card.text()).toContain('本科及以下')
-    expect(card.text()).toContain('未明确工作年限')
+    expect(card.text()).toContain('-')
     expect(card.text()).not.toContain('0 年')
 
     wrapper.unmount()
   })
 
-  it('shows the complete JD sections without exposing processing metadata', async () => {
+  it('ships the selected C reading layout with source-faithful rows and safe technology emphasis', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -190,7 +190,8 @@ describe('JD presentation', () => {
 
     expect(wrapper.text()).toContain('岗位职责')
     expect(wrapper.text()).toContain('负责服务端开发')
-    expect(wrapper.findAll('.body-section ol > li')).toHaveLength(2)
+    expect(wrapper.find('.detail-reading-layout__margin-index').exists()).toBe(true)
+    expect(wrapper.findAll('.margin-dossier__row')).toHaveLength(2)
     expect(wrapper.text()).toContain('任职要求')
     expect(wrapper.text()).toContain('补充说明')
     expect(wrapper.findAll('mark.technology-highlight').map((mark) => mark.text())).toEqual([
@@ -204,7 +205,7 @@ describe('JD presentation', () => {
     wrapper.unmount()
   })
 
-  it('keeps a long technology list compact on narrow displays until the reader expands it', async () => {
+  it('keeps every public technology tag visible in the selected C composition', async () => {
     const technologies = Array.from({ length: 9 }, (_, index) => ({
       value: `technology_${index + 1}`,
       label: `技术词 ${index + 1}`,
@@ -228,17 +229,38 @@ describe('JD presentation', () => {
     const wrapper = mount(JobDetailView, { global: { plugins: [router] } })
     await flushPromises()
 
-    const keywordList = wrapper.get(`#job-technology-keywords-${job.id}`)
-    const toggle = wrapper.get('button[aria-controls^="job-technology-keywords-"]')
-    expect(keywordList.classes()).toContain('tag-list--collapsed')
-    expect(toggle.attributes('aria-expanded')).toBe('false')
-    expect(toggle.text()).toContain('展开全部技术词（9）')
+    const keywordList = wrapper.get('.detail-reading-layout__tag-list')
+    expect(keywordList.findAll('em')).toHaveLength(9)
+    expect(wrapper.find('button[aria-controls^="job-technology-keywords-"]').exists()).toBe(false)
 
-    await toggle.trigger('click')
+    wrapper.unmount()
+  })
 
-    expect(keywordList.classes()).not.toContain('tag-list--collapsed')
-    expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect(toggle.text()).toContain('收起技术词')
+  it('ignores obsolete preview query state and does not ship a variant switcher', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ...job,
+              body: { requirements: '熟悉 Go', responsibilities: '负责服务端开发' },
+            }),
+          ),
+      ),
+    )
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({
+      name: 'job-detail',
+      params: { id: job.id },
+      query: { prototype: 'detail-reading', variant: 'A' },
+    })
+    await router.isReady()
+    const wrapper = mount(JobDetailView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    expect(wrapper.find('.detail-reading-layout').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="详情阅读方案选择器"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

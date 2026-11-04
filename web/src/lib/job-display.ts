@@ -13,7 +13,7 @@ function educationLevelLabel(level: keyof typeof educationLabels): string {
 
 export function formatEducation(requirement: EducationRequirement | undefined): string {
   if (requirement === undefined || !requirement.explicit_requirement) {
-    return '未明确学历要求'
+    return '-'
   }
   if (requirement.lower_bound !== undefined && requirement.upper_bound !== undefined) {
     if (requirement.lower_bound === requirement.upper_bound) {
@@ -31,7 +31,7 @@ export function formatEducation(requirement: EducationRequirement | undefined): 
       ? '专科及以上'
       : `${educationLevelLabel(requirement.lower_bound)}及以上`
   }
-  return '未明确学历要求'
+  return '-'
 }
 
 export function formatExperience(requirement: ExperienceRequirement | undefined): string {
@@ -40,7 +40,7 @@ export function formatExperience(requirement: ExperienceRequirement | undefined)
     !requirement.explicit_requirement ||
     requirement.minimum_years === undefined
   ) {
-    return '未明确工作年限'
+    return '-'
   }
   return `最低 ${requirement.minimum_years} 年`
 }

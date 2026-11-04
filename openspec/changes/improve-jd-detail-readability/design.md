@@ -83,18 +83,57 @@ without tag-shaped visual noise.
 
 A front-end pure function will turn one normalized section into either:
 
-- a sequence of `lead`, `ordered-item`, or `bullet-item` blocks with original
-  source offsets and original visible markers; or
+- a sequence of `lead`, source-proven `group-heading`, `ordered-item`, or
+  `bullet-item` blocks with original source offsets and original visible
+  markers; or
 - exactly one `fallback` block spanning the whole section.
 
-It considers one marker family at a time. An Arabic list requires at least a
-consecutive pair (`1.`/`2.`, `1、`/`2、`, or closing-parenthesis equivalents)
-at valid top-level boundaries; a Chinese ordinal list requires an equivalent
-consecutive pair; a bullet list requires two top-level spaced bullet markers.
-An ordinal suffix followed by another digit is not a marker, preventing
-`1.28`, `3.5`, and similar version/decimal fragments from being split. A
-bullet must be at the start or follow whitespace/`；`/`;`, and must itself be
+It considers one marker family at a time. One or more Arabic or Chinese
+ordinals (`1.`, `1、`, or closing-parenthesis equivalents) at valid top-level
+boundaries become an ordered list; multiple ordinal markers must remain
+consecutive. A bullet list requires two top-level spaced bullet markers.
+An ordinal suffix using a dot followed by another digit is structurally
+ambiguous rather than immediately accepted or rejected. The parser may
+promote a contiguous run of those candidates only when it is an interior
+portion of a syntactically consecutive ordinal sequence with unambiguous
+ordinal markers on both sides. This uses numbering context, not a whitelist
+of following requirement forms: `1. …；2.1-3年…；3.1年以上…；4. …` is a proven
+list, while an isolated/edge candidate such as `1.28 年` remains fallback
+text. The ordinary valid-boundary rule also keeps `v3.5` ineligible. A
+closing-parenthesis or enumeration-comma ordinal remains a marker when its
+content starts with a number: `2）2年以上相关经验` and
+`1、3年以上游戏客户端开发经验` are unambiguous requirements rather than decimals.
+A bullet must be at the start or follow whitespace/`；`/`;`, and must itself be
 followed by whitespace; this preserves hyphenated terms such as `kube-proxy`.
+
+The numeric-dot grammar also allows one source whitespace character between an
+Arabic ordinal and its dot (for example `2 .` or `2 ．`) when the dot is not
+followed by a digit. This accommodates a common copy-formatting defect while
+retaining the decimal/version guard (`1 .28` remains prose) and the existing
+top-level boundary requirement. The marker's visible source spelling remains
+available to the renderer; the circular marker extracts only its numeral.
+
+An otherwise consecutive Arabic sequence may restart at `1` only when the
+source itself places a recognized grouping label (`基础` or `加分项`, with an
+optional colon) immediately before the reset. The presentation inserts that
+source span as a `group-heading`, ends the prior item before it, and starts a
+separate semantic ordered list. Within one such explicit source group, markers
+that begin at `1` may increase while skipping a number (for example `1. → 3.`)
+because the source has already proved both group and item boundaries. The
+renderer retains the source markers exactly and never invents the missing
+number. Outside an explicit group, a gap or reset remains a lossless fallback:
+it may be malformed input rather than a safe group break.
+
+An already proven top-level ordinal item may contain a nested compact hyphen
+list. A compact child marker is an ASCII `-` at a valid list boundary whose
+next character is non-whitespace; the parent must contain at least two such
+markers. This recognizes normalized source lists such as `-根据…` without
+confusing hyphenated terms (`kube-proxy` has no valid preceding boundary). The
+parent's text before the first child remains its visible heading, and every
+child consumes a source-preserving interval through the following child or the
+parent's end. The renderer uses a semantic nested `ul` beneath its parent
+ordered item. A lone compact hyphen stays normal prose, avoiding a speculative
+sub-list from a command flag or punctuation.
 
 The parser does not treat commas, semicolons, sentence stops, or line breaks
 as item separators. A preamble before the first accepted marker becomes a
@@ -142,27 +181,42 @@ highlight.
 ### 3. Build composed reading components rather than expand the view
 
 `JDSectionList` owns marker recognition and semantic `ol`/`ul`/fallback
-markup. `HighlightedText` owns range clipping and safe fragment rendering.
+markup, including source-proven group headings, compact source sublists, and
+their separate parent lists.
+`HighlightedText` owns range clipping and safe fragment rendering.
 `JobDetailView` supplies only title, source section key, text, and detail
 ranges. This division makes the conservative grammar independently testable
 and lets a future detail-like page reuse the presentation without importing
 route state.
 
 Rows use the ledger rail, original-marker capsule, generous 12--16px vertical
-rhythm, and a quiet Sea Glass hover only where a pointer is present. The raw
-fallback remains normal readable prose, clearly avoiding a misleading row
-frame. At 390px the rail/marker occupies a fixed narrow column and the text
-grid remains min-width zero, so long URLs, version names, and Chinese prose
-wrap rather than overflow.
+rhythm, and static Sea Glass surfaces. The raw fallback remains normal
+readable prose, clearly avoiding a misleading row frame. At 390px the
+rail/marker occupies a fixed narrow column and the text grid remains min-width
+zero, so long URLs, version names, and Chinese prose wrap rather than overflow.
 
 The selected floating-island presentation instead uses one softly outlined
 surface per proven source item. On a narrow viewport, status pills occupy a
 row of their own before the title; they must never reduce the title's reading
 measure. The prototype's variant switcher and explanatory implementation note
 are development-only comparison aids and are absent from the selected view.
-Technology labels remain fully visible on desktop; at a narrow viewport a
-two-row clipped preview has an explicit expand/collapse control, so density
-does not hide data permanently.
+When a JD has more than eight technology labels, every viewport initially
+renders the first eight labels inside the same two-row clipped preview and a
+compact secondary button. The control reads `+ 展开` and `− 收起` rather than
+restating the field name or exposing a keyword count. It borrows the quiet
+bordered posture of the selected Inspira interactive-hover reference, but uses
+the native button element and Ocean Breeze Sea Glass/Tide Blue tokens; it is a
+disclosure control, not a primary CTA. Capping the initial collection makes
+the control useful even when short labels happen to fit inside two wide rows.
+
+Every selected source-item surface is deliberately static. It uses no
+pointer-tracked scale, tilt, light wash, 3D compositing, or transform
+transition; the complete text stays sharp and available to read without a
+hover interaction.
+
+The application deliberately does not apply `prefers-reduced-motion`
+overrides. The supplied loader and skeleton motion remain observable regardless
+of host motion preference during development and review.
 
 ### 4. Centralize request activity while keeping route geometry local
 
@@ -171,7 +225,7 @@ by token, rather than a single boolean per view. The API client registers and
 settles a token in `finally`; `App.vue` reads the derived count and hosts the
 one fixed loading layer. A delayed appearance threshold avoids a distracting
 flash for very fast requests, and the layer uses the three existing tide bars
-as a restrained pulse. `prefers-reduced-motion` makes the bars static.
+as a restrained pulse.
 
 The list and detail views keep their own initial-layout skeleton components:
 they render only before their first successful result, reserve the real card

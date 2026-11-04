@@ -111,12 +111,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .job-list-skeleton__shape {
-    animation: none;
-  }
-}
-
 @media (max-width: 650px) {
   .job-list-skeleton {
     min-height: 720px;
@@ -129,5 +123,18 @@
   .job-list-skeleton__shape--job-title {
     width: 82%;
   }
+}
+
+:global(.app-shell[data-color-scheme='dark'] .job-list-skeleton) {
+  background: #17303a;
+  box-shadow: 0 20px 42px -32px rgba(0, 0, 0, 0.72);
+}
+
+:global(.app-shell[data-color-scheme='dark'] .job-list-skeleton__shape) {
+  background: linear-gradient(105deg, #1c3944 20%, #294b57 45%, #1c3944 70%);
+}
+
+:global(.app-shell[data-color-scheme='dark'] .job-list-skeleton__card) {
+  border-top-color: #294752;
 }
 </style>
