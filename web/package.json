@@ -19,6 +19,7 @@
     "echarts": "^6.1.0",
     "naive-ui": "^2.45.3",
     "vue": "^3.5.29",
+    "vue-echarts": "^8.3.2",
     "vue-router": "^5.0.3"
   },
   "devDependencies": {

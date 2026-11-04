@@ -1,5 +1,6 @@
 import { activityStateQueryValues, type JDListState } from '@/lib/list-state'
 import type { JDDetailBodySection, TechnologyHighlightRange } from '@/lib/highlighted-text'
+import type { TrendRequest, TrendSeries } from '@/lib/job-trend-dashboard-state'
 import { requestActivity } from '@/lib/request-activity'
 
 export type { JDDetailBodySection, TechnologyHighlightRange }
@@ -84,10 +85,10 @@ export class JDAPIError extends Error {
   }
 }
 
-async function getJSON<T>(path: string): Promise<T> {
+async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   const settle = requestActivity.begin()
   try {
-    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    const response = await fetch(path, { headers: { Accept: 'application/json' }, signal })
     if (!response.ok) {
       throw new JDAPIError(`请求岗位数据失败（${response.status}）`, response.status)
     }
@@ -135,4 +136,20 @@ export function getJobDetail(id: string): Promise<JobDetailResponse> {
 
 export function getFilterOptions(): Promise<FilterOptionsResponse> {
   return getJSON<FilterOptionsResponse>('/api/v1/jobs/filter-options')
+}
+
+export function jobTrendPath(query: TrendRequest): string {
+  const parameters = new URLSearchParams()
+  parameters.set('range', query.range)
+  parameters.set('dimension', query.condition.dimension)
+  parameters.set('value', query.condition.value)
+  if (query.condition.operator) parameters.set('operator', query.condition.operator)
+  if (query.condition.dimension === 'job_family') {
+    parameters.set('include_secondary', String(query.condition.includeSecondary))
+  }
+  return `/api/v1/job-trends?${parameters.toString()}`
+}
+
+export function getJobTrend(query: TrendRequest, signal?: AbortSignal): Promise<TrendSeries> {
+  return getJSON<TrendSeries>(jobTrendPath(query), signal)
 }

@@ -180,6 +180,51 @@ paths:
                 $ref: '#/components/schemas/JobDetailResponse'
         '404':
           description: The JD is not present in the latest serving inventory.
+  /api/v1/job-trends:
+    get:
+      summary: Read one historical JD trend curve
+      description: Returns daily distinct-JD counts for one validated condition. A null count is an unavailable historical day, not zero.
+      parameters:
+        - in: query
+          name: range
+          required: true
+          schema:
+            type: string
+            enum: [week, month, quarter, year, all]
+        - in: query
+          name: dimension
+          required: true
+          schema:
+            type: string
+            enum: [technology, job_family, education, project, location, experience]
+        - in: query
+          name: value
+          required: true
+          description: One current display-safe selector value for the chosen dimension.
+          schema:
+            type: string
+        - in: query
+          name: operator
+          description: Required only for education and experience.
+          schema:
+            type: string
+            enum: [eq, gt, gte, lt, lte]
+        - in: query
+          name: include_secondary
+          description: Permitted only for job_family; true includes both primary and secondary family matches.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: A display-safe daily historical curve.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendSeries'
+        '400':
+          description: The submitted trend condition is invalid or incompatible.
+        '503':
+          description: Historical trend data is temporarily unavailable.
 components:
   schemas:
     Status:
@@ -232,6 +277,47 @@ components:
         minimum_years:
           type: integer
           minimum: 1
+    TrendCurve:
+      type: object
+      required: [dimension, label, value]
+      properties:
+        dimension:
+          type: string
+          enum: [technology, job_family, education, project, location, experience]
+        include_secondary:
+          type: boolean
+        label:
+          type: string
+        operator:
+          type: string
+          enum: [eq, gt, gte, lt, lte]
+        value:
+          type: string
+    TrendPoint:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Null means unavailable historical input; zero means a complete snapshot with no matching JD.
+    TrendSeries:
+      type: object
+      required: [curve, points, freshness]
+      properties:
+        curve:
+          $ref: '#/components/schemas/TrendCurve'
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+        freshness:
+          type: string
+          description: Opaque safe freshness marker.
     JobListItem:
       type: object
       required:

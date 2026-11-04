@@ -10,7 +10,10 @@ import { requestActivity } from '@/lib/request-activity'
 const route = useRoute()
 const osTheme = useOsTheme()
 const navigationOpen = ref(false)
-const releasedDestinations = [{ label: '岗位筛选', name: 'jobs' as const }]
+const releasedDestinations = [
+  { label: '岗位筛选', name: 'jobs' as const },
+  { label: '趋势看板', name: 'job-trends' as const },
+]
 const isJobDestination = computed(() => route.name === 'jobs' || route.name === 'job-detail')
 const colorScheme = computed(() => (osTheme.value === 'dark' ? 'dark' : 'light'))
 const selectedTheme = computed(() => (colorScheme.value === 'dark' ? darkTheme : null))
@@ -78,7 +81,11 @@ watch(
             :to="{ name: destination.name }"
             :class="[
               'app-navigation__link',
-              { 'app-navigation__link--active': destination.name === 'jobs' && isJobDestination },
+              {
+                'app-navigation__link--active':
+                  (destination.name === 'jobs' && isJobDestination) ||
+                  destination.name === route.name,
+              },
             ]"
             @click="closeNavigation"
           >

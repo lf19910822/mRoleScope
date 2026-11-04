@@ -31,7 +31,9 @@ describe('JD browser router', () => {
   })
 
   it('uses the browser saved scroll position when it is available', () => {
-    expect(jdScrollBehavior({ name: 'jobs' }, { name: 'job-detail' }, { left: 0, top: 480 })).toEqual({
+    expect(
+      jdScrollBehavior({ name: 'jobs' }, { name: 'job-detail' }, { left: 0, top: 480 }),
+    ).toEqual({
       left: 0,
       top: 480,
     })
@@ -43,5 +45,13 @@ describe('JD browser router', () => {
       left: 0,
       top: 0,
     })
+  })
+
+  it('resolves the dedicated trend dashboard route', async () => {
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'job-trends' })
+    await router.isReady()
+
+    expect(router.currentRoute.value.path).toBe('/job-trends')
   })
 })

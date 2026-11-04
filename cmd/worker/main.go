@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -618,6 +619,7 @@ func runPendingAnalysis(arguments []string) {
 	cancelTechnology()
 	servingContext, cancelServing := context.WithTimeout(context.Background(), cfg.SyncTimeout)
 	servingRepository, servingInitErr := jdserving.NewRepository(servingContext, cfg.DatabaseURL)
+	servingReconciled := false
 	if servingInitErr != nil {
 		// Serving is a retryable DWD projection. Its availability must not turn
 		// an already-published source run, or any of the independent analysis
@@ -631,6 +633,7 @@ func runPendingAnalysis(arguments []string) {
 			// The next ordinary analysis run retries the durable projection.
 			slog.Error("serving reconciliation failed")
 		} else {
+			servingReconciled = true
 			slog.Info("serving reconciliation completed",
 				"reconciled_runs", servingSummary.ReconciledRuns,
 				"memberships_created", servingSummary.MembershipsCreated,
@@ -640,6 +643,30 @@ func runPendingAnalysis(arguments []string) {
 		}
 	}
 	cancelServing()
+	if projectErr == nil && jobFamilyErr == nil && educationErr == nil && experienceErr == nil && technologyErr == nil && servingReconciled {
+		trendReleaseContext, cancelTrendRelease := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+		candidate, prepareErr := repository.PrepareTrendFormalRelease(trendReleaseContext)
+		if prepareErr != nil {
+			// The formal release is a serving guard, not a reason to treat an
+			// already completed best-effort deterministic pass as a source or
+			// collection failure. The next ordinary analysis pass retries it.
+			slog.Error("trend formal release preparation failed")
+		} else {
+			published, publishErr := repository.PublishTrendFormalRelease(trendReleaseContext, candidate.ID)
+			switch {
+			case publishErr == nil:
+				slog.Info("trend formal release is current", "reused", published.Reused)
+			case errors.Is(publishErr, jdanalysis.ErrTrendFormalReleaseIncomplete):
+				// Never switch to a partial release. The preceding published
+				// selection, if any, remains readable until historical catch-up
+				// completes under this exact identity.
+				slog.Info("trend formal release remains unchanged while historical coverage completes")
+			default:
+				slog.Error("trend formal release publication check failed")
+			}
+		}
+		cancelTrendRelease()
+	}
 	if projectErr != nil || jobFamilyErr != nil || educationErr != nil || experienceErr != nil || technologyErr != nil {
 		os.Exit(1)
 	}

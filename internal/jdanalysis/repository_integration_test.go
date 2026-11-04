@@ -88,7 +88,8 @@ func newIntegrationRepository(t *testing.T) *Repository {
 	t.Cleanup(repository.Close)
 	acquireIntegrationTestLock(t, repository.pool)
 	if _, err := repository.pool.Exec(context.Background(), `
-		TRUNCATE job_family_observation_retry_audits, job_family_retry_audits, job_family_match_evidence, job_family_matches,
+		TRUNCATE trend_formal_releases, observation_scopes,
+                 job_family_observation_retry_audits, job_family_retry_audits, job_family_match_evidence, job_family_matches,
 	         job_family_results, job_family_observations, job_family_title_identities,
 	         project_tag_evidence, project_tag_assignments, project_tag_results,
          project_title_observations, project_title_identities,

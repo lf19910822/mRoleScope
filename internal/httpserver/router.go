@@ -37,11 +37,18 @@ type JDFilterOptionsReader interface {
 	ListFilterOptions(context.Context) (jdserving.FilterOptionsResponse, error)
 }
 
+// JDTrendReader is the only historical-curve dependency the HTTP layer may
+// use. Snapshot reconstruction remains behind the Serving seam.
+type JDTrendReader interface {
+	ReadTrend(context.Context, jdserving.TrendQuery) (jdserving.TrendSeries, error)
+}
+
 type Router struct {
 	readiness ReadinessChecker
 	jdDetail  JDDetailReader
 	jdFilters JDFilterOptionsReader
 	jdList    JDListReader
+	jdTrend   JDTrendReader
 }
 
 func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
@@ -52,12 +59,14 @@ func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
 		server.jdList = readers[0]
 		server.jdDetail, _ = readers[0].(JDDetailReader)
 		server.jdFilters, _ = readers[0].(JDFilterOptionsReader)
+		server.jdTrend, _ = readers[0].(JDTrendReader)
 	}
 	router.GET("/healthz", server.health)
 	router.GET("/readyz", server.ready)
 	router.GET("/api/v1/jobs", server.listJobs)
 	router.GET("/api/v1/jobs/filter-options", server.filterOptions)
 	router.GET("/api/v1/jobs/:id", server.jobDetail)
+	router.GET("/api/v1/job-trends", server.jobTrend)
 	return router
 }
 
@@ -119,6 +128,111 @@ func (r Router) filterOptions(context *gin.Context) {
 		return
 	}
 	context.JSON(http.StatusOK, response)
+}
+
+func (r Router) jobTrend(context *gin.Context) {
+	if r.jdTrend == nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	query, err := parseTrendQuery(context)
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	response, err := r.jdTrend.ReadTrend(context.Request.Context(), query)
+	if errors.Is(err, jdserving.ErrInvalidTrendQuery) {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	if err != nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	context.JSON(http.StatusOK, response)
+}
+
+func parseTrendQuery(context *gin.Context) (jdserving.TrendQuery, error) {
+	values := context.Request.URL.Query()
+	for key := range values {
+		switch key {
+		case "range", "dimension", "value", "operator", "include_secondary":
+		default:
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+	}
+	one := func(key string, required bool) (string, bool) {
+		items := values[key]
+		if len(items) != 1 {
+			return "", false
+		}
+		value := strings.TrimSpace(items[0])
+		if required && value == "" {
+			return "", false
+		}
+		return value, true
+	}
+	rawRange, valid := one("range", true)
+	if !valid {
+		return jdserving.TrendQuery{}, strconv.ErrSyntax
+	}
+	rawDimension, valid := one("dimension", true)
+	if !valid {
+		return jdserving.TrendQuery{}, strconv.ErrSyntax
+	}
+	value, valid := one("value", true)
+	if !valid {
+		return jdserving.TrendQuery{}, strconv.ErrSyntax
+	}
+	query := jdserving.TrendQuery{Range: jdserving.TrendRange(rawRange)}
+	switch query.Range {
+	case jdserving.TrendRangeWeek, jdserving.TrendRangeMonth, jdserving.TrendRangeQuarter,
+		jdserving.TrendRangeYear, jdserving.TrendRangeAll:
+	default:
+		return jdserving.TrendQuery{}, strconv.ErrSyntax
+	}
+	query.Condition.Dimension = jdserving.TrendDimension(rawDimension)
+	query.Condition.Value = value
+	switch query.Condition.Dimension {
+	case jdserving.TrendDimensionEducation, jdserving.TrendDimensionExperience:
+		rawOperator, present := one("operator", true)
+		if !present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		query.Condition.Operator = jdserving.TrendComparison(rawOperator)
+		switch query.Condition.Operator {
+		case jdserving.TrendComparisonEqual, jdserving.TrendComparisonGreaterThan,
+			jdserving.TrendComparisonGreaterThanOrEqual, jdserving.TrendComparisonLessThan,
+			jdserving.TrendComparisonLessThanOrEqual:
+		default:
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		if _, present := values["include_secondary"]; present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+	case jdserving.TrendDimensionJobFamily:
+		if _, present := values["operator"]; present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		if rawSecondary, present := one("include_secondary", false); present {
+			if rawSecondary != "true" && rawSecondary != "false" {
+				return jdserving.TrendQuery{}, strconv.ErrSyntax
+			}
+			query.Condition.IncludeSecondary = rawSecondary == "true"
+		} else if _, supplied := values["include_secondary"]; supplied {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+	case jdserving.TrendDimensionTechnology, jdserving.TrendDimensionProject, jdserving.TrendDimensionLocation:
+		if _, present := values["operator"]; present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		if _, present := values["include_secondary"]; present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+	default:
+		return jdserving.TrendQuery{}, strconv.ErrSyntax
+	}
+	return query, nil
 }
 
 func parseListJobsQuery(context *gin.Context) (jdserving.ListJobsQuery, error) {
