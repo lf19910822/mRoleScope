@@ -2024,6 +2024,94 @@ func (ns NullTechnologyRuleState) Value() (driver.Value, error) {
 	return string(ns.TechnologyRuleState), nil
 }
 
+type TrendFormalReleaseDimension string
+
+const (
+	TrendFormalReleaseDimensionTechnology TrendFormalReleaseDimension = "technology"
+	TrendFormalReleaseDimensionEducation  TrendFormalReleaseDimension = "education"
+	TrendFormalReleaseDimensionExperience TrendFormalReleaseDimension = "experience"
+	TrendFormalReleaseDimensionProject    TrendFormalReleaseDimension = "project"
+	TrendFormalReleaseDimensionJobFamily  TrendFormalReleaseDimension = "job_family"
+)
+
+func (e *TrendFormalReleaseDimension) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TrendFormalReleaseDimension(s)
+	case string:
+		*e = TrendFormalReleaseDimension(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TrendFormalReleaseDimension: %T", src)
+	}
+	return nil
+}
+
+type NullTrendFormalReleaseDimension struct {
+	TrendFormalReleaseDimension TrendFormalReleaseDimension
+	Valid                       bool // Valid is true if TrendFormalReleaseDimension is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTrendFormalReleaseDimension) Scan(value interface{}) error {
+	if value == nil {
+		ns.TrendFormalReleaseDimension, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TrendFormalReleaseDimension.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTrendFormalReleaseDimension) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TrendFormalReleaseDimension), nil
+}
+
+type TrendFormalReleaseStatus string
+
+const (
+	TrendFormalReleaseStatusCandidate  TrendFormalReleaseStatus = "candidate"
+	TrendFormalReleaseStatusPublished  TrendFormalReleaseStatus = "published"
+	TrendFormalReleaseStatusSuperseded TrendFormalReleaseStatus = "superseded"
+)
+
+func (e *TrendFormalReleaseStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TrendFormalReleaseStatus(s)
+	case string:
+		*e = TrendFormalReleaseStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TrendFormalReleaseStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTrendFormalReleaseStatus struct {
+	TrendFormalReleaseStatus TrendFormalReleaseStatus
+	Valid                    bool // Valid is true if TrendFormalReleaseStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTrendFormalReleaseStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TrendFormalReleaseStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TrendFormalReleaseStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTrendFormalReleaseStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TrendFormalReleaseStatus), nil
+}
+
 type AggregateSnapshot struct {
 	ID                 pgtype.UUID
 	RunID              pgtype.UUID
@@ -2960,4 +3048,30 @@ type TechnologyMentionReview struct {
 	Reviewer                    string
 	ReviewedAt                  pgtype.Timestamptz
 	CreatedAt                   pgtype.Timestamptz
+}
+
+// Append-only complete global selection of deterministic interpretation identities for historical trend reads.
+type TrendFormalRelease struct {
+	ID             pgtype.UUID
+	IdentitySha256 string
+	Status         TrendFormalReleaseStatus
+	CreatedAt      pgtype.Timestamptz
+	PublishedAt    pgtype.Timestamptz
+	SupersededAt   pgtype.Timestamptz
+}
+
+// Immutable typed identities selected together by one trend formal release; never stores JD snapshots or result payloads.
+type TrendFormalReleaseComponent struct {
+	TrendFormalReleaseID              pgtype.UUID
+	Dimension                         TrendFormalReleaseDimension
+	TechnologyAnalysisConfigurationID pgtype.UUID
+	ParserVersion                     pgtype.Text
+	LexiconVersion                    pgtype.Text
+	LexiconSha256                     pgtype.Text
+	DictionaryVersion                 pgtype.Text
+	DictionarySha256                  pgtype.Text
+	ProjectMaskParserVersion          pgtype.Text
+	ProjectMaskDictionaryVersion      pgtype.Text
+	ProjectMaskDictionarySha256       pgtype.Text
+	CreatedAt                         pgtype.Timestamptz
 }
