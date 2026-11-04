@@ -26,7 +26,14 @@ export interface TrendChartOption {
     zoomOnMouseWheel: boolean | 'shift'
   }>
   grid: { bottom: number; left: number; right: number; top: number }
-  legend: { data: string[]; selected: Record<string, boolean>; type: 'scroll' }
+  legend: {
+    bottom: number
+    data: string[]
+    left: number
+    right: number
+    selected: Record<string, boolean>
+    type: 'scroll'
+  }
   series: TrendChartSeries[]
   tooltip: { axisPointer: { type: 'line' }; trigger: 'axis' }
   xAxis: { axisLabel: { hideOverlap: true }; boundaryGap: false; type: 'time' }
@@ -132,9 +139,12 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
     animationDuration: 300,
     animationDurationUpdate: 260,
     dataZoom: range === 'all' ? allHistoryDataZoom() : [],
-    grid: { bottom: 36, left: 46, right: 24, top: 46 },
+    grid: { bottom: 78, left: 46, right: 24, top: 46 },
     legend: {
+      bottom: 8,
       data: series.map((line) => line.name),
+      left: 46,
+      right: 24,
       selected: Object.fromEntries(
         renderedRows.map((row) => [trendCurveLabel(row), row.visible !== false]),
       ),

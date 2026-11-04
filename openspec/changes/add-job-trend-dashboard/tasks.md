@@ -47,7 +47,7 @@
 - [x] 4.2 Implement `JobTrendView`, router entry, navigation label, central stable chart region, and fixed desktop configuration rail needed for task 4.1; preserve existing application layout and theme.
 - [x] 4.3 Write red component/browser tests for complete readable labels, row-local loading/error, legend state restoration, desktop rail availability, and a 390px layout where the full-width chart can open/reach the configuration panel.
 - [x] 4.4 Implement the responsive configuration panel, constrained controls, stable-size chart loader/replacement, and existing-theme styling needed for task 4.3. Use scoped CSS and verify no internal implementation explanations are rendered.
-- [ ] 4.5 Manually verify desktop and 390px views at `http://127.0.0.1:5175/` using real Serving responses when available: zero point, missing-point break, long labels, eight lines, one-line failure, cache restore, all-history zoom/pan/reset, and no node drill-down.
+- [x] 4.5 Manually verify desktop and 390px views at `http://127.0.0.1:5175/` using real Serving responses when available: zero point, missing-point break, long labels, eight lines, one-line failure, cache restore, all-history zoom/pan/reset, and no node drill-down. Real-browser evidence and the explicitly unavailable live states are recorded in `validation.md`.
 
 ## 5. Verification, rollout, and performance gate
 

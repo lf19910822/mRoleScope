@@ -12,7 +12,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { NButton, NEmpty, NSelect, NSwitch, type SelectOption, useOsTheme } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
-import VChart from 'vue-echarts'
+import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 
 import { getFilterOptions, type FilterOptionsResponse } from '@/api/jd-api'
 import { createTrendChartOption, trendCurveLabel } from '@/lib/job-trend-chart'
@@ -34,6 +34,7 @@ use([
 ])
 
 const dashboard = useJobTrendDashboard()
+const trendChart = ref<VChartExposed | null>(null)
 const mobileConfigurationOpen = ref(false)
 const filterOptionsError = ref('')
 const filterOptions = ref<FilterOptionsResponse>({
@@ -183,6 +184,17 @@ function selectRange(range: TrendRange): void {
   void dashboard.setRange(range)
 }
 
+function resetTrendView(): void {
+  for (const dataZoomIndex of [0, 1]) {
+    trendChart.value?.dispatchAction({
+      dataZoomIndex,
+      end: 100,
+      start: 0,
+      type: 'dataZoom',
+    })
+  }
+}
+
 function removeCurve(row: TrendCurveRow): void {
   dashboard.removeCurve(row.id)
 }
@@ -228,6 +240,15 @@ onMounted(async () => {
         </div>
         <div class="job-trend-view__header-actions">
           <NButton
+            v-if="dashboard.range === 'all' && hasRenderedSeries"
+            data-testid="reset-trend-view"
+            tertiary
+            size="small"
+            @click="resetTrendView"
+          >
+            复位视图
+          </NButton>
+          <NButton
             tertiary
             size="small"
             :disabled="dashboard.rows.length === 0"
@@ -257,6 +278,7 @@ onMounted(async () => {
       >
         <VChart
           v-if="hasRenderedSeries"
+          ref="trendChart"
           class="job-trend-view__chart"
           :option="echartsOption"
           :theme="chartTheme"
