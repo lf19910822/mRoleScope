@@ -35,7 +35,7 @@ describe('application navigation shell', () => {
     expect(narrowStyles).toMatch(/\.app-shell__content \{[\s\S]*?overflow:\s*visible;/u)
   })
 
-  it('releases only the job browser and keeps it active for list and detail routes', async () => {
+  it('releases the trend dashboard beside the job browser and keeps the browser active for list and detail routes', async () => {
     const router = createJDRouter(createMemoryHistory())
     await router.push({ name: 'jobs' })
     await router.isReady()
@@ -45,12 +45,19 @@ describe('application navigation shell', () => {
 
     const navigation = wrapper.get('[data-testid="application-navigation"]')
     expect(navigation.text()).toContain('岗位筛选')
-    expect(navigation.text()).not.toMatch(/图表|分析|仪表盘|即将推出/i)
-    expect(navigation.get('a').classes()).toContain('app-navigation__link--active')
+    expect(navigation.text()).toContain('趋势看板')
+    const links = navigation.findAll('a')
+    expect(links[0]?.classes()).toContain('app-navigation__link--active')
+    expect(links[1]?.classes()).not.toContain('app-navigation__link--active')
 
     await router.push({ name: 'job-detail', params: { id: 'jd_opaque' } })
     await flushPromises()
-    expect(navigation.get('a').classes()).toContain('app-navigation__link--active')
+    expect(links[0]?.classes()).toContain('app-navigation__link--active')
+
+    await router.push({ name: 'job-trends' })
+    await flushPromises()
+    expect(links[0]?.classes()).not.toContain('app-navigation__link--active')
+    expect(links[1]?.classes()).toContain('app-navigation__link--active')
 
     wrapper.unmount()
   })

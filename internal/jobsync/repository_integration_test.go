@@ -503,7 +503,7 @@ func newIntegrationRepository(t *testing.T) *Repository {
 	t.Cleanup(repository.Close)
 	acquireJobsyncIntegrationTestLock(t, repository)
 	if _, err := repository.pool.Exec(context.Background(), `
-TRUNCATE observation_scopes, technology_dictionary_versions RESTART IDENTITY CASCADE`); err != nil {
+	TRUNCATE trend_formal_releases, observation_scopes, technology_dictionary_versions RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear disposable test database: %v", err)
 	}
 	if _, err := repository.pool.Exec(context.Background(), `

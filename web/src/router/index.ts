@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouterHistory } from 'vue-router'
 
 import JobDetailView from '@/views/JobDetailView.vue'
 import JobListView from '@/views/JobListView.vue'
+import JobTrendView from '@/views/JobTrendView.vue'
 
 type JDScrollPosition = {
   behavior?: ScrollOptions['behavior']
@@ -32,6 +33,7 @@ export function createJDRouter(history: RouterHistory) {
       { path: '/', redirect: { name: 'jobs' } },
       { path: '/jobs', name: 'jobs', component: JobListView },
       { path: '/jobs/:id', name: 'job-detail', component: JobDetailView, props: true },
+      { path: '/job-trends', name: 'job-trends', component: JobTrendView },
     ],
     scrollBehavior: jdScrollBehavior,
   })

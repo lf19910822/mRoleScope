@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobListPath } from '../jd-api'
+import { jobListPath, jobTrendPath } from '../jd-api'
+import type { TrendRequest } from '@/lib/job-trend-dashboard-state'
 import type { JDListState } from '@/lib/list-state'
 
 describe('JD browser list request', () => {
@@ -41,5 +42,32 @@ describe('JD browser list request', () => {
     expect(request.searchParams.get('location')).toBe('上海')
     expect(request.searchParams.get('title')).toBe('工程师')
     expect(request.searchParams.get('activity_state')).toBe('effective')
+  })
+
+  it('sends exactly one bounded historical trend condition without internal data selectors', () => {
+    const request: TrendRequest = {
+      condition: {
+        dimension: 'job_family',
+        includeSecondary: true,
+        operator: '',
+        value: 'client',
+      },
+      range: 'all',
+    }
+
+    const path = new URL(jobTrendPath(request), 'https://jd-observatory.invalid')
+
+    expect(path.pathname).toBe('/api/v1/job-trends')
+    expect(path.searchParams.get('range')).toBe('all')
+    expect(path.searchParams.get('dimension')).toBe('job_family')
+    expect(path.searchParams.get('value')).toBe('client')
+    expect(path.searchParams.get('include_secondary')).toBe('true')
+    expect(path.searchParams.get('operator')).toBeNull()
+    expect([...path.searchParams.keys()]).toEqual([
+      'range',
+      'dimension',
+      'value',
+      'include_secondary',
+    ])
   })
 })

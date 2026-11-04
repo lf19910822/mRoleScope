@@ -88,4 +88,12 @@ func TestPublicOpenAPIDoesNotDeclareInternalResponseProperties(t *testing.T) {
 	if !strings.Contains(text, "TechnologyHighlight:") || !strings.Contains(text, "technology_highlights:") {
 		t.Fatal("OpenAPI does not describe display-safe technology highlights")
 	}
+	for _, required := range []string{
+		"/api/v1/job-trends:", "TrendSeries:", "TrendCurve:", "TrendPoint:",
+		"freshness:", "nullable: true", "include_secondary:",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("OpenAPI does not describe bounded trend contract field %q", required)
+		}
+	}
 }
