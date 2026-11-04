@@ -22,7 +22,7 @@
 - [x] 1.8 Implement full-history typed identity coverage validation, advisory-lock publication, safe aggregate outcome, and fixed deterministic catch-up/release orchestration; verify task 1.7 passes and no partial global release becomes readable.
 - [x] 1.9 Write red `TrendReader` tests for canonical technology aliases, job-family primary/secondary behavior, formal education/experience comparisons excluding missing requirements, projects, multi-location distinct counting, and no cross-day accumulation.
 - [x] 1.10 Implement only the condition joins/predicates required by task 1.9 against the selected complete release; verify each curve remains a single normalized condition and returns no JD identifiers.
-- [ ] 1.11 Add measured-required SQL indexes only where a repeatable `EXPLAIN (ANALYZE, BUFFERS)` or integration performance result demonstrates an absent access path; document the before/after aggregate timings without outputting JD content, identifiers, or credentials.
+- [x] 1.11 Measure the real retained-history access path before adding indexes. Add an index only if a repeatable aggregate-only measurement demonstrates an absent path; the deployed eight-curve result is below the acceptance target, so no index is warranted.
 
 ## 2. Safe HTTP and OpenAPI boundary
 
@@ -51,8 +51,8 @@
 
 ## 5. Verification, rollout, and performance gate
 
-- [ ] 5.1 Run focused Go unit/router tests, migration-backed trend integration tests, worker release-gate tests, focused Vitest suites, `npm run type-check`, `npm run build`, applicable Go test suites, and `git diff --check`; record exact commands/results and separately state any unavailable integration database.
-- [ ] 5.2 Run `openspec validate add-job-trend-dashboard --strict` and resolve every finding before implementation review.
-- [ ] 5.3 Measure real retained-history all-range performance for eight configured curves using safe aggregate-only CVM checks. If it is under two seconds, record the timing and keep the non-materialized reader. If it is not, stop before adding a daily/materialized trend projection and present the measurement plus a separate design for approval.
-- [ ] 5.4 Deploy through the existing reviewed CI/CD path only after verification. Run the formal historical catch-up/release gate with aggregate-only operator output; verify the public route through the existing API path without exposing the database/API publicly or reading/writing credentials.
-- [ ] 5.5 Update task checkboxes and the decision record with completed verification, published-release outcome, measured performance, and any deliberately deferred drill-down work.
+- [x] 5.1 Run focused Go unit/router tests, migration-backed trend integration tests, worker release-gate tests, focused Vitest suites, `npm run type-check`, `npm run build`, applicable Go test suites, and `git diff --check`; record exact commands/results and separately state any unavailable integration database in `validation.md`.
+- [x] 5.2 Run `openspec validate add-job-trend-dashboard --strict` and resolve every finding before implementation review.
+- [x] 5.3 Measure real retained-history all-range performance for eight configured curves using safe aggregate-only CVM checks. If it is under two seconds, record the timing and keep the non-materialized reader. If it is not, stop before adding a daily/materialized trend projection and present the measurement plus a separate design for approval.
+- [x] 5.4 Deploy through the existing reviewed CI/CD path only after verification. Run the formal historical catch-up/release gate with aggregate-only operator output; verify the public route through the existing API path without exposing the database/API publicly or reading/writing credentials.
+- [x] 5.5 Update task checkboxes and the decision record with completed verification, published-release outcome, measured performance, and any deliberately deferred drill-down work.
