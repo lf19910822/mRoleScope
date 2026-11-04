@@ -1,16 +1,22 @@
 <script setup lang="ts">
-import { NConfigProvider } from 'naive-ui'
+import { darkTheme, dateZhCN, NConfigProvider, useOsTheme, zhCN } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { oceanBreezeThemeOverrides } from '@/theme/ocean-breeze'
+import { oceanBreezeDarkThemeOverrides, oceanBreezeThemeOverrides } from '@/theme/ocean-breeze'
 import AppRequestLoader from '@/components/AppRequestLoader.vue'
 import { requestActivity } from '@/lib/request-activity'
 
 const route = useRoute()
+const osTheme = useOsTheme()
 const navigationOpen = ref(false)
 const releasedDestinations = [{ label: '岗位筛选', name: 'jobs' as const }]
 const isJobDestination = computed(() => route.name === 'jobs' || route.name === 'job-detail')
+const colorScheme = computed(() => (osTheme.value === 'dark' ? 'dark' : 'light'))
+const selectedTheme = computed(() => (colorScheme.value === 'dark' ? darkTheme : null))
+const selectedThemeOverrides = computed(() =>
+  colorScheme.value === 'dark' ? oceanBreezeDarkThemeOverrides : oceanBreezeThemeOverrides,
+)
 
 function closeNavigation(): void {
   navigationOpen.value = false
@@ -23,8 +29,13 @@ watch(
 </script>
 
 <template>
-  <NConfigProvider :theme-overrides="oceanBreezeThemeOverrides">
-    <div class="app-shell">
+  <NConfigProvider
+    :date-locale="dateZhCN"
+    :locale="zhCN"
+    :theme="selectedTheme"
+    :theme-overrides="selectedThemeOverrides"
+  >
+    <div class="app-shell" :data-color-scheme="colorScheme">
       <button
         class="app-menu-toggle"
         type="button"
@@ -87,9 +98,20 @@ watch(
 
 <style scoped>
 .app-shell {
+  background:
+    radial-gradient(circle at 4% 0%, rgba(164, 226, 244, 0.52), transparent 24rem),
+    linear-gradient(135deg, #edf7fb 0%, #e8f2f8 52%, #eaf7f5 100%);
+  color: #121c22;
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
+}
+
+.app-shell[data-color-scheme='dark'] {
+  background:
+    radial-gradient(circle at 4% 0%, rgba(38, 117, 143, 0.2), transparent 24rem),
+    linear-gradient(135deg, #0d1b22 0%, #10242d 55%, #102927 100%);
+  color: #ecf6f7;
 }
 
 .app-sidebar {
@@ -97,10 +119,24 @@ watch(
   border-right: 1px solid #e3ebf0;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
+  left: 0;
   padding: 28px 16px 20px;
-  position: sticky;
+  position: fixed;
   top: 0;
+  width: 236px;
+  z-index: 10;
+}
+
+.app-shell[data-color-scheme='dark'] .app-sidebar {
+  background: rgba(16, 37, 46, 0.94);
+  border-right-color: #294752;
+}
+
+.app-shell__content {
+  grid-column: 2;
+  min-width: 0;
+  overflow: visible;
 }
 
 .app-sidebar__brand {
@@ -121,12 +157,21 @@ watch(
   letter-spacing: -0.03em;
 }
 
+.app-shell[data-color-scheme='dark'] .app-sidebar__brand strong {
+  color: #ecf6f7;
+}
+
 .app-sidebar__brand small {
   color: #72818a;
   font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.13em;
   margin-top: 2px;
+}
+
+.app-shell[data-color-scheme='dark'] .app-sidebar__brand small,
+.app-shell[data-color-scheme='dark'] .app-sidebar__note {
+  color: #9bb8c0;
 }
 
 .app-sidebar__wave {
@@ -170,14 +215,28 @@ watch(
     color 160ms ease;
 }
 
+.app-shell[data-color-scheme='dark'] .app-navigation__link {
+  color: #b6d0d6;
+}
+
 .app-navigation__link:hover {
   background: #eaf1f6;
   color: #00658e;
 }
 
+.app-shell[data-color-scheme='dark'] .app-navigation__link:hover {
+  background: #1e3b47;
+  color: #73c9dd;
+}
+
 .app-navigation__link--active {
   background: #e4f4fa;
   color: #00658e;
+}
+
+.app-shell[data-color-scheme='dark'] .app-navigation__link--active {
+  background: #193f4a;
+  color: #6ad0c0;
 }
 
 .app-navigation__glyph {
@@ -194,15 +253,35 @@ watch(
   padding-top: 16px;
 }
 
+.app-shell[data-color-scheme='dark'] .app-sidebar__note {
+  border-top-color: #294752;
+}
+
 .app-menu-toggle,
 .app-sidebar__close,
 .app-navigation-overlay {
   display: none;
 }
 
+.app-shell[data-color-scheme='dark'] .app-menu-toggle {
+  background: rgba(23, 48, 58, 0.94);
+  border-color: #31505c;
+}
+
+.app-shell[data-color-scheme='dark'] .app-menu-toggle span {
+  background: #6ad0c0;
+}
+
+.app-shell[data-color-scheme='dark'] .app-sidebar__close {
+  color: #b6d0d6;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .app-menu-toggle {
@@ -258,6 +337,8 @@ watch(
   }
 
   .app-shell__content {
+    min-height: 0;
+    overflow: visible;
     padding-top: 24px;
   }
 

@@ -1,17 +1,48 @@
+export type JDSectionChildItem = {
+  end: number
+  kind: 'bullet-item'
+  marker: string
+  start: number
+  text: string
+}
+
 export type JDSectionItem =
   | { end: number; kind: 'lead'; start: number; text: string }
-  | { end: number; kind: 'ordered-item'; marker: string; start: number; text: string }
-  | { end: number; kind: 'bullet-item'; marker: string; start: number; text: string }
+  | { end: number; kind: 'group-heading'; start: number; text: string }
+  | {
+      childItems?: JDSectionChildItem[]
+      childLeadEnd?: number
+      end: number
+      kind: 'ordered-item'
+      marker: string
+      start: number
+      text: string
+    }
+  | {
+      childItems?: never
+      childLeadEnd?: never
+      end: number
+      kind: 'bullet-item'
+      marker: string
+      start: number
+      text: string
+    }
 
 export type JDSectionPresentation =
   | { items: JDSectionItem[]; kind: 'list' }
   | { end: number; kind: 'fallback'; start: number; text: string }
 
 type Marker = {
+  ambiguous?: boolean
   endUTF16: number
   kind: 'ordered-item' | 'bullet-item'
   marker: string
   serial?: number
+  startUTF16: number
+}
+
+type GroupHeading = {
+  endUTF16: number
   startUTF16: number
 }
 
@@ -30,10 +61,8 @@ const chineseOrdinalValues: Record<string, number> = {
 
 export function presentJDSection(text: string): JDSectionPresentation {
   const ordinalMarkers = collectOrdinalMarkers(text)
-  if (hasConsecutiveSerials(ordinalMarkers)) {
-    const list = buildList(text, ordinalMarkers)
-    if (list) return list
-  }
+  const ordinalList = buildOrdinalList(text, ordinalMarkers)
+  if (ordinalList) return ordinalList
 
   const bulletMarkers = collectBulletMarkers(text)
   if (bulletMarkers.length >= 2) {
@@ -44,12 +73,58 @@ export function presentJDSection(text: string): JDSectionPresentation {
   return { end: codePointLength(text), kind: 'fallback', start: 0, text }
 }
 
+function buildOrdinalList(
+  text: string,
+  markers: Marker[],
+): Extract<JDSectionPresentation, { kind: 'list' }> | undefined {
+  if (
+    markers.length === 0 ||
+    markers.some((marker) => marker.serial === undefined) ||
+    !hasOnlyInteriorAmbiguousMarkerRuns(markers)
+  ) {
+    return undefined
+  }
+
+  const initialGroupHeading = trailingGroupHeading(text, 0, markers[0]?.startUTF16 ?? 0)
+  const groupHeadings = new Map<number, GroupHeading>()
+  let explicitGroupAllowsGaps = initialGroupHeading !== undefined && markers[0]?.serial === 1
+
+  for (let index = 1; index < markers.length; index += 1) {
+    const marker = markers[index]
+    const previous = markers[index - 1]
+    if (!marker || !previous || marker.serial === undefined || previous.serial === undefined) {
+      return undefined
+    }
+    if (marker.serial === previous.serial + 1) continue
+
+    if (marker.serial !== 1) {
+      if (explicitGroupAllowsGaps && marker.serial > previous.serial) continue
+      return undefined
+    }
+
+    const heading = trailingGroupHeading(text, previous.endUTF16, marker.startUTF16)
+    if (!heading) return undefined
+    groupHeadings.set(index, heading)
+    explicitGroupAllowsGaps = true
+  }
+
+  return buildList(text, markers, groupHeadings, initialGroupHeading)
+}
+
 function collectOrdinalMarkers(text: string): Marker[] {
   const markers: Marker[] = []
-  const numeric = /(?:^|[\s；;])([1-9]\d?[、.．）)])(?=[^\d])/gu
+  const numeric = /(?:^|[\s；;])([1-9]\d?[、）)]|[1-9]\d?[ \t]?[.．])/gu
   for (const match of text.matchAll(numeric)) {
     const marker = match[1] ?? ''
-    markers.push(markerFromMatch(match, marker, 'ordered-item', Number.parseInt(marker, 10)))
+    markers.push(
+      markerFromMatch(
+        match,
+        marker,
+        'ordered-item',
+        Number.parseInt(marker, 10),
+        isAmbiguousNumericDotMarker(text, match, marker),
+      ),
+    )
   }
 
   const chinese = /(?:^|[\s；;])([一二三四五六七八九十][、.．）)])/gu
@@ -77,10 +152,12 @@ function markerFromMatch(
   marker: string,
   kind: Marker['kind'],
   serial?: number,
+  ambiguous = false,
 ): Marker {
   const fullMatch = match[0] ?? ''
   const startUTF16 = (match.index ?? 0) + fullMatch.lastIndexOf(marker)
   return {
+    ambiguous,
     endUTF16: startUTF16 + marker.length,
     kind,
     marker,
@@ -89,23 +166,46 @@ function markerFromMatch(
   }
 }
 
-function hasConsecutiveSerials(markers: Marker[]): boolean {
-  return (
-    markers.length >= 2 &&
-    markers.every(
-      (marker, index) =>
-        marker.serial !== undefined &&
-        (index === 0 || marker.serial === (markers[index - 1]?.serial ?? 0) + 1),
-    )
-  )
+function isAmbiguousNumericDotMarker(
+  text: string,
+  match: RegExpMatchArray,
+  marker: string,
+): boolean {
+  if (!/[.．]$/u.test(marker)) return false
+
+  const fullMatch = match[0] ?? ''
+  const markerStartUTF16 = (match.index ?? 0) + fullMatch.lastIndexOf(marker)
+  return /^\d$/u.test(text[markerStartUTF16 + marker.length] ?? '')
+}
+
+function hasOnlyInteriorAmbiguousMarkerRuns(markers: Marker[]): boolean {
+  let index = 0
+  while (index < markers.length) {
+    if (!markers[index]?.ambiguous) {
+      index += 1
+      continue
+    }
+
+    const runStart = index
+    while (markers[index]?.ambiguous) index += 1
+
+    if (runStart === 0 || index === markers.length) return false
+  }
+  return true
 }
 
 function buildList(
   text: string,
   markers: Marker[],
+  groupHeadings = new Map<number, GroupHeading>(),
+  initialGroupHeading?: GroupHeading,
 ): Extract<JDSectionPresentation, { kind: 'list' }> | undefined {
   const items: JDSectionItem[] = []
-  const leading = trimmedSegment(text, 0, markers[0]?.startUTF16 ?? 0)
+  const leading = trimmedSegment(
+    text,
+    0,
+    initialGroupHeading?.startUTF16 ?? markers[0]?.startUTF16 ?? 0,
+  )
   if (leading) {
     items.push({
       end: codePointLength(text.slice(0, leading.endUTF16)),
@@ -117,17 +217,106 @@ function buildList(
 
   for (const [index, marker] of markers.entries()) {
     const next = markers[index + 1]
-    const item = trimmedSegment(text, marker.endUTF16, next?.startUTF16 ?? text.length)
+    const heading = index === 0 ? initialGroupHeading : groupHeadings.get(index)
+    if (heading) {
+      items.push({
+        end: codePointLength(text.slice(0, heading.endUTF16)),
+        kind: 'group-heading',
+        start: codePointLength(text.slice(0, heading.startUTF16)),
+        text: text.slice(heading.startUTF16, heading.endUTF16),
+      })
+    }
+
+    const nextHeading = groupHeadings.get(index + 1)
+    const item = trimmedSegment(
+      text,
+      marker.endUTF16,
+      nextHeading?.startUTF16 ?? next?.startUTF16 ?? text.length,
+    )
+    if (!item) return undefined
+    items.push(listItemFromSegment(text, marker, item))
+  }
+  return { items, kind: 'list' }
+}
+
+function listItemFromSegment(
+  text: string,
+  marker: Marker,
+  item: { endUTF16: number; startUTF16: number; text: string },
+): Extract<JDSectionItem, { kind: 'bullet-item' } | { kind: 'ordered-item' }> {
+  const base = {
+    end: codePointLength(text.slice(0, item.endUTF16)),
+    marker: marker.marker,
+    start: codePointLength(text.slice(0, item.startUTF16)),
+    text: item.text,
+  }
+  if (marker.kind === 'bullet-item') return { ...base, kind: marker.kind }
+
+  const childList = compactChildList(text, item.startUTF16, item.endUTF16)
+  if (!childList) return { ...base, kind: marker.kind }
+
+  return {
+    ...base,
+    childItems: childList.items,
+    childLeadEnd: codePointLength(text.slice(0, childList.leadEndUTF16)),
+    kind: marker.kind,
+  }
+}
+
+function compactChildList(
+  text: string,
+  startUTF16: number,
+  endUTF16: number,
+): { items: JDSectionChildItem[]; leadEndUTF16: number } | undefined {
+  const source = text.slice(startUTF16, endUTF16)
+  const markers: Marker[] = []
+  const compactHyphen = /(?:^|[\s；;])(-)(?=\S)/gu
+  for (const match of source.matchAll(compactHyphen)) {
+    const marker = match[1] ?? ''
+    const fullMatch = match[0] ?? ''
+    const markerStartUTF16 = startUTF16 + (match.index ?? 0) + fullMatch.lastIndexOf(marker)
+    markers.push({
+      endUTF16: markerStartUTF16 + marker.length,
+      kind: 'bullet-item',
+      marker,
+      startUTF16: markerStartUTF16,
+    })
+  }
+  if (markers.length < 2) return undefined
+
+  const items: JDSectionChildItem[] = []
+  for (const [index, marker] of markers.entries()) {
+    const next = markers[index + 1]
+    const item = trimmedSegment(text, marker.endUTF16, next?.startUTF16 ?? endUTF16)
     if (!item) return undefined
     items.push({
       end: codePointLength(text.slice(0, item.endUTF16)),
-      kind: marker.kind,
+      kind: 'bullet-item',
       marker: marker.marker,
       start: codePointLength(text.slice(0, item.startUTF16)),
       text: item.text,
     })
   }
-  return { items, kind: 'list' }
+
+  return { items, leadEndUTF16: markers[0]?.startUTF16 ?? endUTF16 }
+}
+
+function trailingGroupHeading(
+  text: string,
+  startUTF16: number,
+  endUTF16: number,
+): GroupHeading | undefined {
+  const source = text.slice(startUTF16, endUTF16)
+  const match = /(?:^|[\s；;])((?:基础|加分项)[：:]?)\s*$/u.exec(source)
+  const heading = match?.[1]
+  if (!heading || match.index === undefined) return undefined
+
+  const fullMatch = match[0] ?? ''
+  const headingStartUTF16 = startUTF16 + match.index + fullMatch.lastIndexOf(heading)
+  return {
+    endUTF16: headingStartUTF16 + heading.length,
+    startUTF16: headingStartUTF16,
+  }
 }
 
 function trimmedSegment(

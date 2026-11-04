@@ -13,9 +13,9 @@ describe('formal JD field display', () => {
   })
 
   it('never turns an absent or non-configured requirement into zero', () => {
-    expect(formatEducation(undefined)).toBe('未明确学历要求')
-    expect(formatEducation({ explicit_requirement: false })).toBe('未明确学历要求')
-    expect(formatExperience(undefined)).toBe('未明确工作年限')
-    expect(formatExperience({ explicit_requirement: false })).toBe('未明确工作年限')
+    expect(formatEducation(undefined)).toBe('-')
+    expect(formatEducation({ explicit_requirement: false })).toBe('-')
+    expect(formatExperience(undefined)).toBe('-')
+    expect(formatExperience({ explicit_requirement: false })).toBe('-')
   })
 })

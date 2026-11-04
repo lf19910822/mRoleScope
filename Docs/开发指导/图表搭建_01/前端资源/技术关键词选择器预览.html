@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>技术关键词选择器预览</title>
+    <style>
+      :root {
+        --ink: #121c22;
+        --muted: #626a6f;
+        --line: #d1dbe1;
+        --surface: #fff;
+        --tint: #f0f8fd;
+        --hover: #eaf1f6;
+        --primary: #007bab;
+        --cyan: #008287;
+        --shadow: 0 9px 28px 0 rgba(11, 37, 50, .08), 0 12px 48px 16px rgba(11, 37, 50, .03);
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 4% 0%, rgba(80, 204, 227, .16), transparent 28%),
+          linear-gradient(135deg, #e8f2f8, #f8fcfe 58%, #eaf8f9);
+      }
+      .page { width: 1500px; margin: 0 auto; padding: 46px 56px 64px; }
+      .heading { display: flex; justify-content: space-between; align-items: end; margin: 0 0 28px; }
+      h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -.5px; }
+      .heading p { margin: 0; color: var(--muted); font-size: 15px; }
+      .hint { color: var(--primary); font-size: 13px; font-weight: 650; }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
+      .option {
+        overflow: hidden;
+        min-height: 690px;
+        border: 1px solid rgba(209, 219, 225, .9);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, .92);
+        box-shadow: var(--shadow);
+      }
+      .option__title { display: flex; align-items: baseline; gap: 9px; padding: 22px 24px 9px; }
+      .option__letter { color: var(--primary); font-size: 13px; font-weight: 800; letter-spacing: .08em; }
+      h2 { margin: 0; font-size: 18px; }
+      .option__description { min-height: 52px; margin: 0; padding: 0 24px 17px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+      .demo { padding: 0 20px 24px; }
+      .field-label { display: block; margin: 0 0 8px; color: #406980; font-size: 14px; font-weight: 700; }
+      .select-trigger {
+        display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 13px;
+        border: 1px solid #007bab; border-radius: 10px; background: #fff;
+        box-shadow: 0 0 0 2px rgba(0, 123, 171, .15);
+        color: #868d92; font-size: 14px;
+      }
+      .chevron { margin-left: auto; color: #9da9ae; font-size: 19px; line-height: 1; }
+      .menu { margin-top: 7px; overflow: hidden; border: 1px solid #e3ebf0; border-radius: 14px; background: #fff; box-shadow: var(--shadow); }
+      .search { display: flex; align-items: center; gap: 8px; height: 46px; margin: 12px; padding: 0 12px; border-radius: 10px; color: #868d92; background: var(--tint); font-size: 14px; }
+      .search b { color: #567381; font-size: 17px; font-weight: 500; }
+      .selected { display: flex; align-items: center; gap: 7px; padding: 0 12px 11px; color: var(--muted); font-size: 12px; }
+      .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 7px; background: #e5f5f7; color: #006b70; font-size: 12px; font-weight: 600; }
+      .chip .close { font-size: 15px; line-height: 10px; }
+      .menu__footer { display: flex; justify-content: space-between; padding: 10px 12px; border-top: 1px solid #e3ebf0; color: var(--muted); font-size: 12px; }
+      .menu__footer b { color: var(--primary); }
+      .category-rail { display: grid; grid-template-columns: 144px 1fr; min-height: 430px; border-top: 1px solid #e3ebf0; }
+      .category-list { padding: 8px; border-right: 1px solid #e3ebf0; background: #fbfdfe; }
+      .category { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 0 8px; border-radius: 8px; color: #48555a; font-size: 12px; }
+      .category.active { color: #00658e; background: #e3f4fa; font-weight: 700; }
+      .count { color: #7d8b90; font-variant-numeric: tabular-nums; font-weight: 500; }
+      .category.active .count { color: #007bab; }
+      .term-panel { min-width: 0; padding: 9px 10px 8px; }
+      .term-panel__title { display: flex; justify-content: space-between; padding: 3px 5px 8px; color: #406980; font-size: 12px; font-weight: 700; }
+      .term-panel__title span:last-child { color: #868d92; font-weight: 500; }
+      .term { display: flex; align-items: center; min-height: 34px; padding: 0 8px; border-radius: 8px; font-size: 14px; }
+      .term.selected-term { color: #00658e; background: #eaf6fa; font-weight: 650; }
+      .check { width: 16px; height: 16px; margin-right: 8px; border: 1px solid #b9c9cf; border-radius: 5px; background: #fff; }
+      .check.on { position: relative; border-color: var(--primary); background: var(--primary); }
+      .check.on::after { position: absolute; top: 1px; left: 4px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; content: ""; transform: rotate(45deg); }
+      .tabs { display: flex; gap: 6px; overflow: hidden; padding: 0 12px 10px; border-bottom: 1px solid #e3ebf0; }
+      .tab { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; color: #52636a; background: #f4f8fa; font-size: 12px; white-space: nowrap; }
+      .tab.active { color: #fff; background: var(--primary); font-weight: 650; }
+      .fade-tab { position: relative; width: 20px; margin-left: -25px; background: linear-gradient(to right, transparent, #fff 70%); }
+      .top-panel { min-height: 429px; padding: 8px 12px 0; }
+      .top-panel__title { display: flex; align-items: center; gap: 7px; padding: 5px 4px 9px; color: #406980; font-size: 12px; font-weight: 700; }
+      .top-panel__title em { padding: 2px 6px; border-radius: 5px; color: #007bab; background: #e3f4fa; font-style: normal; }
+      .nested { min-height: 430px; padding: 4px 12px 0; }
+      .all-row { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 9px; border-radius: 8px; color: #00658e; background: #eaf6fa; font-size: 13px; font-weight: 700; }
+      .group { margin-top: 4px; }
+      .group__head { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 0 9px; border-radius: 8px; color: #3e5159; font-size: 13px; }
+      .group__head.active { color: #00658e; background: #eef8fb; font-weight: 700; }
+      .arrow { margin-right: 6px; color: #72848b; font-size: 11px; }
+      .group__head .left { display: flex; align-items: center; }
+      .group__terms { margin: 0 0 3px 15px; padding: 2px 0 4px 10px; border-left: 2px solid #d9edf3; }
+      .group__terms .term { min-height: 30px; }
+      .search-result { margin: 7px 0 0; padding: 8px 9px; border-radius: 8px; color: #54656c; background: #f8fbfc; font-size: 12px; line-height: 1.45; }
+      .search-result b { color: var(--primary); }
+      .comparison { margin: 29px 0 0; padding: 18px 22px; border: 1px solid rgba(0, 123, 171, .15); border-radius: 14px; background: rgba(240, 248, 253, .75); }
+      .comparison strong { color: #00658e; }
+      .comparison span { color: var(--muted); font-size: 13px; }
+      @media print { body { background: #fff; } .page { padding: 20px; } }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="heading">
+        <div>
+          <h1>技术关键词选择器 · 三种预览</h1>
+          <p>共同规则：关键词始终按技术词典顺序展示；搜索始终覆盖全部技术词，不会因分类而失效。</p>
+        </div>
+        <span class="hint">仅视觉原型 · 未改动产品代码</span>
+      </header>
+
+      <section class="grid">
+        <article class="option">
+          <div class="option__title"><span class="option__letter">A</span><h2>左侧分类，右侧词典</h2></div>
+          <p class="option__description">先点类别，再从右侧按词典顺序多选。分类始终可见，适合词典继续扩充。</p>
+          <div class="demo">
+            <span class="field-label">技术关键词</span>
+            <div class="select-trigger">搜索或选择技术关键词 <span class="chevron">⌄</span></div>
+            <div class="menu">
+              <div class="search"><b>⌕</b> 输入名称即可搜索全部技术词</div>
+              <div class="selected">已选择 <span class="chip">Python <span class="close">×</span></span></div>
+              <div class="category-rail">
+                <div class="category-list">
+                  <div class="category"><span>全部技术词</span><span class="count">145</span></div>
+                  <div class="category"><span>编程语言</span><span class="count">8</span></div>
+                  <div class="category"><span>前端框架</span><span class="count">2</span></div>
+                  <div class="category"><span>数据库与存储</span><span class="count">10</span></div>
+                  <div class="category"><span>云原生</span><span class="count">14</span></div>
+                  <div class="category active"><span>AI 方法与机制</span><span class="count">11</span></div>
+                  <div class="category"><span>推理与训练</span><span class="count">10</span></div>
+                  <div class="category"><span>工程与交付</span><span class="count">10</span></div>
+                  <div class="category"><span>更多分类 ›</span></div>
+                </div>
+                <div class="term-panel">
+                  <div class="term-panel__title"><span>AI 方法与机制</span><span>11 个</span></div>
+                  <div class="term"><i class="check"></i>DAPO</div>
+                  <div class="term"><i class="check"></i>DPO</div>
+                  <div class="term"><i class="check"></i>Embedding</div>
+                  <div class="term"><i class="check"></i>GRPO</div>
+                  <div class="term"><i class="check"></i>LLM-as-Judge</div>
+                  <div class="term"><i class="check"></i>LoRA</div>
+                  <div class="term"><i class="check"></i>MoE</div>
+                  <div class="term"><i class="check"></i>PagedAttention</div>
+                  <div class="term"><i class="check"></i>PPO</div>
+                  <div class="term"><i class="check"></i>RAG</div>
+                  <div class="term"><i class="check"></i>RLHF</div>
+                </div>
+              </div>
+              <div class="menu__footer"><span>可多选</span><b>清空已选</b></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option__title"><span class="option__letter">B</span><h2>顶部分类标签</h2></div>
+          <p class="option__description">先用横向标签切换分类；可快速扫过常用类别，词典列表占据完整宽度。</p>
+          <div class="demo">
+            <span class="field-label">技术关键词</span>
+            <div class="select-trigger">搜索或选择技术关键词 <span class="chevron">⌄</span></div>
+            <div class="menu">
+              <div class="search"><b>⌕</b> 输入名称即可搜索全部技术词</div>
+              <div class="selected">已选择 <span class="chip">Python <span class="close">×</span></span></div>
+              <div class="tabs">
+                <span class="tab">全部</span><span class="tab">编程语言</span><span class="tab active">AI 方法</span><span class="tab">推理训练</span><span class="tab">数据库</span><i class="fade-tab"></i>
+              </div>
+              <div class="top-panel">
+                <div class="top-panel__title">AI 方法与机制 <em>11</em></div>
+                <div class="term"><i class="check"></i>DAPO</div>
+                <div class="term"><i class="check"></i>DPO</div>
+                <div class="term"><i class="check"></i>Embedding</div>
+                <div class="term"><i class="check"></i>GRPO</div>
+                <div class="term"><i class="check"></i>LLM-as-Judge</div>
+                <div class="term"><i class="check"></i>LoRA</div>
+                <div class="term"><i class="check"></i>MoE</div>
+                <div class="term"><i class="check"></i>PagedAttention</div>
+                <div class="term"><i class="check"></i>PPO</div>
+                <div class="term"><i class="check"></i>RAG</div>
+                <div class="term"><i class="check"></i>RLHF</div>
+              </div>
+              <div class="menu__footer"><span>左右滑动查看其他分类</span><b>清空已选</b></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option__title"><span class="option__letter">C</span><h2>可展开的分类目录</h2></div>
+          <p class="option__description">分类和词典处于同一长菜单。展开一个类别即可选词，适合先浏览、再做少量选择。</p>
+          <div class="demo">
+            <span class="field-label">技术关键词</span>
+            <div class="select-trigger">搜索或选择技术关键词 <span class="chevron">⌄</span></div>
+            <div class="menu">
+              <div class="search"><b>⌕</b> 输入名称即可搜索全部技术词</div>
+              <div class="selected">已选择 <span class="chip">Python <span class="close">×</span></span></div>
+              <div class="nested">
+                <div class="all-row"><span>全部技术词</span><span class="count">145</span></div>
+                <div class="group"><div class="group__head"><span class="left"><i class="arrow">›</i>编程语言</span><span class="count">8</span></div></div>
+                <div class="group"><div class="group__head"><span class="left"><i class="arrow">›</i>数据库与存储</span><span class="count">10</span></div></div>
+                <div class="group"><div class="group__head active"><span class="left"><i class="arrow">⌄</i>AI 方法与机制</span><span class="count">11</span></div>
+                  <div class="group__terms">
+                    <div class="term"><i class="check"></i>DAPO</div>
+                    <div class="term"><i class="check"></i>DPO</div>
+                    <div class="term"><i class="check"></i>Embedding</div>
+                    <div class="term"><i class="check"></i>GRPO</div>
+                    <div class="term"><i class="check"></i>LLM-as-Judge</div>
+                    <div class="term"><i class="check"></i>LoRA</div>
+                    <div class="term"><i class="check"></i>MoE</div>
+                  </div>
+                </div>
+                <div class="group"><div class="group__head"><span class="left"><i class="arrow">›</i>推理与训练</span><span class="count">10</span></div></div>
+                <div class="group"><div class="group__head"><span class="left"><i class="arrow">›</i>工程与交付</span><span class="count">10</span></div></div>
+                <p class="search-result">搜索 “<b>Py</b>” 时，菜单会跨分类直接显示 Python、PyTorch、PySpark 等匹配结果。</p>
+              </div>
+              <div class="menu__footer"><span>可同时展开多个分类</span><b>清空已选</b></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <aside class="comparison"><strong>我的建议：A 左侧分类，右侧词典。</strong> <span>分类入口稳定、技术词空间最大；搜索时直接切换为跨分类结果，因此“先按分类选”和“模糊搜索”两条路径互不牺牲。</span></aside>
+    </main>
+  </body>
+</html>

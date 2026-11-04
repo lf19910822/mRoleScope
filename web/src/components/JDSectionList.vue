@@ -5,6 +5,12 @@ import HighlightedText from '@/components/HighlightedText.vue'
 import { presentJDSection, type JDSectionItem } from '@/lib/jd-body-presentation'
 import type { JDDetailBodySection, TechnologyHighlightRange } from '@/lib/highlighted-text'
 
+type ListCardItem = Extract<JDSectionItem, { kind: 'bullet-item' } | { kind: 'ordered-item' }>
+type ListGroup = {
+  heading?: Extract<JDSectionItem, { kind: 'group-heading' }>
+  items: ListCardItem[]
+}
+
 const props = withDefaults(
   defineProps<{
     ranges?: readonly TechnologyHighlightRange[]
@@ -20,16 +26,24 @@ const lead = computed(() =>
     ? presentation.value.items.find((item) => item.kind === 'lead')
     : undefined,
 )
-const listItems = computed(() =>
-  presentation.value.kind === 'list'
-    ? presentation.value.items.filter(
-        (item): item is Exclude<JDSectionItem, { kind: 'lead' }> => item.kind !== 'lead',
-      )
-    : [],
-)
-const listTag = computed(() =>
-  listItems.value.every((item) => item.kind === 'bullet-item') ? 'ul' : 'ol',
-)
+const listGroups = computed<ListGroup[]>(() => {
+  if (presentation.value.kind !== 'list') return []
+
+  const groups: ListGroup[] = [{ items: [] }]
+  for (const item of presentation.value.items) {
+    if (item.kind === 'lead') continue
+    if (item.kind === 'group-heading') {
+      groups.push({ heading: item, items: [] })
+      continue
+    }
+    groups[groups.length - 1]?.items.push(item)
+  }
+  return groups.filter((group) => group.items.length > 0)
+})
+
+function listTag(items: ListCardItem[]): 'ol' | 'ul' {
+  return items.every((item) => item.kind === 'bullet-item') ? 'ul' : 'ol'
+}
 
 function displayMarker(marker: string): string {
   return marker.match(/\d+/)?.[0] ?? marker.replace(/[、.．）)]/gu, '')
@@ -56,22 +70,58 @@ function displayMarker(marker: string): string {
         :start="lead.start"
       />
     </p>
-    <component :is="listTag" class="jd-section-list__items">
-      <li v-for="item in listItems" :key="`${item.marker}-${item.start}`">
-        <span class="jd-section-list__marker" :aria-label="`第 ${displayMarker(item.marker)} 条`">
-          <span aria-hidden="true">{{ displayMarker(item.marker) }}</span>
-        </span>
-        <span class="jd-section-list__copy">
-          <HighlightedText
-            :end="item.end"
-            :ranges="ranges"
-            :section="section"
-            :source-text="text"
-            :start="item.start"
-          />
-        </span>
-      </li>
-    </component>
+    <div
+      v-for="(group, groupIndex) in listGroups"
+      :key="group.heading?.start ?? groupIndex"
+      class="jd-section-list__group"
+    >
+      <p v-if="group.heading" class="jd-section-list__group-heading">
+        <HighlightedText
+          :end="group.heading.end"
+          :ranges="ranges"
+          :section="section"
+          :source-text="text"
+          :start="group.heading.start"
+        />
+      </p>
+      <component :is="listTag(group.items)" class="jd-section-list__items">
+        <li
+          v-for="item in group.items"
+          :key="`${item.marker}-${item.start}`"
+          class="jd-section-list__card"
+        >
+          <div class="jd-section-list__card-surface">
+            <span
+              class="jd-section-list__marker"
+              :aria-label="`第 ${displayMarker(item.marker)} 条`"
+            >
+              <span aria-hidden="true">{{ displayMarker(item.marker) }}</span>
+            </span>
+            <div class="jd-section-list__copy">
+              <HighlightedText
+                v-if="!item.childItems || (item.childLeadEnd ?? item.start) > item.start"
+                :end="item.childLeadEnd ?? item.end"
+                :ranges="ranges"
+                :section="section"
+                :source-text="text"
+                :start="item.start"
+              />
+              <ul v-if="item.childItems" class="jd-section-list__child-items">
+                <li v-for="child in item.childItems" :key="`${child.marker}-${child.start}`">
+                  <HighlightedText
+                    :end="child.end"
+                    :ranges="ranges"
+                    :section="section"
+                    :source-text="text"
+                    :start="child.start"
+                  />
+                </li>
+              </ul>
+            </div>
+          </div>
+        </li>
+      </component>
+    </div>
   </div>
 </template>
 
@@ -86,6 +136,16 @@ function displayMarker(marker: string): string {
 .jd-section-list__lead {
   margin-bottom: 11px;
 }
+.jd-section-list__group + .jd-section-list__group {
+  margin-top: 24px;
+}
+.jd-section-list__group-heading {
+  color: #406980;
+  font-size: 0.79rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  margin: 0 0 10px;
+}
 .jd-section-list__items {
   display: grid;
   gap: 11px;
@@ -94,6 +154,9 @@ function displayMarker(marker: string): string {
   padding: 0;
 }
 .jd-section-list__items li {
+  position: relative;
+}
+.jd-section-list__card-surface {
   align-items: center;
   background: linear-gradient(145deg, #f8fcfd, #eef8fa);
   border: 1px solid #dceef2;
@@ -104,10 +167,7 @@ function displayMarker(marker: string): string {
   grid-template-columns: 30px minmax(0, 1fr);
   line-height: 1.82;
   padding: 15px;
-  transition:
-    border-color 240ms ease,
-    box-shadow 280ms ease,
-    transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
 }
 .jd-section-list__marker {
   align-items: center;
@@ -125,17 +185,33 @@ function displayMarker(marker: string): string {
   height: 30px;
   justify-content: center;
   line-height: 1;
+  position: relative;
   width: 30px;
 }
 .jd-section-list__copy {
   min-width: 0;
+  position: relative;
 }
-
-@media (hover: hover) and (pointer: fine) {
-  .jd-section-list__items li:hover {
-    border-color: #b9e2ea;
-    box-shadow: 0 22px 36px -25px rgba(0, 91, 123, 0.72);
-    transform: scale(1.02);
-  }
+.jd-section-list__child-items {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 11px 0 0;
+  padding: 0;
+}
+.jd-section-list__child-items > li {
+  align-items: start;
+  color: #456577;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 7px minmax(0, 1fr);
+}
+.jd-section-list__child-items > li::before {
+  background: #63b9cc;
+  border-radius: 999px;
+  content: '';
+  height: 5px;
+  margin-top: 0.73em;
+  width: 5px;
 }
 </style>

@@ -1,0 +1,337 @@
+{
+  "$schema": "./theme.schema.json",
+  "id": "ocean-breeze",
+  "name": "Ocean Breeze",
+  "author": "naiveuithemes",
+  "description": "Sky blue with a neighboring cyan accent, filled inputs and generous rounded corners.",
+  "category": "soft",
+  "tags": [
+    "blue",
+    "cyan",
+    "rounded"
+  ],
+  "light": {
+    "Button": {
+      "fontWeight": "600",
+      "paddingMedium": "0 20px",
+      "paddingSmall": "0 10px",
+      "paddingLarge": "0 24px",
+      "borderRadiusTiny": "6px",
+      "borderRadiusSmall": "6px",
+      "borderRadiusMedium": "10px",
+      "borderRadiusLarge": "10px",
+      "border": "1px solid #d1dbe1"
+    },
+    "Input": {
+      "borderRadius": "10px",
+      "paddingMedium": "0 14px",
+      "color": "#f0f8fd",
+      "colorFocus": "#ffffff",
+      "border": "1px solid transparent",
+      "borderHover": "1px solid transparent",
+      "borderFocus": "1px solid #007bab",
+      "boxShadowFocus": "0 0 0 2px rgba(0, 123, 171, 0.2)"
+    },
+    "InternalSelection": {
+      "borderRadius": "10px",
+      "color": "#f0f8fd",
+      "colorActive": "#ffffff",
+      "border": "1px solid transparent",
+      "borderHover": "1px solid transparent",
+      "borderActive": "1px solid #007bab",
+      "borderFocus": "1px solid #007bab",
+      "boxShadowActive": "0 0 0 2px rgba(0, 123, 171, 0.2)",
+      "boxShadowFocus": "0 0 0 2px rgba(0, 123, 171, 0.2)"
+    },
+    "Card": {
+      "borderRadius": "16px",
+      "paddingMedium": "24px 28px 26px",
+      "paddingSmall": "18px 20px 20px",
+      "titleFontSizeMedium": "17px",
+      "titleFontSizeSmall": "16px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "titleFontWeight": "600"
+    },
+    "DataTable": {
+      "thPaddingSmall": "12px 14px",
+      "tdPaddingSmall": "12px 14px",
+      "thPaddingMedium": "14px 16px",
+      "tdPaddingMedium": "16px",
+      "thPaddingLarge": "18px 20px",
+      "tdPaddingLarge": "18px 20px",
+      "thFontWeight": "600",
+      "borderRadius": "10px"
+    },
+    "Menu": {
+      "itemHeight": "46px",
+      "borderRadius": "10px"
+    },
+    "Tag": {
+      "borderRadius": "8px"
+    },
+    "Checkbox": {
+      "sizeMedium": "18px",
+      "borderRadius": "5px"
+    },
+    "Avatar": {
+      "color": "#406980"
+    },
+    "Switch": {
+      "railHeightSmall": "22px",
+      "buttonHeightSmall": "18px",
+      "buttonWidthSmall": "18px",
+      "buttonWidthPressedSmall": "calc(18px + 3px)",
+      "railWidthSmall": "40px",
+      "railBorderRadiusSmall": "999px",
+      "buttonBorderRadiusSmall": "999px",
+      "railBorderRadiusLarge": "999px",
+      "buttonBorderRadiusLarge": "999px",
+      "railHeightMedium": "26px",
+      "buttonHeightMedium": "22px",
+      "buttonWidthMedium": "22px",
+      "buttonWidthPressedMedium": "calc(22px + 4px)",
+      "railWidthMedium": "46px",
+      "railBorderRadiusMedium": "999px",
+      "buttonBorderRadiusMedium": "999px"
+    },
+    "Slider": {
+      "railHeight": "6px",
+      "handleSize": "18px"
+    },
+    "Tabs": {
+      "tabGapMediumLine": "44px",
+      "tabBorderRadius": "6px",
+      "tabFontWeightActive": "600"
+    },
+    "Layout": {
+      "siderColor": "#ffffff",
+      "headerColor": "#ffffff",
+      "footerColor": "#ffffff",
+      "headerBorderColor": "#e3ebf0",
+      "siderBorderColor": "#e3ebf0"
+    },
+    "Radio": {
+      "buttonBorderRadius": "6px"
+    },
+    "common": {
+      "primaryColor": "#007bab",
+      "primaryColorHover": "#188ec2",
+      "primaryColorPressed": "#00658e",
+      "primaryColorSuppl": "#188ec2",
+      "infoColor": "#008287",
+      "infoColorHover": "#00959c",
+      "infoColorPressed": "#006b70",
+      "infoColorSuppl": "#00959c",
+      "successColor": "#008a5a",
+      "successColorHover": "#1c9e6a",
+      "successColorPressed": "#00734a",
+      "successColorSuppl": "#1c9e6a",
+      "warningColor": "#d19a00",
+      "warningColorHover": "#e3ae37",
+      "warningColorPressed": "#b68600",
+      "warningColorSuppl": "#e3ae37",
+      "errorColor": "#b44953",
+      "errorColorHover": "#c65e66",
+      "errorColorPressed": "#9d3340",
+      "errorColorSuppl": "#c65e66",
+      "bodyColor": "#e8f2f8",
+      "cardColor": "#ffffff",
+      "modalColor": "#ffffff",
+      "popoverColor": "#ffffff",
+      "tableColor": "#ffffff",
+      "tableHeaderColor": "#f0f8fd",
+      "actionColor": "#f0f8fd",
+      "hoverColor": "#eaf1f6",
+      "inputColor": "#ffffff",
+      "borderColor": "#d1dbe1",
+      "dividerColor": "#e3ebf0",
+      "textColorBase": "#000000",
+      "textColor1": "#121c22",
+      "textColor2": "#2e373c",
+      "textColor3": "#626a6f",
+      "placeholderColor": "#868d92",
+      "baseColor": "#ffffff",
+      "heightMini": "18px",
+      "heightTiny": "24px",
+      "heightSmall": "32px",
+      "heightMedium": "40px",
+      "heightLarge": "46px",
+      "heightHuge": "52px",
+      "fontSize": "15px",
+      "fontSizeSmall": "14px",
+      "fontSizeMedium": "15px",
+      "fontSizeLarge": "16px",
+      "fontSizeHuge": "17px",
+      "borderRadius": "10px",
+      "borderRadiusSmall": "6px",
+      "fontFamily": "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+      "fontFamilyMono": "'JetBrains Mono', ui-monospace, monospace",
+      "fontWeightStrong": "600",
+      "boxShadow1": "0 1px 2px -2px rgba(11, 37, 50, 0.08), 0 3px 6px 0 rgba(11, 37, 50, 0.06), 0 5px 12px 4px rgba(11, 37, 50, 0.04)",
+      "boxShadow2": "0 3px 6px -4px rgba(11, 37, 50, 0.12), 0 6px 16px 0 rgba(11, 37, 50, 0.08), 0 9px 28px 8px rgba(11, 37, 50, 0.05)",
+      "boxShadow3": "0 6px 16px -9px rgba(11, 37, 50, 0.08), 0 9px 28px 0 rgba(11, 37, 50, 0.05), 0 12px 48px 16px rgba(11, 37, 50, 0.03)"
+    }
+  },
+  "dark": {
+    "Button": {
+      "fontWeight": "600",
+      "paddingMedium": "0 20px",
+      "paddingSmall": "0 10px",
+      "paddingLarge": "0 24px",
+      "borderRadiusTiny": "6px",
+      "borderRadiusSmall": "6px",
+      "borderRadiusMedium": "10px",
+      "borderRadiusLarge": "10px",
+      "border": "1px solid #353f44"
+    },
+    "Input": {
+      "borderRadius": "10px",
+      "paddingMedium": "0 14px",
+      "color": "#1f262b",
+      "colorFocus": "#141b1f",
+      "border": "1px solid transparent",
+      "borderHover": "1px solid transparent",
+      "borderFocus": "1px solid #56b6ea",
+      "boxShadowFocus": "0 0 0 2px rgba(86, 182, 234, 0.35)"
+    },
+    "InternalSelection": {
+      "borderRadius": "10px",
+      "color": "#1f262b",
+      "colorActive": "#141b1f",
+      "border": "1px solid transparent",
+      "borderHover": "1px solid transparent",
+      "borderActive": "1px solid #56b6ea",
+      "borderFocus": "1px solid #56b6ea",
+      "boxShadowActive": "0 0 0 2px rgba(86, 182, 234, 0.35)",
+      "boxShadowFocus": "0 0 0 2px rgba(86, 182, 234, 0.35)"
+    },
+    "Card": {
+      "borderRadius": "16px",
+      "paddingMedium": "24px 28px 26px",
+      "paddingSmall": "18px 20px 20px",
+      "titleFontSizeMedium": "17px",
+      "titleFontSizeSmall": "16px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "titleFontWeight": "600"
+    },
+    "DataTable": {
+      "thPaddingSmall": "12px 14px",
+      "tdPaddingSmall": "12px 14px",
+      "thPaddingMedium": "14px 16px",
+      "tdPaddingMedium": "16px",
+      "thPaddingLarge": "18px 20px",
+      "tdPaddingLarge": "18px 20px",
+      "thFontWeight": "600",
+      "borderRadius": "10px"
+    },
+    "Menu": {
+      "itemHeight": "46px",
+      "borderRadius": "10px"
+    },
+    "Tag": {
+      "borderRadius": "8px"
+    },
+    "Checkbox": {
+      "sizeMedium": "18px",
+      "borderRadius": "5px"
+    },
+    "Avatar": {
+      "color": "#2a5269"
+    },
+    "Switch": {
+      "railHeightSmall": "22px",
+      "buttonHeightSmall": "18px",
+      "buttonWidthSmall": "18px",
+      "buttonWidthPressedSmall": "calc(18px + 3px)",
+      "railWidthSmall": "40px",
+      "railBorderRadiusSmall": "999px",
+      "buttonBorderRadiusSmall": "999px",
+      "railBorderRadiusLarge": "999px",
+      "buttonBorderRadiusLarge": "999px",
+      "railHeightMedium": "26px",
+      "buttonHeightMedium": "22px",
+      "buttonWidthMedium": "22px",
+      "buttonWidthPressedMedium": "calc(22px + 4px)",
+      "railWidthMedium": "46px",
+      "railBorderRadiusMedium": "999px",
+      "buttonBorderRadiusMedium": "999px"
+    },
+    "Slider": {
+      "railHeight": "6px",
+      "handleSize": "18px"
+    },
+    "Tabs": {
+      "tabGapMediumLine": "44px",
+      "tabBorderRadius": "6px",
+      "tabFontWeightActive": "600"
+    },
+    "Layout": {
+      "siderColor": "#141b1f",
+      "headerColor": "#141b1f",
+      "footerColor": "#141b1f",
+      "headerBorderColor": "#222a30",
+      "siderBorderColor": "#222a30"
+    },
+    "Radio": {
+      "buttonBorderRadius": "6px"
+    },
+    "common": {
+      "primaryColor": "#56b6ea",
+      "primaryColorHover": "#6dc6f8",
+      "primaryColorPressed": "#3a9dcf",
+      "primaryColorSuppl": "#337da3",
+      "infoColor": "#25c8d0",
+      "infoColorHover": "#4dd8df",
+      "infoColorPressed": "#00adb4",
+      "infoColorSuppl": "#008b91",
+      "successColor": "#4fcc92",
+      "successColorHover": "#69dba3",
+      "successColorPressed": "#2eb27a",
+      "successColorSuppl": "#2e8e63",
+      "warningColor": "#fac044",
+      "warningColorHover": "#ffd481",
+      "warningColorPressed": "#dfa71d",
+      "warningColorSuppl": "#b68b2b",
+      "errorColor": "#ef7d85",
+      "errorColorHover": "#fd8f96",
+      "errorColorPressed": "#d3646d",
+      "errorColorSuppl": "#a65157",
+      "bodyColor": "#0c1317",
+      "cardColor": "#141b1f",
+      "modalColor": "#1b2226",
+      "popoverColor": "#22292d",
+      "tableColor": "#141b1f",
+      "tableHeaderColor": "#192025",
+      "actionColor": "#192025",
+      "hoverColor": "#1f262b",
+      "inputColor": "#192025",
+      "borderColor": "#353f44",
+      "dividerColor": "#222a30",
+      "textColorBase": "#ffffff",
+      "textColor1": "#eef3f6",
+      "textColor2": "#d3d8dc",
+      "textColor3": "#98a0a4",
+      "placeholderColor": "#7b8186",
+      "baseColor": "#000000",
+      "heightMini": "18px",
+      "heightTiny": "24px",
+      "heightSmall": "32px",
+      "heightMedium": "40px",
+      "heightLarge": "46px",
+      "heightHuge": "52px",
+      "fontSize": "15px",
+      "fontSizeSmall": "14px",
+      "fontSizeMedium": "15px",
+      "fontSizeLarge": "16px",
+      "fontSizeHuge": "17px",
+      "borderRadius": "10px",
+      "borderRadiusSmall": "6px",
+      "fontFamily": "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+      "fontFamilyMono": "'JetBrains Mono', ui-monospace, monospace",
+      "fontWeightStrong": "600",
+      "boxShadow1": "0 1px 2px -2px rgba(0, 0, 0, 0.17600000000000002), 0 3px 6px 0 rgba(0, 0, 0, 0.132), 0 5px 12px 4px rgba(0, 0, 0, 0.08800000000000001)",
+      "boxShadow2": "0 3px 6px -4px rgba(0, 0, 0, 0.264), 0 6px 16px 0 rgba(0, 0, 0, 0.17600000000000002), 0 9px 28px 8px rgba(0, 0, 0, 0.11000000000000001)",
+      "boxShadow3": "0 6px 16px -9px rgba(0, 0, 0, 0.17600000000000002), 0 9px 28px 0 rgba(0, 0, 0, 0.11000000000000001), 0 12px 48px 16px rgba(0, 0, 0, 0.066)"
+    }
+  }
+}

@@ -69,9 +69,10 @@ defineProps<{ visible: boolean }>()
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .app-request-loader__tide i {
-    animation: none;
-  }
+:global(.app-shell[data-color-scheme='dark'] .app-request-loader) {
+  background: rgba(23, 48, 58, 0.96);
+  border-color: #315d6d;
+  box-shadow: 0 14px 32px -22px rgba(0, 0, 0, 0.72);
+  color: #c7e8ee;
 }
 </style>

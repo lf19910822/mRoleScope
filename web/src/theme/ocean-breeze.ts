@@ -1,8 +1,6 @@
 import type { GlobalThemeOverrides } from 'naive-ui'
 
 // Derived from Docs/开发指导/图表搭建_01/前端资源/ocean-breeze.json.
-// Keeping the runtime values in TypeScript lets the browser bundle only the
-// light theme selected for this release.
 export const oceanBreezeThemeOverrides: GlobalThemeOverrides = {
   common: {
     actionColor: '#f0f8fd',
@@ -52,6 +50,19 @@ export const oceanBreezeThemeOverrides: GlobalThemeOverrides = {
     thFontWeight: '600',
     thPaddingMedium: '14px 16px',
   },
+  DatePicker: {
+    calendarDaysTextColor: '#626a6f',
+    calendarTitleTextColor: '#17323d',
+    itemBorderRadius: '8px',
+    itemColorActive: '#007bab',
+    itemColorHover: '#dff1f7',
+    itemTextColorActive: '#ffffff',
+    panelBorderRadius: '14px',
+    panelBoxShadow: 'none',
+    panelColor: '#ffffff',
+    panelHeaderDividerColor: '#e3ebf0',
+    panelTextColor: '#2e373c',
+  },
   Input: {
     border: '1px solid transparent',
     borderFocus: '1px solid #007bab',
@@ -69,6 +80,89 @@ export const oceanBreezeThemeOverrides: GlobalThemeOverrides = {
     borderRadius: '10px',
     color: '#f0f8fd',
     colorActive: '#ffffff',
+  },
+  Tag: { borderRadius: '8px' },
+}
+
+export const oceanBreezeDarkThemeOverrides: GlobalThemeOverrides = {
+  common: {
+    actionColor: '#1b3440',
+    baseColor: '#132730',
+    bodyColor: '#0d1b22',
+    borderColor: '#31505c',
+    borderRadius: '10px',
+    borderRadiusSmall: '6px',
+    cardColor: '#17303a',
+    dividerColor: '#294752',
+    errorColor: '#ee8a95',
+    fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    fontWeightStrong: '600',
+    hoverColor: '#203d48',
+    infoColor: '#39b5a3',
+    inputColor: '#19323c',
+    placeholderColor: '#8eabb5',
+    primaryColor: '#2d9fc2',
+    primaryColorHover: '#53b4d0',
+    primaryColorPressed: '#187e9f',
+    primaryColorSuppl: '#53b4d0',
+    successColor: '#4fc78e',
+    tableColor: '#17303a',
+    tableHeaderColor: '#1c3944',
+    textColor1: '#ecf6f7',
+    textColor2: '#c6dce1',
+    textColor3: '#9bb8c0',
+    warningColor: '#f2c45d',
+  },
+  Button: {
+    borderRadiusLarge: '10px',
+    borderRadiusMedium: '10px',
+    borderRadiusSmall: '6px',
+    fontWeight: '600',
+    paddingLarge: '0 24px',
+    paddingMedium: '0 20px',
+  },
+  Card: {
+    borderColor: 'rgba(0, 0, 0, 0)',
+    borderRadius: '16px',
+    paddingMedium: '24px 28px 26px',
+    titleFontWeight: '600',
+  },
+  DataTable: {
+    borderRadius: '10px',
+    tdPaddingMedium: '16px',
+    thFontWeight: '600',
+    thPaddingMedium: '14px 16px',
+  },
+  DatePicker: {
+    calendarDaysTextColor: '#9bb8c0',
+    calendarTitleTextColor: '#ecf6f7',
+    itemBorderRadius: '8px',
+    itemColorActive: '#2d9fc2',
+    itemColorHover: '#274752',
+    itemTextColorActive: '#0d1b22',
+    panelBorderRadius: '14px',
+    panelBoxShadow: 'none',
+    panelColor: '#17303a',
+    panelHeaderDividerColor: '#294752',
+    panelTextColor: '#c6dce1',
+  },
+  Input: {
+    border: '1px solid transparent',
+    borderFocus: '1px solid #39b5a3',
+    borderHover: '1px solid transparent',
+    borderRadius: '10px',
+    color: '#1b3440',
+    colorFocus: '#203d48',
+    paddingMedium: '0 14px',
+  },
+  InternalSelection: {
+    border: '1px solid transparent',
+    borderActive: '1px solid #39b5a3',
+    borderFocus: '1px solid #39b5a3',
+    borderHover: '1px solid transparent',
+    borderRadius: '10px',
+    color: '#1b3440',
+    colorActive: '#203d48',
   },
   Tag: { borderRadius: '8px' },
 }
