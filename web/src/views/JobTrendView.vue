@@ -15,7 +15,12 @@ import { computed, onMounted, ref } from 'vue'
 import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 
 import { getFilterOptions, type FilterOptionsResponse } from '@/api/jd-api'
-import { createTrendChartOption, trendCurveLabel } from '@/lib/job-trend-chart'
+import {
+  createTrendChartOption,
+  trendCurveColor,
+  trendCurveLabel,
+  trendCurveObservationSummary,
+} from '@/lib/job-trend-chart'
 import { useJobTrendDashboard } from '@/lib/job-trend-dashboard'
 import type {
   TrendComparison,
@@ -37,6 +42,7 @@ const dashboard = useJobTrendDashboard()
 const trendChart = ref<VChartExposed | null>(null)
 const mobileConfigurationOpen = ref(false)
 const filterOptionsError = ref('')
+const curveFeedback = ref('')
 const filterOptions = ref<FilterOptionsResponse>({
   activity_states: [],
   education_levels: [],
@@ -49,9 +55,7 @@ const filterOptions = ref<FilterOptionsResponse>({
   technology_keywords: [],
   urgent_options: [],
 })
-const pointFeedback = ref('')
 const osTheme = useOsTheme()
-let pointFeedbackTimer: ReturnType<typeof setTimeout> | undefined
 
 const rangeOptions: Array<{ label: string; value: TrendRange }> = [
   { label: '本周', value: 'week' },
@@ -138,8 +142,15 @@ function addCurve(): void {
     value: '',
   })
   if (curve === null) {
-    pointFeedback.value = curveLimitReached.value ? '最多添加 8 条曲线。' : '请先完成当前这条曲线。'
+    curveFeedback.value = curveLimitReached.value ? '最多添加 8 条曲线。' : '请先完成当前这条曲线。'
+  } else {
+    curveFeedback.value = ''
   }
+}
+
+function startFirstCurve(): void {
+  addCurve()
+  if (dashboard.rows.length > 0) mobileConfigurationOpen.value = true
 }
 
 function changeCurveDimension(row: TrendCurveRow, value: string | number | null): void {
@@ -195,8 +206,19 @@ function resetTrendView(): void {
   }
 }
 
+function curveObservationText(row: TrendCurveRow): string {
+  const observation = trendCurveObservationSummary(row)
+  if (observation === undefined) return ''
+  const delta =
+    observation.delta === undefined
+      ? ''
+      : ` · 较前一有效日 ${observation.delta > 0 ? '+' : ''}${observation.delta}`
+  return `最近观测 ${observation.count}${delta}`
+}
+
 function removeCurve(row: TrendCurveRow): void {
   dashboard.removeCurve(row.id)
+  if (dashboard.rows.length === 0) mobileConfigurationOpen.value = false
 }
 
 function chartLegendChanged(event: unknown): void {
@@ -207,16 +229,6 @@ function chartLegendChanged(event: unknown): void {
   const visible = candidate.selected[candidate.name]
   if (row !== undefined && typeof visible === 'boolean')
     dashboard.setCurveVisibility(row.id, visible)
-}
-
-function chartPointClicked(event: { data?: unknown }): void {
-  const data = event.data
-  if (!Array.isArray(data) || typeof data[0] !== 'string') return
-  pointFeedback.value = `已聚焦 ${data[0]} 的数据点。`
-  if (pointFeedbackTimer !== undefined) clearTimeout(pointFeedbackTimer)
-  pointFeedbackTimer = setTimeout(() => {
-    pointFeedback.value = ''
-  }, 1600)
 }
 
 onMounted(async () => {
@@ -236,7 +248,7 @@ onMounted(async () => {
         <div>
           <p class="job-trend-view__eyebrow">岗位趋势</p>
           <h1 id="trend-dashboard-title">岗位需求变化趋势</h1>
-          <p>每个点是当日快照中匹配的独立岗位数。</p>
+          <p>每点为当日匹配岗位数。</p>
         </div>
         <div class="job-trend-view__header-actions">
           <NButton
@@ -249,9 +261,9 @@ onMounted(async () => {
             复位视图
           </NButton>
           <NButton
+            v-if="hasRenderedSeries"
             tertiary
             size="small"
-            :disabled="dashboard.rows.length === 0"
             @click="refreshAll"
           >
             刷新数据
@@ -270,6 +282,13 @@ onMounted(async () => {
           {{ option.label }}
         </NButton>
       </nav>
+      <p
+        v-if="dashboard.range === 'all' && hasRenderedSeries"
+        class="job-trend-view__all-history-gestures"
+        data-testid="all-history-gestures"
+      >
+        滚轮缩放时间 · Shift+滚轮缩放岗位数 · 拖拽平移
+      </p>
 
       <div
         class="job-trend-view__chart-region"
@@ -285,7 +304,6 @@ onMounted(async () => {
           :loading="isRefreshing"
           :loading-options="{ color: '#007cab', maskColor: 'rgba(255,255,255,0.54)', text: '' }"
           :autoresize="{ throttle: 120 }"
-          @click="chartPointClicked"
           @legendselectchanged="chartLegendChanged"
         />
         <section
@@ -294,9 +312,11 @@ onMounted(async () => {
           data-testid="trend-empty-state"
           aria-live="polite"
         >
-          <NEmpty description="添加一条曲线，开始查看岗位趋势。">
+          <NEmpty description="先设定一个观察条件，再比较岗位需求变化。">
             <template #extra>
-              <NButton type="primary" @click="addCurve">添加曲线</NButton>
+              <NButton data-testid="start-first-curve" type="primary" @click="startFirstCurve"
+                >开始配置首条曲线</NButton
+              >
             </template>
           </NEmpty>
         </section>
@@ -308,10 +328,9 @@ onMounted(async () => {
           正在更新曲线…
         </div>
       </div>
-      <p v-if="pointFeedback" class="job-trend-view__feedback" role="status">{{ pointFeedback }}</p>
     </section>
 
-    <div class="job-trend-view__mobile-panel">
+    <div v-if="dashboard.rows.length" class="job-trend-view__mobile-panel">
       <NButton
         data-testid="open-trend-configuration"
         type="primary"
@@ -347,14 +366,32 @@ onMounted(async () => {
       <p v-if="filterOptionsError" class="job-trend-view__options-error" role="alert">
         {{ filterOptionsError }}
       </p>
+      <p v-if="curveFeedback" class="job-trend-view__curve-feedback" role="status">
+        {{ curveFeedback }}
+      </p>
 
       <ol v-if="dashboard.rows.length" class="job-trend-view__curve-list">
         <li v-for="(row, index) in dashboard.rows" :key="row.id" class="job-trend-view__curve-row">
           <header>
+            <span
+              :data-testid="`curve-marker-${row.id}`"
+              class="job-trend-view__curve-marker"
+              :style="{ '--curve-color': trendCurveColor(row) }"
+              aria-hidden="true"
+            />
             <span class="job-trend-view__curve-index">{{
               String(index + 1).padStart(2, '0')
             }}</span>
-            <strong>{{ trendCurveLabel(row) || '未设置曲线' }}</strong>
+            <div class="job-trend-view__curve-identity">
+              <strong>{{ trendCurveLabel(row) || '未设置曲线' }}</strong>
+              <span
+                v-if="curveObservationText(row)"
+                :data-testid="`curve-observation-${row.id}`"
+                class="job-trend-view__curve-observation"
+              >
+                {{ curveObservationText(row) }}
+              </span>
+            </div>
             <button type="button" aria-label="删除曲线" @click="removeCurve(row)">×</button>
           </header>
 
@@ -445,7 +482,7 @@ onMounted(async () => {
         </li>
       </ol>
 
-      <div class="job-trend-view__rail-footer">
+      <div v-if="dashboard.rows.length" class="job-trend-view__rail-footer">
         <span>{{ dashboard.rows.length }}/8 条</span>
         <NButton size="small" :disabled="curveLimitReached" @click="addCurve">+ 添加曲线</NButton>
       </div>
@@ -455,14 +492,26 @@ onMounted(async () => {
 
 <style scoped>
 .job-trend-view {
+  --trend-card-surface: rgba(255, 255, 255, 0.96);
+  --trend-curve-border: #e1ebef;
+  --trend-curve-surface: #f8fcfd;
+  --trend-ink: #14313d;
+  --trend-muted: #687981;
+  --trend-rail-surface: rgba(255, 255, 255, 0.98);
+  --trend-rule: #dce8ed;
+  --trend-rule-soft: #e6eef1;
+  --trend-strong: #27424d;
+  --trend-subtle: #71828a;
+  --trend-surface-shadow: 0 20px 44px -38px rgba(17, 73, 96, 0.56);
+  --trend-rail-shadow: -18px 0 42px -38px rgba(11, 61, 82, 0.54);
   min-height: 100vh;
   padding: 28px 420px 32px 32px;
 }
 .job-trend-view__chart-card {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #dce8ed;
+  background: var(--trend-card-surface);
+  border: 1px solid var(--trend-rule);
   border-radius: 20px;
-  box-shadow: 0 20px 44px -38px rgba(17, 73, 96, 0.56);
+  box-shadow: var(--trend-surface-shadow);
   min-height: calc(100dvh - 60px);
   overflow: hidden;
 }
@@ -481,23 +530,30 @@ onMounted(async () => {
   margin: 0 0 6px;
 }
 .job-trend-view__header h1 {
-  color: #14313d;
+  color: var(--trend-ink);
   font-size: clamp(1.35rem, 2.2vw, 1.82rem);
   letter-spacing: -0.045em;
   line-height: 1.2;
   margin: 0;
 }
 .job-trend-view__header p:not(.job-trend-view__eyebrow) {
-  color: #687981;
+  color: var(--trend-muted);
   font-size: 0.82rem;
   margin: 8px 0 0;
 }
 .job-trend-view__ranges {
-  border-bottom: 1px solid #e6eef1;
+  border-bottom: 1px solid var(--trend-rule-soft);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   padding: 0 34px 18px;
+}
+.job-trend-view__all-history-gestures {
+  color: var(--trend-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.67rem;
+  letter-spacing: -0.01em;
+  margin: -8px 34px 4px;
 }
 .job-trend-view__chart-region {
   min-height: 540px;
@@ -510,7 +566,7 @@ onMounted(async () => {
 }
 .job-trend-view__empty {
   align-items: center;
-  color: #62767f;
+  color: var(--trend-muted);
   display: flex;
   height: 510px;
   justify-content: center;
@@ -525,16 +581,17 @@ onMounted(async () => {
   position: absolute;
   text-align: center;
 }
-.job-trend-view__feedback {
+.job-trend-view__curve-feedback {
   color: #00716f;
   font-size: 0.78rem;
-  margin: 0 34px 12px;
+  line-height: 1.45;
+  margin: 0 2px 12px;
 }
 .job-trend-view__rail {
-  background: rgba(255, 255, 255, 0.98);
-  border-left: 1px solid #dce8ed;
+  background: var(--trend-rail-surface);
+  border-left: 1px solid var(--trend-rule);
   bottom: 0;
-  box-shadow: -18px 0 42px -38px rgba(11, 61, 82, 0.54);
+  box-shadow: var(--trend-rail-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -552,14 +609,14 @@ onMounted(async () => {
   padding: 0 4px 17px;
 }
 .job-trend-view__rail-header p {
-  color: #18333f;
+  color: var(--trend-ink);
   font-size: 1rem;
   font-weight: 740;
   letter-spacing: -0.02em;
   margin: 0;
 }
 .job-trend-view__rail-header small {
-  color: #7b8b92;
+  color: var(--trend-subtle);
   display: block;
   font-size: 0.72rem;
   margin-top: 4px;
@@ -567,7 +624,7 @@ onMounted(async () => {
 .job-trend-view__rail-close {
   background: transparent;
   border: 0;
-  color: #52717f;
+  color: var(--trend-muted);
   cursor: pointer;
   display: none;
   font-size: 1.55rem;
@@ -590,8 +647,8 @@ onMounted(async () => {
   padding: 0 2px 12px;
 }
 .job-trend-view__curve-row {
-  background: #f8fcfd;
-  border: 1px solid #e1ebef;
+  background: var(--trend-curve-surface);
+  border: 1px solid var(--trend-curve-border);
   border-radius: 13px;
   display: grid;
   gap: 10px;
@@ -603,17 +660,36 @@ onMounted(async () => {
   gap: 8px;
   min-width: 0;
 }
-.job-trend-view__curve-row > header strong {
-  color: #27424d;
+.job-trend-view__curve-marker {
+  background: var(--curve-color);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--curve-color), transparent 84%);
+  flex: 0 0 auto;
+  height: 8px;
+  width: 8px;
+}
+.job-trend-view__curve-identity {
+  display: grid;
   flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.job-trend-view__curve-identity strong {
+  color: var(--trend-strong);
   font-size: 0.76rem;
   line-height: 1.35;
   min-width: 0;
 }
+.job-trend-view__curve-observation {
+  color: var(--trend-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
 .job-trend-view__curve-row > header button {
   background: transparent;
   border: 0;
-  color: #84959c;
+  color: var(--trend-subtle);
   cursor: pointer;
   font-size: 1.2rem;
   line-height: 1;
@@ -626,7 +702,7 @@ onMounted(async () => {
   font-weight: 760;
 }
 .job-trend-view__curve-row label {
-  color: #687981;
+  color: var(--trend-muted);
   display: grid;
   font-size: 0.69rem;
   font-weight: 700;
@@ -649,12 +725,12 @@ onMounted(async () => {
   justify-content: space-between;
 }
 .job-trend-view__curve-actions {
-  border-top: 1px solid #e6eef1;
+  border-top: 1px solid var(--trend-rule-soft);
   margin-top: 1px;
   padding-top: 10px;
 }
 .job-trend-view__curve-state {
-  color: #778a92;
+  color: var(--trend-subtle);
   font-size: 0.71rem;
 }
 .job-trend-view__curve-state--loading {
@@ -664,8 +740,8 @@ onMounted(async () => {
   color: #a8424d;
 }
 .job-trend-view__rail-footer {
-  border-top: 1px solid #e2ecf0;
-  color: #71828a;
+  border-top: 1px solid var(--trend-rule-soft);
+  color: var(--trend-subtle);
   font-size: 0.72rem;
   margin-top: auto;
   padding: 14px 4px 0;
@@ -673,34 +749,19 @@ onMounted(async () => {
 .job-trend-view__mobile-panel {
   display: none;
 }
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__chart-card) {
-  background: rgba(22, 47, 58, 0.96);
-  border-color: #2b4c58;
-  box-shadow: 0 20px 44px -38px rgba(0, 0, 0, 0.86);
-}
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__header h1),
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__rail-header p),
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__curve-row > header strong) {
-  color: #edf7f8;
-}
-:global(
-  .app-shell[data-color-scheme='dark'] .job-trend-view__header p:not(.job-trend-view__eyebrow)
-),
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__empty) {
-  color: #a8c3ca;
-}
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ranges),
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__curve-actions) {
-  border-color: #294752;
-}
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__rail) {
-  background: rgba(16, 37, 46, 0.98);
-  border-color: #294752;
-  box-shadow: -18px 0 42px -38px rgba(0, 0, 0, 0.86);
-}
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__curve-row) {
-  background: #18313b;
-  border-color: #294752;
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view) {
+  --trend-card-surface: rgba(22, 47, 58, 0.96);
+  --trend-curve-border: #294752;
+  --trend-curve-surface: #18313b;
+  --trend-ink: #edf7f8;
+  --trend-muted: #a8c3ca;
+  --trend-rail-surface: rgba(16, 37, 46, 0.98);
+  --trend-rule: #2b4c58;
+  --trend-rule-soft: #294752;
+  --trend-strong: #edf7f8;
+  --trend-subtle: #b7ccd2;
+  --trend-surface-shadow: 0 20px 44px -38px rgba(0, 0, 0, 0.86);
+  --trend-rail-shadow: -18px 0 42px -38px rgba(0, 0, 0, 0.86);
 }
 @media (max-width: 1120px) {
   .job-trend-view {
@@ -714,6 +775,7 @@ onMounted(async () => {
   .job-trend-view {
     min-height: auto;
     padding: 64px 16px 24px;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
   }
   .job-trend-view__chart-card {
     min-height: 0;
@@ -728,6 +790,9 @@ onMounted(async () => {
     gap: 6px;
     padding: 0 22px 14px;
   }
+  .job-trend-view__all-history-gestures {
+    display: none;
+  }
   .job-trend-view__chart-region {
     min-height: 430px;
     padding: 4px 4px 12px;
@@ -737,7 +802,7 @@ onMounted(async () => {
     height: 430px;
   }
   .job-trend-view__mobile-panel {
-    bottom: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
     display: block;
     left: 50%;
     position: fixed;
@@ -745,7 +810,7 @@ onMounted(async () => {
     z-index: 11;
   }
   .job-trend-view__rail {
-    border: 1px solid #dce8ed;
+    border: 1px solid var(--trend-rule);
     border-radius: 18px 18px 0 0;
     bottom: 0;
     display: none;

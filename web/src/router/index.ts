@@ -34,6 +34,7 @@ export function createJDRouter(history: RouterHistory) {
       { path: '/jobs', name: 'jobs', component: JobListView },
       { path: '/jobs/:id', name: 'job-detail', component: JobDetailView, props: true },
       { path: '/job-trends', name: 'job-trends', component: JobTrendView },
+      { path: '/trends', redirect: { name: 'job-trends' } },
     ],
     scrollBehavior: jdScrollBehavior,
   })
