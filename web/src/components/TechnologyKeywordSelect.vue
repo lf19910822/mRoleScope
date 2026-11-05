@@ -256,7 +256,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 
 <style scoped>
 .technology-keyword-select {
+  min-width: 0;
   position: relative;
+  width: 100%;
 }
 
 .technology-keyword-select__trigger {
@@ -300,6 +302,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 .technology-keyword-select__menu {
   background: #fff;
   border: 1px solid #e3ebf0;
+  box-sizing: border-box;
   border-radius: 14px;
   box-shadow:
     0 9px 28px 0 rgba(11, 37, 50, 0.1),
