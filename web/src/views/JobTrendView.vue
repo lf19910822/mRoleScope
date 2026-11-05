@@ -15,6 +15,7 @@ import { computed, onMounted, ref } from 'vue'
 import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 
 import { getFilterOptions, type FilterOptionsResponse } from '@/api/jd-api'
+import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
 import {
   createTrendChartOption,
   trendCurveColor,
@@ -162,6 +163,16 @@ function changeCurveValue(row: TrendCurveRow, value: string | number | null): vo
   if (typeof value !== 'string') return
   const updated = dashboard.updateCurve(row.id, { ...row.condition, value })
   if (!updated) row.error = '这条曲线已存在。'
+}
+
+function changeCurveTechnology(row: TrendCurveRow, values: string[]): void {
+  const value = values[values.length - 1] ?? ''
+  const updated = dashboard.updateCurve(row.id, { ...row.condition, value })
+  if (!updated) row.error = '这条曲线已存在。'
+}
+
+function technologySelection(row: TrendCurveRow): string[] {
+  return row.condition.value ? [row.condition.value] : []
 }
 
 function changeCurveOperator(row: TrendCurveRow, value: string | number | null): void {
@@ -431,6 +442,18 @@ onMounted(async () => {
               />
             </label>
           </div>
+
+          <label v-else-if="row.condition.dimension === 'technology'">
+            <span>统计条件</span>
+            <div class="job-trend-view__technology-select">
+              <TechnologyKeywordSelect
+                :model-value="technologySelection(row)"
+                :options="filterOptions.technology_keywords"
+                placeholder="选择技术关键词"
+                @update:model-value="changeCurveTechnology(row, $event)"
+              />
+            </div>
+          </label>
 
           <label v-else>
             <span>统计条件</span>
@@ -707,6 +730,10 @@ onMounted(async () => {
   font-size: 0.69rem;
   font-weight: 700;
   gap: 5px;
+}
+.job-trend-view__technology-select {
+  min-width: 0;
+  width: 100%;
 }
 .job-trend-view__curve-pair {
   display: grid;

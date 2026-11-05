@@ -21,7 +21,18 @@ const filterOptions = {
   main_job_families: [],
   other_job_families: [],
   projects: [],
-  technology_keywords: [],
+  technology_keywords: [
+    {
+      value: 'go',
+      label: 'Go',
+      category: { value: 'programming-languages', label: '编程语言' },
+    },
+    {
+      value: 'python',
+      label: 'Python',
+      category: { value: 'programming-languages', label: '编程语言' },
+    },
+  ],
   urgent_options: [],
 }
 
@@ -62,6 +73,35 @@ describe('JobTrendView observation ledger', () => {
       'job-trend-view__rail--mobile-open',
     )
     expect(wrapper.get('[data-testid="open-trend-configuration"]').text()).toContain('1')
+
+    wrapper.unmount()
+  })
+
+  it('reuses the categorized technology selector for a technology curve and keeps it within the rail width', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        throw new Error(`unexpected request ${String(input)}`)
+      }),
+    )
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="start-first-curve"]').trigger('click')
+    await flushPromises()
+
+    const selector = wrapper.findComponent({ name: 'TechnologyKeywordSelect' })
+    expect(selector.exists()).toBe(true)
+    expect(selector.props('options')).toEqual(filterOptions.technology_keywords)
+    expect(wrapper.get('.job-trend-view__technology-select').classes()).toContain(
+      'job-trend-view__technology-select',
+    )
+
+    await selector.get('[data-testid="technology-keyword-trigger"]').trigger('click')
+    await selector.get('[data-testid="technology-keyword-go"]').trigger('click')
+    expect(wrapper.text()).toContain('技术关键词 · go')
 
     wrapper.unmount()
   })

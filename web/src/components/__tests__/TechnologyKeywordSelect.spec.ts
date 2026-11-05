@@ -45,6 +45,9 @@ describe('TechnologyKeywordSelect', () => {
     expect(menuRule).toMatch(/right:\s*0;/u)
     expect(menuRule).toMatch(/min-width:\s*0;/u)
     expect(menuRule).toMatch(/width:\s*min\(640px, 100%\);/u)
+    expect(source).toMatch(
+      /\.technology-keyword-select \{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;/u,
+    )
     expect(browserRule).toMatch(/grid-template-columns:\s*minmax\(164px, 43%\) minmax\(0, 1fr\);/u)
     expect(source).toMatch(
       /\.technology-keyword-select__categories \{[\s\S]*?overscroll-behavior:\s*contain;/u,

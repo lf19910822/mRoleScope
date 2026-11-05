@@ -47,4 +47,11 @@ describe('JobTrendView', () => {
     expect(source).not.toContain('chartPointClicked')
     expect(source).not.toContain('pointFeedback')
   })
+
+  it('uses the shared technology browser and constrains it to the configuration field width', () => {
+    expect(source).toContain('TechnologyKeywordSelect')
+    expect(source).toMatch(
+      /\.job-trend-view__technology-select \{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;/u,
+    )
+  })
 })
