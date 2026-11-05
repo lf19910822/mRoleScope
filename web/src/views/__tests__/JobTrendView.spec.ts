@@ -13,7 +13,7 @@ describe('JobTrendView', () => {
   it('keeps a stable chart region with a concise no-curve prompt instead of a mock line', () => {
     expect(source).toContain('data-testid="trend-chart-region"')
     expect(source).toContain('data-testid="trend-empty-state"')
-    expect(source).toContain('添加一条曲线，开始查看岗位趋势。')
+    expect(source).toContain('开始配置首条曲线')
     expect(source).not.toMatch(/mock|fixture|示例曲线/i)
   })
 
@@ -32,5 +32,19 @@ describe('JobTrendView', () => {
     expect(source).toContain("type: 'dataZoom'")
     expect(source).toContain('start: 0')
     expect(source).toContain('end: 100')
+  })
+
+  it('keeps the fixed narrow-screen configurator clear of the chart and gives the dark rail local tokens', () => {
+    const narrowStyles = source.slice(source.indexOf('@media (max-width: 760px)'))
+
+    expect(narrowStyles).toMatch(
+      /\.job-trend-view \{[\s\S]*?padding-bottom:\s*calc\(88px \+ env\(safe-area-inset-bottom\)\);/u,
+    )
+    expect(narrowStyles).toMatch(
+      /\.job-trend-view__mobile-panel \{[\s\S]*?bottom:\s*calc\(18px \+ env\(safe-area-inset-bottom\)\);/u,
+    )
+    expect(source).toContain('--trend-muted: #a8c3ca')
+    expect(source).not.toContain('chartPointClicked')
+    expect(source).not.toContain('pointFeedback')
   })
 })

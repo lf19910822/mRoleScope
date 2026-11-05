@@ -54,4 +54,13 @@ describe('JD browser router', () => {
 
     expect(router.currentRoute.value.path).toBe('/job-trends')
   })
+
+  it('redirects the previously shared trends address to the canonical dashboard route', async () => {
+    const router = createJDRouter(createMemoryHistory())
+    await router.push('/trends')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('job-trends')
+    expect(router.currentRoute.value.path).toBe('/job-trends')
+  })
 })

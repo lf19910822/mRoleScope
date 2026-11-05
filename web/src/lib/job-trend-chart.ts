@@ -13,6 +13,12 @@ export interface TrendChartSeries {
   type: 'line'
 }
 
+export interface TrendCurveObservationSummary {
+  count: number
+  date: string
+  delta?: number
+}
+
 export interface TrendChartOption {
   animationDuration: number
   animationDurationUpdate: number
@@ -29,6 +35,7 @@ export interface TrendChartOption {
   legend: {
     bottom: number
     data: string[]
+    formatter?: (name: string) => string
     left: number
     right: number
     selected: Record<string, boolean>
@@ -57,23 +64,91 @@ const trendPalette = [
   '#b060a8',
 ]
 
+function representedCondition(row: TrendCurveRow) {
+  return row.series !== undefined ? (row.appliedCondition ?? row.condition) : row.condition
+}
+
+function representedLabel(row: TrendCurveRow): string {
+  return row.series?.curve.label ?? representedCondition(row).value
+}
+
+export function trendCurveColor(row: TrendCurveRow): string {
+  const match = /^trend-(\d+)$/u.exec(row.id)
+  if (match?.[1] !== undefined) {
+    const ordinal = Number(match[1])
+    if (Number.isSafeInteger(ordinal) && ordinal > 0)
+      return trendPalette[(ordinal - 1) % trendPalette.length] ?? trendPalette[0]!
+  }
+
+  const hash = Array.from(row.id).reduce((total, character) => total + character.codePointAt(0)!, 0)
+  return trendPalette[hash % trendPalette.length] ?? trendPalette[0]!
+}
+
 export function trendCurveLabel(row: TrendCurveRow): string {
-  const representedCondition =
-    row.series !== undefined ? (row.appliedCondition ?? row.condition) : row.condition
-  const label = row.series?.curve.label ?? representedCondition.value
-  switch (representedCondition.dimension) {
+  const condition = representedCondition(row)
+  const label = representedLabel(row)
+  switch (condition.dimension) {
     case 'education':
-      return `学历 ${trendOperatorLabel(representedCondition.operator)} ${label}`
+      return `学历 ${trendOperatorLabel(condition.operator)} ${label}`
     case 'experience':
-      return `最低工作年限 ${trendOperatorLabel(representedCondition.operator)} ${label} 年`
+      return `最低工作年限 ${trendOperatorLabel(condition.operator)} ${label} 年`
     case 'job_family':
-      return `岗位族 · ${label}${representedCondition.includeSecondary ? '（含副岗位族）' : '（仅主岗位族）'}`
+      return `岗位族 · ${label}${condition.includeSecondary ? '（含副岗位族）' : '（仅主岗位族）'}`
     case 'location':
       return `地点 · ${label}`
     case 'project':
       return `项目 · ${label}`
     case 'technology':
       return `技术关键词 · ${label}`
+  }
+}
+
+export function trendCurveLegendLabel(row: TrendCurveRow): string {
+  const condition = representedCondition(row)
+  const label = representedLabel(row)
+  switch (condition.dimension) {
+    case 'education':
+      return `学历 ${trendOperatorLabel(condition.operator)} ${label}`
+    case 'experience':
+      return `年限 ${trendOperatorLabel(condition.operator)} ${label}年`
+    case 'job_family':
+      return `岗位 ${label}${condition.includeSecondary ? ' +副' : ''}`
+    case 'location':
+      return `地点 ${label}`
+    case 'project':
+      return `项目 ${label}`
+    case 'technology':
+      return `技术 ${label}`
+  }
+}
+
+export function trendCurveObservationSummary(
+  row: TrendCurveRow,
+): TrendCurveObservationSummary | undefined {
+  const points = row.series?.points ?? []
+  let latestIndex = -1
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (points[index]?.count !== null) {
+      latestIndex = index
+      break
+    }
+  }
+  if (latestIndex < 0) return undefined
+
+  const latest = points[latestIndex]!
+  let priorIndex = -1
+  for (let index = latestIndex - 1; index >= 0; index -= 1) {
+    if (points[index]?.count !== null) {
+      priorIndex = index
+      break
+    }
+  }
+  const prior = priorIndex < 0 ? undefined : points[priorIndex]
+
+  return {
+    count: latest.count!,
+    date: latest.date,
+    ...(prior === undefined ? {} : { delta: latest.count! - prior.count! }),
   }
 }
 
@@ -120,8 +195,8 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
     (row): row is TrendCurveRow & { series: NonNullable<TrendCurveRow['series']> } =>
       row.series !== undefined,
   )
-  const series = renderedRows.map((row, index) => {
-    const color = trendPalette[index % trendPalette.length] ?? trendPalette[0] ?? '#007cab'
+  const series = renderedRows.map((row) => {
+    const color = trendCurveColor(row)
     return {
       connectNulls: false as const,
       data: row.series.points.map((point) => [point.date, point.count] as [string, number | null]),
@@ -135,6 +210,9 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
       type: 'line' as const,
     }
   })
+  const compactLegendLabels = new Map(
+    renderedRows.map((row) => [trendCurveLabel(row), trendCurveLegendLabel(row)]),
+  )
   return {
     animationDuration: 300,
     animationDurationUpdate: 260,
@@ -143,6 +221,7 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
     legend: {
       bottom: 8,
       data: series.map((line) => line.name),
+      formatter: (name) => compactLegendLabels.get(name) ?? name,
       left: 46,
       right: 24,
       selected: Object.fromEntries(

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { createTrendChartOption } from '../job-trend-chart'
+import {
+  createTrendChartOption,
+  trendCurveColor,
+  trendCurveLegendLabel,
+  trendCurveObservationSummary,
+} from '../job-trend-chart'
 import type { TrendCurveRow } from '../job-trend-dashboard-state'
 
 function row(): TrendCurveRow {
@@ -58,6 +63,42 @@ describe('job trend chart option', () => {
 
     expect(option.series).toHaveLength(1)
     expect(option.legend.selected).toEqual({ '技术关键词 · Go': false })
+  })
+
+  it('keeps an applied curve’s observation colour and compact legend label when a sibling is a draft', () => {
+    const draft = row()
+    draft.id = 'trend-1'
+    draft.series = undefined
+    const applied = row()
+    applied.id = 'trend-2'
+
+    const option = createTrendChartOption([draft, applied], 'week')
+
+    expect(trendCurveColor(applied)).toBe('#0b9a8c')
+    expect(option.series[0]?.itemStyle.color).toBe('#0b9a8c')
+    expect(trendCurveLegendLabel(applied)).toBe('技术 Go')
+    expect(option.legend.formatter?.('技术关键词 · Go')).toBe('技术 Go')
+  })
+
+  it('summarizes the latest numeric observation across a gap without treating zero as missing', () => {
+    const observed = row()
+    observed.series!.points = [
+      { count: 3, date: '2026-11-03' },
+      { count: null, date: '2026-11-04' },
+      { count: 0, date: '2026-11-05' },
+    ]
+    const unavailable = row()
+    unavailable.series!.points = [
+      { count: null, date: '2026-11-03' },
+      { count: null, date: '2026-11-04' },
+    ]
+
+    expect(trendCurveObservationSummary(observed)).toEqual({
+      count: 0,
+      date: '2026-11-05',
+      delta: -3,
+    })
+    expect(trendCurveObservationSummary(unavailable)).toBeUndefined()
   })
 
   it('reserves a separate legend band when eight curves share the chart', () => {
