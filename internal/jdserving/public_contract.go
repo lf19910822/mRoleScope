@@ -48,6 +48,55 @@ type BodySections struct {
 	TechnologyHighlights []TechnologyHighlight `json:"technology_highlights,omitempty"`
 }
 
+// ComparisonStatus describes whether a historical detail comparison was
+// computed. It is intentionally independent from the job lifecycle state.
+type ComparisonStatus string
+
+const (
+	ComparisonStatusAvailable   ComparisonStatus = "available"
+	ComparisonStatusUnavailable ComparisonStatus = "unavailable"
+)
+
+type ComparisonFragmentKind string
+
+const (
+	ComparisonFragmentUnchanged ComparisonFragmentKind = "unchanged"
+	ComparisonFragmentDeleted   ComparisonFragmentKind = "deleted"
+	ComparisonFragmentInserted  ComparisonFragmentKind = "inserted"
+)
+
+// ComparisonFragment is an ordered, display-safe body diff fragment.
+type ComparisonFragment struct {
+	Kind ComparisonFragmentKind `json:"kind"`
+	Text string                 `json:"text"`
+}
+
+// ComparisonDimensionChange contains only the formatted values a reader can
+// verify. Field is a stable display label, not a storage column name.
+type ComparisonDimensionChange struct {
+	Field      string `json:"field"`
+	Historical string `json:"historical"`
+	Latest     string `json:"latest"`
+}
+
+// ComparisonBodySection contains the complete ordered diff for one changed
+// body section. Empty/equal sections are omitted from a successful result.
+type ComparisonBodySection struct {
+	Fragments []ComparisonFragment `json:"fragments"`
+	Label     string               `json:"label"`
+	Section   BodySection          `json:"section"`
+}
+
+// JobComparison is optional on JobDetailResponse. Unavailable comparisons
+// retain the historical JD and expose only a bounded user-facing message.
+type JobComparison struct {
+	BodySections     []ComparisonBodySection     `json:"body_sections,omitempty"`
+	DimensionChanges []ComparisonDimensionChange `json:"dimension_changes,omitempty"`
+	Message          string                      `json:"message,omitempty"`
+	Retryable        bool                        `json:"retryable,omitempty"`
+	Status           ComparisonStatus            `json:"status"`
+}
+
 // EducationRequirement presents only the education meaning expressed by the
 // deterministic result. An absent object means the field is not available;
 // ExplicitRequirement false means the JD has no explicit education condition.
@@ -84,6 +133,7 @@ type TechnologyKeywordFilterOption struct {
 type JobDetailResponse struct {
 	ActivityState       ActivityState          `json:"activity_state"`
 	Body                BodySections           `json:"body"`
+	Comparison          *JobComparison         `json:"comparison,omitempty"`
 	Education           *EducationRequirement  `json:"education,omitempty"`
 	Experience          *ExperienceRequirement `json:"experience,omitempty"`
 	FirstDiscoveredDate string                 `json:"first_discovered_date"`

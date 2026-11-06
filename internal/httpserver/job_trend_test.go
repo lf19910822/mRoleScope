@@ -91,6 +91,28 @@ func TestJobDetailRouteSelectsHistoricalNodeDateWithoutLeakingProvenance(t *test
 	}
 }
 
+func TestJobDetailRouteReturnsDisplaySafeHistoricalComparison(t *testing.T) {
+	reader := jdHistoricalDetailReaderFunc(func(context.Context, string, time.Time) (jdserving.JobDetailResponse, error) {
+		return jdserving.JobDetailResponse{
+			ID:    "jd_opaque",
+			Title: "历史平台工程师",
+			Comparison: &jdserving.JobComparison{
+				Status: jdserving.ComparisonStatusAvailable,
+				DimensionChanges: []jdserving.ComparisonDimensionChange{{
+					Field: "技术关键词", Historical: "Go", Latest: "Go、Rust",
+				}},
+			},
+		}, nil
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/jd_opaque/detail?version=historical&date=2026-10-15", nil)
+	response := httptest.NewRecorder()
+	New(nil, reader).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"comparison"`) ||
+		!strings.Contains(response.Body.String(), `"dimension_changes"`) || strings.Contains(response.Body.String(), "body_content_version") {
+		t.Fatalf("historical comparison response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestJobDetailRouteRejectsUnsafeHistoricalSelectors(t *testing.T) {
 	reader := jdHistoricalDetailReaderFunc(func(context.Context, string, time.Time) (jdserving.JobDetailResponse, error) {
 		t.Fatal("historical reader must not receive an invalid selector")

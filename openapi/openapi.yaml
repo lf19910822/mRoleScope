@@ -542,6 +542,61 @@ components:
           properties:
             body:
               $ref: '#/components/schemas/BodySections'
+            comparison:
+              $ref: '#/components/schemas/JobComparison'
+    JobComparison:
+      type: object
+      description: Display-safe historical JD comparison. Present only for changed historical jobs with a latest JD.
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [available, unavailable]
+        message:
+          type: string
+          description: User-facing bounded message when comparison is unavailable.
+        retryable:
+          type: boolean
+        dimension_changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComparisonDimensionChange'
+        body_sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComparisonBodySection'
+    ComparisonDimensionChange:
+      type: object
+      required: [field, historical, latest]
+      properties:
+        field:
+          type: string
+        historical:
+          type: string
+        latest:
+          type: string
+    ComparisonBodySection:
+      type: object
+      required: [section, label, fragments]
+      properties:
+        section:
+          type: string
+          enum: [responsibilities, requirements, supplemental]
+        label:
+          type: string
+        fragments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComparisonFragment'
+    ComparisonFragment:
+      type: object
+      required: [kind, text]
+      properties:
+        kind:
+          type: string
+          enum: [unchanged, deleted, inserted]
+        text:
+          type: string
     FilterOptionsResponse:
       type: object
       required:

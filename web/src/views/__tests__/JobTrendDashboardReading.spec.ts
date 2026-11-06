@@ -361,6 +361,194 @@ describe('JobTrendView observation ledger', () => {
     wrapper.unmount()
   })
 
+  it('opens a known short node at its final compact height before the list response arrives', async () => {
+    let resolveDrilldown: ((response: Response) => void) | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Promise<Response>((resolve) => {
+            resolveDrilldown = resolve
+          })
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })
+    expect(row).not.toBeNull()
+    row!.appliedCondition = { ...row!.condition }
+    row!.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row!.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-05', 3],
+      seriesName: '技术关键词 · Go',
+    })
+    await nextTick()
+
+    expect(resolveDrilldown).toBeDefined()
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').attributes('style')).toContain(
+      '--drilldown-height: 368px',
+    )
+
+    resolveDrilldown!(
+      new Response(
+        JSON.stringify({
+          items: [
+            { can_view_historical: false, can_view_latest: true, id: 'one', status: 'current', title: '岗位一' },
+            { can_view_historical: false, can_view_latest: true, id: 'two', status: 'current', title: '岗位二' },
+            { can_view_historical: false, can_view_latest: true, id: 'three', status: 'current', title: '岗位三' },
+          ],
+          matched_total: 3,
+          node_date: '2026-11-05',
+          page: { number: 1, page_size: 20, total: 3 },
+        }),
+      ),
+    )
+    await flushPromises()
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').attributes('style')).toContain(
+      '--drilldown-height: 368px',
+    )
+
+    wrapper.unmount()
+  })
+
+  it('renders every permitted historical-node status and action without exposing transport IDs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  can_view_historical: false,
+                  can_view_latest: true,
+                  id: 'opaque-current-id',
+                  status: 'current',
+                  title: '仍有效岗位',
+                },
+                {
+                  can_view_historical: true,
+                  can_view_latest: true,
+                  id: 'opaque-changed-id',
+                  status: 'changed',
+                  title: '有改动岗位',
+                },
+                {
+                  can_view_historical: true,
+                  can_view_latest: false,
+                  id: 'opaque-closed-id',
+                  status: 'confirmed_closed',
+                  title: '确认下线岗位',
+                },
+              ],
+              matched_total: 3,
+              node_date: '2026-11-05',
+              page: { number: 1, page_size: 20, total: 3 },
+            }),
+          )
+        }
+        if (path === '/api/v1/jobs/opaque-closed-id/detail?date=2026-11-05&version=historical') {
+          return new Response(
+            JSON.stringify({
+              activity_state: 'effective',
+              body: { requirements: '熟悉 Go', responsibilities: '建设平台服务' },
+              first_discovered_date: '2026-11-05',
+              id: 'opaque-closed-id',
+              is_urgent: false,
+              locations: ['上海'],
+              other_job_families: [],
+              projects: [],
+              technology_keywords: [],
+              title: '确认下线岗位',
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })
+    expect(row).not.toBeNull()
+    row!.appliedCondition = { ...row!.condition }
+    row!.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row!.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-05', 3],
+      seriesName: '技术关键词 · Go',
+    })
+    await flushPromises()
+
+    const items = wrapper.get('[aria-label="趋势节点岗位"]').findAll('li')
+    expect(items).toHaveLength(3)
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').attributes('style')).toContain(
+      '--drilldown-height: 368px',
+    )
+    expect(items[0]!.text()).toContain('仍有效')
+    expect(items[0]!.text()).toContain('查看最新')
+    expect(items[0]!.text()).not.toContain('查看历史')
+    expect(items[1]!.text()).toContain('有改动')
+    expect(items[1]!.text()).toContain('查看历史 JD')
+    expect(items[1]!.text()).toContain('查看最新 JD')
+    expect(items[2]!.text()).toContain('确认下线')
+    expect(items[2]!.text()).toContain('查看历史 JD')
+    expect(items[2]!.text()).not.toContain('查看最新')
+    expect(wrapper.text()).not.toContain('opaque-current-id')
+    expect(wrapper.text()).not.toContain('opaque-changed-id')
+    expect(wrapper.text()).not.toContain('opaque-closed-id')
+
+    const historicalAction = items[2]!
+      .findAll('button')
+      .find((button) => button.text().includes('查看历史 JD'))
+    expect(historicalAction).toBeDefined()
+    await historicalAction!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="岗位详情"]').text()).toContain('节点当日：仍有效')
+    expect(wrapper.get('[aria-label="岗位详情"]').text()).toContain('当前：确认下线')
+
+    wrapper.unmount()
+  })
+
   it('uses a 390px sheet for a trusted zero and restores background scrolling when it closes', async () => {
     const originalWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })

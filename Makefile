@@ -7,10 +7,10 @@ COMPOSE ?= docker-compose
 # `profiles` and cannot faithfully validate the one-shot worker definition.
 DEPLOY_COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && printf 'docker compose')
 
-.PHONY: help fmt test test-go test-python collector-fixture db-up db-down migrate-up api deploy-config-check
+.PHONY: help fmt test test-go test-python collector-fixture db-up db-down migrate-up api deploy-config-check remote-release-verify
 
 help:
-	@printf '%s\n' 'Targets: fmt test collector-fixture db-up db-down migrate-up api deploy-config-check'
+	@printf '%s\n' 'Targets: fmt test collector-fixture db-up db-down migrate-up api deploy-config-check remote-release-verify'
 
 fmt:
 	gofmt -w $$(find cmd internal -name '*.go' -type f)
@@ -62,6 +62,7 @@ deploy-config-check:
 	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
 	bash scripts/test-mrolescope-deploy-web-edge.sh
 	bash scripts/test-mrolescope-deploy-image-cleanup.sh
+	bash scripts/test-release-remote-development.sh
 	@if [ -z "$(DEPLOY_COMPOSE)" ]; then \
 		printf '%s\n' 'Docker Compose v2 plugin is unavailable; static network-boundary checks passed, and CI/CVM will run the full Compose v2 config check.'; \
 	else \
@@ -80,3 +81,6 @@ deploy-config-check:
 		COS_SECRET_ACCESS_KEY=not-a-real-secret \
 		$(DEPLOY_COMPOSE) -f deploy/remote-development/compose.yaml config --quiet; \
 	fi
+
+remote-release-verify:
+	bash scripts/verify-remote-development-release.sh

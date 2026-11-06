@@ -14,7 +14,7 @@ import { NButton, NEmpty, NPagination, NSelect, NSwitch, type SelectOption, useO
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 
-import { getFilterOptions, getJobDetail, getJobTrendDrilldown, type FilterOptionsResponse, type JobDetailResponse, type TrendDrilldownItem } from '@/api/jd-api'
+import { getFilterOptions, getJobDetail, getJobTrendDrilldown, type FilterOptionsResponse, type JobDetailResponse, type TrendDrilldownItem, type TrendDrilldownStatus } from '@/api/jd-api'
 import FilterDatePicker from '@/components/FilterDatePicker.vue'
 import JDDetailReadingLayout from '@/components/JDDetailReadingLayout.vue'
 import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
@@ -68,9 +68,11 @@ const detail = ref<JobDetailResponse>()
 const detailError = ref('')
 const detailLoading = ref(false)
 const detailMode = ref<'historical' | 'latest'>('latest')
+const historicalDetailStatus = ref<TrendDrilldownStatus>()
 const mobileSheetExpanded = ref(false)
 const mobileSheetOffset = ref(0)
 let detailRequest = 0
+let comparisonRequest = 0
 let sheetPointerID: number | undefined
 let sheetPointerStartY = 0
 
@@ -108,11 +110,59 @@ const chartOption = computed(() => createTrendChartOption(dashboard.rows, dashbo
 const echartsOption = computed(() => chartOption.value as unknown as EChartsOption)
 const chartTheme = computed(() => (osTheme.value === 'dark' ? 'dark' : undefined))
 const curveLimitReached = computed(() => dashboard.rows.length >= 8)
-const drilldownStyle = computed(() => ({
-  left: `${Math.max(18, Math.min(drilldownAnchor.value.x + 16, window.innerWidth - 790))}px`,
-  top: `${Math.max(18, Math.min(drilldownAnchor.value.y + 16, window.innerHeight - 480))}px`,
-  '--sheet-offset': `${mobileSheetOffset.value}px`,
-}))
+
+function preferredDrilldownHeight(maximumHeight: number): number {
+  const rowCount = drilldown.response?.items.length ?? drilldown.node?.count ?? 1
+  const visibleRowCount = Math.min(5, Math.max(1, rowCount))
+  const hasPagination =
+    drilldown.response !== undefined &&
+    drilldown.response.page.total > drilldown.response.page.page_size
+  const compactContentHeight = 128 + visibleRowCount * 80 + (hasPagination ? 36 : 0)
+  return Math.min(maximumHeight, Math.max(208, compactContentHeight))
+}
+
+const drilldownPlacement = computed(() => {
+  if (window.innerWidth <= 600) {
+    const maximumHeight = Math.min(620, Math.max(280, Math.round(window.innerHeight * 0.72)))
+    return {
+      opensAbove: false,
+      style: {
+        '--drilldown-height': `${preferredDrilldownHeight(maximumHeight)}px`,
+        '--sheet-offset': `${mobileSheetOffset.value}px`,
+      },
+    }
+  }
+
+  const pageRight = window.innerWidth - 392
+  const width = Math.min(380, Math.max(160, pageRight - 36))
+  const maximumHeight = Math.min(580, Math.max(340, Math.round(window.innerHeight * 0.6)))
+  const height = preferredDrilldownHeight(maximumHeight)
+  const arrowReach = 9
+  const canOpenAbove = drilldownAnchor.value.y - height - arrowReach >= 18
+  const opensAbove =
+    drilldownAnchor.value.y + height + arrowReach > window.innerHeight - 18 && canOpenAbove
+  const left = Math.max(
+    18,
+    Math.min(drilldownAnchor.value.x - 34, pageRight - width - 18),
+  )
+  const top = opensAbove
+    ? drilldownAnchor.value.y - height - arrowReach
+    : Math.max(18, Math.min(drilldownAnchor.value.y + arrowReach, window.innerHeight - height - 18))
+  const arrowOffset = Math.max(18, Math.min(drilldownAnchor.value.x - left - 8, width - 34))
+
+  return {
+    opensAbove,
+    style: {
+      '--drilldown-arrow-offset': `${arrowOffset}px`,
+      '--drilldown-height': `${height}px`,
+      '--drilldown-width': `${width}px`,
+      '--sheet-offset': `${mobileSheetOffset.value}px`,
+      left: `${left}px`,
+      top: `${top}px`,
+    },
+  }
+})
+const drilldownStyle = computed(() => drilldownPlacement.value.style)
 
 function isComparableDimension(dimension: TrendDimension): boolean {
   return dimension === 'education' || dimension === 'experience'
@@ -356,6 +406,7 @@ function openDrilldownDetail(item: TrendDrilldownItem, mode: 'historical' | 'lat
   detailError.value = ''
   detailLoading.value = true
   detailMode.value = mode
+  historicalDetailStatus.value = mode === 'historical' ? item.status : undefined
   void getJobDetail(item.id, mode === 'historical' ? { date: nodeDate!, mode } : { mode })
     .then((response) => {
       if (request !== detailRequest) return
@@ -372,9 +423,24 @@ function openDrilldownDetail(item: TrendDrilldownItem, mode: 'historical' | 'lat
 
 function closeDetail(): void {
   detailRequest += 1
+  comparisonRequest += 1
   detail.value = undefined
   detailError.value = ''
   detailLoading.value = false
+  historicalDetailStatus.value = undefined
+}
+
+function retryComparison(): void {
+  if (detailMode.value !== 'historical' || detail.value === undefined || drilldown.node?.date === undefined) return
+  const currentDetail = detail.value
+  const request = ++comparisonRequest
+  void getJobDetail(currentDetail.id, { date: drilldown.node.date, mode: 'historical' })
+    .then((response) => {
+      if (request === comparisonRequest && detail.value === currentDetail) detail.value = response
+    })
+    .catch(() => {
+      // Keep the already loaded historical JD and its non-blocking retry affordance.
+    })
 }
 
 function closeDrilldown(): void {
@@ -465,24 +531,26 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <nav class="job-trend-view__ranges" aria-label="时间范围">
-        <NButton
-          v-for="option in rangeOptions"
-          :key="option.value"
-          size="small"
-          :type="dashboard.range === option.value ? 'primary' : 'default'"
-          @click="selectRange(option.value)"
-        >
-          {{ option.label }}
-        </NButton>
-        <NButton
-          data-testid="open-custom-trend-range"
-          size="small"
-          :type="dashboard.range === 'custom' ? 'primary' : 'default'"
-          @click="customRangeOpen = !customRangeOpen"
-        >
-          自定义
-        </NButton>
+      <div class="job-trend-view__range-stage">
+        <nav class="job-trend-view__ranges" aria-label="时间范围">
+          <NButton
+            v-for="option in rangeOptions"
+            :key="option.value"
+            size="small"
+            :type="dashboard.range === option.value ? 'primary' : 'default'"
+            @click="selectRange(option.value)"
+          >
+            {{ option.label }}
+          </NButton>
+          <NButton
+            data-testid="open-custom-trend-range"
+            size="small"
+            :type="dashboard.range === 'custom' || customRangeOpen ? 'primary' : 'default'"
+            @click="customRangeOpen = !customRangeOpen"
+          >
+            自定义
+          </NButton>
+        </nav>
         <div v-if="customRangeOpen" class="job-trend-view__custom-range" role="group" aria-label="自定义日期范围">
           <label>
             <span>起始日期</span>
@@ -498,14 +566,14 @@ onBeforeUnmount(() => {
           </NButton>
           <p v-if="customRangeError" role="alert">{{ customRangeError }}</p>
         </div>
-      </nav>
-      <p
-        v-if="supportsChartNavigation && hasRenderedSeries"
-        class="job-trend-view__all-history-gestures"
-        data-testid="all-history-gestures"
-      >
-        滚轮缩放时间 · Shift+滚轮缩放岗位数 · 拖拽平移
-      </p>
+        <p
+          v-if="supportsChartNavigation && hasRenderedSeries && !customRangeOpen"
+          class="job-trend-view__all-history-gestures"
+          data-testid="all-history-gestures"
+        >
+          滚轮缩放时间 · Shift+滚轮缩放岗位数 · 拖拽平移
+        </p>
+      </div>
 
       <div
         class="job-trend-view__chart-region"
@@ -556,7 +624,13 @@ onBeforeUnmount(() => {
     />
     <section
       v-if="drilldown.isOpen"
-      :class="['job-trend-view__drilldown', { 'job-trend-view__drilldown--expanded': mobileSheetExpanded }]"
+      :class="[
+        'job-trend-view__drilldown',
+        {
+          'job-trend-view__drilldown--above': drilldownPlacement.opensAbove,
+          'job-trend-view__drilldown--expanded': mobileSheetExpanded,
+        },
+      ]"
       :style="drilldownStyle"
       aria-label="趋势节点岗位"
       aria-modal="true"
@@ -625,21 +699,30 @@ onBeforeUnmount(() => {
       </footer>
     </section>
 
-    <section
-      v-if="detail !== undefined || detailLoading || detailError"
-      class="job-trend-view__detail-drawer"
-      aria-label="岗位详情"
-      aria-modal="true"
-      role="dialog"
-    >
-      <header>
-        <p>{{ detailMode === 'historical' ? `历史 JD · ${drilldown.node?.date ?? ''}` : '最新 JD' }}</p>
-        <button type="button" aria-label="关闭岗位详情" @click="closeDetail">×</button>
-      </header>
-      <JobDetailSkeleton v-if="detailLoading" />
-      <p v-else-if="detailError" class="job-trend-view__detail-error" role="alert">{{ detailError }}</p>
-      <JDDetailReadingLayout v-else-if="detail" :job="detail" />
-    </section>
+    <Transition name="job-trend-detail">
+      <section
+        v-if="detail !== undefined || detailLoading || detailError"
+        class="job-trend-view__detail-drawer"
+        aria-label="岗位详情"
+        aria-modal="true"
+        role="dialog"
+      >
+        <header>
+          <p>{{ detailMode === 'historical' ? `历史 JD · ${drilldown.node?.date ?? ''}` : '最新 JD' }}</p>
+          <button type="button" aria-label="关闭岗位详情" @click="closeDetail">×</button>
+        </header>
+        <div class="job-trend-view__detail-content">
+          <JobDetailSkeleton v-if="detailLoading" />
+          <p v-else-if="detailError" class="job-trend-view__detail-error" role="alert">{{ detailError }}</p>
+          <JDDetailReadingLayout
+            v-else-if="detail"
+            :historical-context="detailMode === 'historical' && historicalDetailStatus ? { currentStatus: historicalDetailStatus } : undefined"
+            :job="detail"
+            @retry-comparison="retryComparison"
+          />
+        </div>
+      </section>
+    </Transition>
 
     <div v-if="dashboard.rows.length" class="job-trend-view__mobile-panel">
       <NButton
@@ -859,8 +942,10 @@ onBeforeUnmount(() => {
   --trend-subtle: #71828a;
   --trend-surface-shadow: 0 20px 44px -38px rgba(17, 73, 96, 0.56);
   --trend-rail-shadow: -18px 0 42px -38px rgba(11, 61, 82, 0.54);
+  --trend-workspace-left: 268px;
+  --trend-workspace-right: 420px;
   min-height: 100vh;
-  padding: 28px 420px 32px 32px;
+  padding: 28px var(--trend-workspace-right) 32px 32px;
 }
 .job-trend-view__chart-card {
   background: var(--trend-card-surface);
@@ -896,10 +981,13 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
   margin: 8px 0 0;
 }
-.job-trend-view__ranges {
+.job-trend-view__range-stage {
   border-bottom: 1px solid var(--trend-rule-soft);
+  position: relative;
+  z-index: 10;
+}
+.job-trend-view__ranges {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
   padding: 0 34px 18px;
 }
@@ -909,11 +997,14 @@ onBeforeUnmount(() => {
   border: 1px solid var(--trend-rule-soft);
   border-radius: 12px;
   display: grid;
-  flex-basis: 100%;
   gap: 8px;
   grid-template-columns: minmax(132px, 176px) auto minmax(132px, 176px) auto;
-  margin-top: 2px;
+  left: 34px;
   padding: 9px;
+  position: absolute;
+  top: calc(100% + 8px);
+  width: min(540px, calc(100% - 68px));
+  z-index: 2;
 }
 .job-trend-view__custom-range label {
   color: var(--trend-muted);
@@ -935,11 +1026,19 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 .job-trend-view__all-history-gestures {
+  background: color-mix(in srgb, var(--trend-card-surface), transparent 5%);
+  border: 1px solid color-mix(in srgb, var(--trend-rule), transparent 24%);
+  border-radius: 999px;
   color: var(--trend-subtle);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.67rem;
   letter-spacing: -0.01em;
-  margin: -8px 34px 4px;
+  margin: 0;
+  padding: 5px 8px;
+  position: absolute;
+  right: 34px;
+  top: calc(100% + 10px);
+  z-index: 1;
 }
 .job-trend-view__chart-region {
   min-height: 540px;
@@ -969,7 +1068,7 @@ onBeforeUnmount(() => {
 }
 .job-trend-view__drilldown-backdrop {
   background: rgba(17, 42, 52, 0.12);
-  inset: 0;
+  inset: 0 var(--trend-workspace-right) 0 0;
   position: fixed;
   z-index: 28;
 }
@@ -977,14 +1076,18 @@ onBeforeUnmount(() => {
   background: var(--trend-card-surface);
   border: 1px solid color-mix(in srgb, var(--trend-rule), #007cab 22%);
   border-radius: 18px;
+  box-sizing: border-box;
   box-shadow: 0 24px 64px -28px rgba(6, 43, 57, 0.52);
-  display: grid;
-  gap: 12px;
-  max-height: min(60dvh, 580px);
-  min-height: 386px;
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: var(--drilldown-height, min(60dvh, 580px));
+  max-height: calc(100dvh - 36px);
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px;
   position: fixed;
-  width: min(390px, calc(100vw - 430px));
+  width: var(--drilldown-width, min(390px, calc(100vw - 430px)));
   z-index: 29;
 }
 .job-trend-view__drilldown::before {
@@ -992,13 +1095,20 @@ onBeforeUnmount(() => {
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
   content: '';
-  left: 30px;
+  left: var(--drilldown-arrow-offset);
   position: absolute;
   top: -9px;
+}
+.job-trend-view__drilldown--above::before {
+  border-bottom: 0;
+  border-top: 9px solid color-mix(in srgb, var(--trend-card-surface), #007cab 8%);
+  bottom: -9px;
+  top: auto;
 }
 .job-trend-view__drilldown-header {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   justify-content: space-between;
 }
 .job-trend-view__drilldown-header p {
@@ -1024,10 +1134,11 @@ onBeforeUnmount(() => {
   border: 1px solid var(--trend-rule);
   border-radius: 9px;
   color: var(--trend-ink);
+  flex: 0 0 auto;
   font: inherit;
   font-size: 0.8rem;
   outline: none;
-  padding: 9px 10px;
+  padding: 7px 9px;
 }
 .job-trend-view__drilldown-search:focus {
   border-color: #007cab;
@@ -1036,7 +1147,10 @@ onBeforeUnmount(() => {
 .job-trend-view__drilldown-skeleton {
   align-content: start;
   display: grid;
+  flex: 1 1 auto;
   gap: 9px;
+  min-height: 0;
+  overflow: hidden;
 }
 .job-trend-view__drilldown-skeleton span {
   animation: job-trend-drilldown-pulse 1.15s ease-in-out infinite alternate;
@@ -1050,38 +1164,61 @@ onBeforeUnmount(() => {
 @keyframes job-trend-drilldown-pulse { to { opacity: 0.54; } }
 .job-trend-view__drilldown-list {
   display: grid;
-  gap: 8px;
+  flex: 1 1 auto;
+  gap: 0;
   list-style: none;
   margin: 0;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 2px;
+  padding: 0 6px 0 0;
+  scrollbar-color: color-mix(in srgb, #007cab, transparent 38%) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.job-trend-view__drilldown-list::-webkit-scrollbar {
+  width: 7px;
+}
+.job-trend-view__drilldown-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, #007cab, transparent 38%);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
 }
 .job-trend-view__drilldown-list li {
   align-items: center;
   border-bottom: 1px solid var(--trend-rule-soft);
   display: grid;
-  gap: 7px;
+  gap: 3px 7px;
+  grid-template-areas:
+    'title status'
+    'actions actions';
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 2px 0 10px;
+  padding: 7px 0;
 }
 .job-trend-view__drilldown-list li > strong {
   color: var(--trend-strong);
   font-size: 0.8rem;
+  grid-area: title;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 .job-trend-view__drilldown-list li > div {
   display: flex;
-  gap: 5px;
-  grid-column: 1 / -1;
+  gap: 4px;
+  grid-area: actions;
+}
+.job-trend-view__drilldown-list li > div :deep(.n-button) {
+  min-height: 23px;
+  padding-left: 7px;
+  padding-right: 7px;
 }
 .job-trend-view__drilldown-status {
   border-radius: 99px;
   font-size: 0.62rem;
   font-weight: 760;
-  padding: 4px 6px;
+  grid-area: status;
+  padding: 3px 6px;
   white-space: nowrap;
 }
 .job-trend-view__drilldown-status--current { background: #d8f1e7; color: #126b54; }
@@ -1100,6 +1237,7 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, #e69f00, transparent 87%);
   border-radius: 8px;
   color: #805500;
+  flex: 0 0 auto;
   font-size: 0.7rem;
   margin: -3px 0 0;
   padding: 6px 8px;
@@ -1107,18 +1245,53 @@ onBeforeUnmount(() => {
 .job-trend-view__drilldown-pagination {
   border-top: 1px solid var(--trend-rule-soft);
   display: flex;
+  flex: 0 0 auto;
   justify-content: center;
-  padding-top: 10px;
+  padding-top: 8px;
 }
 .job-trend-view__detail-drawer {
   background: var(--trend-card-surface);
-  box-shadow: -22px 0 60px -28px rgba(5, 38, 50, 0.62);
-  inset: 0 0 0 auto;
-  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--trend-rule), #007cab 22%);
+  border-radius: 22px;
+  box-shadow: 0 -22px 60px -28px rgba(5, 38, 50, 0.62);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: min(78dvh, 780px);
+  inset: auto var(--trend-workspace-right) 32px var(--trend-workspace-left);
+  min-height: 0;
+  overflow: hidden;
   padding: 22px;
   position: fixed;
-  width: min(760px, 72vw);
+  width: auto;
   z-index: 32;
+}
+.job-trend-view__detail-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.job-trend-view__detail-content::-webkit-scrollbar {
+  width: 8px;
+}
+.job-trend-view__detail-content::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, #007cab, transparent 48%);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.job-trend-detail-enter-active,
+.job-trend-detail-leave-active {
+  transition: opacity 180ms ease, transform 320ms cubic-bezier(0.22, 0.9, 0.25, 1);
+}
+.job-trend-detail-enter-from,
+.job-trend-detail-leave-to {
+  opacity: 0;
+  transform: translateY(calc(100% + 28px));
 }
 .job-trend-view__detail-drawer > header {
   align-items: center;
@@ -1377,7 +1550,8 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 1120px) {
   .job-trend-view {
-    padding-right: 392px;
+    --trend-workspace-right: 392px;
+    padding-right: var(--trend-workspace-right);
   }
   .job-trend-view__rail {
     width: 340px;
@@ -1405,6 +1579,8 @@ onBeforeUnmount(() => {
   .job-trend-view__custom-range {
     gap: 6px;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    left: 22px;
+    width: calc(100% - 44px);
   }
   .job-trend-view__custom-range > :deep(.n-button) {
     grid-column: 1 / -1;
@@ -1450,24 +1626,31 @@ onBeforeUnmount(() => {
   .job-trend-view__curve-list {
     max-height: 56dvh;
   }
+  .job-trend-view__detail-drawer {
+    height: auto;
+    inset: 0;
+    width: 100%;
+  }
 }
 @media (max-width: 600px) {
   .job-trend-view__drilldown-backdrop {
     background: rgba(8, 33, 43, 0.36);
+    right: 0;
   }
   .job-trend-view__drilldown {
     border-radius: 20px 20px 0 0;
     bottom: 0;
+    height: var(--drilldown-height);
     left: 0 !important;
     max-height: min(84dvh, 720px);
-    min-height: min(58dvh, 480px);
+    min-height: 0;
     padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
     top: auto !important;
     transform: translateY(var(--sheet-offset));
-    transition: min-height 180ms ease, transform 150ms ease;
+    transition: height 180ms ease, transform 150ms ease;
     width: 100%;
   }
-  .job-trend-view__drilldown--expanded { min-height: min(84dvh, 720px); }
+  .job-trend-view__drilldown--expanded { height: min(84dvh, 720px); }
   .job-trend-view__drilldown::before {
     background: var(--trend-rule);
     border: 0;
@@ -1479,8 +1662,8 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__drilldown-header { padding-top: 6px; }
   .job-trend-view__detail-drawer {
+    border-radius: 0;
     padding: 18px 14px calc(20px + env(safe-area-inset-bottom));
-    width: 100%;
   }
 }
 </style>

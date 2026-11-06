@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
-import type { JobDetailResponse } from '@/api/jd-api'
+import type {
+  ComparisonBodySection,
+  ComparisonFragment,
+  JobDetailResponse,
+  TrendDrilldownStatus,
+} from '@/api/jd-api'
 import HighlightedText from '@/components/HighlightedText.vue'
 import {
   presentJDSection,
@@ -26,7 +31,23 @@ type ReadingSection = {
   text: string
 }
 
-const props = defineProps<{ job: JobDetailResponse }>()
+const props = defineProps<{
+  job: JobDetailResponse
+  historicalContext?: { currentStatus: TrendDrilldownStatus }
+}>()
+
+const emit = defineEmits<{
+  'retry-comparison': []
+}>()
+
+const dimensionComparisonExpanded = ref(false)
+const bodyComparisonExpanded = ref(false)
+
+function formatCurrentComparisonStatus(status: TrendDrilldownStatus): string {
+  if (status === 'current') return '仍有效'
+  if (status === 'changed') return '有改动'
+  return '确认下线'
+}
 
 const sections = computed<ReadingSection[]>(() => {
   const { body } = props.job
@@ -44,6 +65,40 @@ const sections = computed<ReadingSection[]>(() => {
     presentation: presentJDSection(section.text),
   }))
 })
+
+const comparison = computed(() => props.job.comparison)
+const dimensionChanges = computed(() =>
+  comparison.value?.status === 'available' ? (comparison.value.dimension_changes ?? []) : [],
+)
+const bodyComparisons = computed(() =>
+  comparison.value?.status === 'available' ? (comparison.value.body_sections ?? []) : [],
+)
+const bodyComparisonBySection = computed(() => {
+  const entries = bodyComparisons.value.map((section) => [section.section, section] as const)
+  return new Map(entries)
+})
+
+function bodyComparison(section: JDDetailBodySection): ComparisonBodySection | undefined {
+  return bodyComparisonBySection.value.get(section)
+}
+
+function comparisonFragmentClass(fragment: ComparisonFragment): string {
+  return `detail-comparison__fragment--${fragment.kind}`
+}
+
+function comparisonFragmentLabel(fragment: ComparisonFragment): string | undefined {
+  if (fragment.kind === 'deleted') return '已删除'
+  if (fragment.kind === 'inserted') return '最新新增'
+  return undefined
+}
+
+watch(
+  () => props.job.id,
+  () => {
+    dimensionComparisonExpanded.value = false
+    bodyComparisonExpanded.value = false
+  },
+)
 
 function sourceMarker(item: ListItem): string {
   return item.kind === 'ordered-item' ? item.marker.replace(/[、.．）)]/gu, '') : '•'
@@ -69,9 +124,18 @@ function scrollToSection(id: string): void {
         </p>
       </div>
       <div class="detail-reading-layout__states">
-        <span class="detail-reading-layout__state">{{
-          formatActivityState(job.activity_state)
-        }}</span>
+        <span class="detail-reading-layout__state">
+          {{ historicalContext ? '节点当日：' : '' }}{{ formatActivityState(job.activity_state) }}
+        </span>
+        <span
+          v-if="historicalContext"
+          :class="[
+            'detail-reading-layout__current-status',
+            `detail-reading-layout__current-status--${historicalContext.currentStatus}`,
+          ]"
+        >
+          当前：{{ formatCurrentComparisonStatus(historicalContext.currentStatus) }}
+        </span>
         <span v-if="job.is_urgent" class="detail-reading-layout__urgent">紧急招聘</span>
       </div>
     </header>
@@ -94,6 +158,59 @@ function scrollToSection(id: string): void {
         <dd>{{ formatFirstDiscoveredDate(job.first_discovered_date) }}</dd>
       </div>
     </dl>
+
+    <section
+      v-if="comparison"
+      class="detail-comparison"
+      aria-label="JD 变动对比"
+    >
+      <p v-if="comparison.status === 'unavailable'" class="detail-comparison__unavailable" role="status">
+        {{ comparison.message ?? '变动对比暂不可用' }}
+        <button
+          v-if="comparison.retryable"
+          class="detail-comparison__retry"
+          type="button"
+          @click="emit('retry-comparison')"
+        >
+          重试
+        </button>
+      </p>
+      <template v-else-if="dimensionChanges.length || bodyComparisons.length">
+        <div class="detail-comparison__tags">
+          <button
+            v-if="dimensionChanges.length"
+            class="detail-comparison__tag detail-comparison__tag--dimensions"
+            type="button"
+            :aria-expanded="dimensionComparisonExpanded"
+            @click="dimensionComparisonExpanded = !dimensionComparisonExpanded"
+          >
+            <span>维度变动</span><strong>{{ dimensionChanges.length }}</strong>
+          </button>
+          <button
+            v-if="bodyComparisons.length"
+            class="detail-comparison__tag detail-comparison__tag--body"
+            type="button"
+            :aria-expanded="bodyComparisonExpanded"
+            @click="bodyComparisonExpanded = !bodyComparisonExpanded"
+          >
+            <span>正文变动</span><strong>{{ bodyComparisons.length }}</strong>
+          </button>
+        </div>
+        <ul v-if="dimensionComparisonExpanded" class="detail-comparison__dimension-list">
+          <li v-for="change in dimensionChanges" :key="change.field">
+            <strong>{{ change.field }}</strong>
+            <span>{{ change.historical }} → {{ change.latest }}</span>
+          </li>
+        </ul>
+        <div v-if="bodyComparisonExpanded" class="detail-comparison__body-summary">
+          <span v-for="section in bodyComparisons" :key="section.section">{{ section.label }}</span>
+          <span class="detail-comparison__legend" aria-label="正文变动图例">
+            <span class="detail-comparison__legend-item detail-comparison__legend-item--deleted">已删除</span>
+            <span class="detail-comparison__legend-item detail-comparison__legend-item--inserted">最新新增</span>
+          </span>
+        </div>
+      </template>
+    </section>
 
     <div
       v-if="job.technology_keywords.length || job.other_job_families.length || job.projects.length"
@@ -142,8 +259,21 @@ function scrollToSection(id: string): void {
         >
           <header class="margin-dossier__heading">
             <h2>{{ section.label }}</h2>
+            <span v-if="bodyComparison(section.key)" class="margin-dossier__change-marker">已变动</span>
           </header>
-          <div v-if="section.presentation.kind === 'list'" class="margin-dossier__items">
+          <div
+            v-if="bodyComparisonExpanded && bodyComparison(section.key)"
+            class="detail-comparison__diff"
+            :aria-label="`${section.label}变动内容`"
+          >
+            <template v-for="(fragment, index) in bodyComparison(section.key)?.fragments" :key="`${index}-${fragment.kind}`">
+              <span
+                :class="['detail-comparison__fragment', comparisonFragmentClass(fragment)]"
+                :aria-label="comparisonFragmentLabel(fragment)"
+              >{{ fragment.text }}</span>
+            </template>
+          </div>
+          <div v-else-if="section.presentation.kind === 'list'" class="margin-dossier__items">
             <template
               v-for="item in section.presentation.items"
               :key="`${item.kind}-${item.start}`"
@@ -267,6 +397,7 @@ function scrollToSection(id: string): void {
 }
 
 .detail-reading-layout__state,
+.detail-reading-layout__current-status,
 .detail-reading-layout__urgent {
   border-radius: 999px;
   font-size: 0.75rem;
@@ -279,6 +410,21 @@ function scrollToSection(id: string): void {
 .detail-reading-layout__state {
   background: #e5f5ee;
   color: #00734a;
+}
+
+.detail-reading-layout__current-status {
+  background: #edf3f5;
+  color: #3c5b67;
+}
+
+.detail-reading-layout__current-status--changed {
+  background: #fff0c8;
+  color: #8a5a00;
+}
+
+.detail-reading-layout__current-status--confirmed_closed {
+  background: #f6dfe1;
+  color: #993d4c;
 }
 
 .detail-reading-layout__urgent {
@@ -497,6 +643,141 @@ function scrollToSection(id: string): void {
   padding: 0 0.12em;
 }
 
+.detail-comparison {
+  background: color-mix(in srgb, var(--detail-paper) 90%, var(--detail-tide));
+  border: 1px solid var(--detail-rule);
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 12px 16px;
+}
+
+.detail-comparison__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-comparison__tag {
+  align-items: center;
+  background: var(--detail-tag);
+  border: 1px solid var(--detail-rule);
+  border-radius: 999px;
+  color: var(--detail-tag-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 8px;
+  padding: 5px 10px;
+}
+
+.detail-comparison__tag strong {
+  font-size: 0.78rem;
+}
+
+.detail-comparison__tag[aria-expanded='true'] {
+  border-color: var(--detail-tide);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--detail-tide) 18%, transparent);
+}
+
+.detail-comparison__dimension-list {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 11px 0 0;
+  padding: 0;
+}
+
+.detail-comparison__dimension-list li {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-comparison__dimension-list li span {
+  color: var(--detail-muted);
+}
+
+.detail-comparison__body-summary {
+  align-items: center;
+  color: var(--detail-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.detail-comparison__body-summary > span:not(.detail-comparison__legend) {
+  background: var(--detail-tag);
+  border-radius: 5px;
+  padding: 3px 7px;
+}
+
+.detail-comparison__legend {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.detail-comparison__legend-item {
+  border-radius: 3px;
+  font-size: 0.74rem;
+  padding: 2px 5px;
+}
+
+.detail-comparison__legend-item--deleted,
+.detail-comparison__fragment--deleted {
+  background: var(--detail-diff-deleted-bg, #f0a5ad);
+  color: var(--detail-diff-deleted-ink, #721c24);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.detail-comparison__legend-item--inserted,
+.detail-comparison__fragment--inserted {
+  background: var(--detail-diff-inserted-bg, #9edcaf);
+  color: var(--detail-diff-inserted-ink, #14532d);
+}
+
+.detail-comparison__unavailable {
+  align-items: center;
+  color: var(--detail-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+}
+
+.detail-comparison__retry {
+  background: transparent;
+  border: 1px solid var(--detail-rule);
+  border-radius: 6px;
+  color: var(--detail-tide);
+  cursor: pointer;
+  font: inherit;
+  padding: 3px 8px;
+}
+
+.detail-comparison__diff {
+  color: inherit;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.detail-comparison__fragment {
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+
+.margin-dossier__change-marker {
+  background: var(--detail-tag);
+  border-radius: 4px;
+  color: var(--detail-tag-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 6px;
+}
+
 @media (max-width: 700px) {
   .detail-reading-layout {
     padding: 26px 16px 56px;
@@ -535,6 +816,15 @@ function scrollToSection(id: string): void {
   .detail-reading-layout__metadata {
     gap: 14px;
     padding: 18px 22px 4px;
+  }
+
+  .detail-comparison {
+    padding: 11px 13px;
+  }
+
+  .detail-comparison__legend {
+    flex-basis: 100%;
+    margin-left: 0;
   }
 
   .detail-reading-layout__reading-frame {
@@ -584,6 +874,10 @@ function scrollToSection(id: string): void {
   --detail-lagoon: #6ad0c0;
   --detail-tag: #214550;
   --detail-tag-ink: #c9e9ef;
+  --detail-diff-deleted-bg: #71343d;
+  --detail-diff-deleted-ink: #ffd4d8;
+  --detail-diff-inserted-bg: #245a3d;
+  --detail-diff-inserted-ink: #d4f8df;
 }
 
 :global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__brief),
@@ -604,6 +898,21 @@ function scrollToSection(id: string): void {
 :global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__state) {
   background: #1e4d46;
   color: #abebd6;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__current-status) {
+  background: #294752;
+  color: #c8dbe0;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__current-status--changed) {
+  background: #5a4724;
+  color: #f5d991;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__current-status--confirmed_closed) {
+  background: #5a3039;
+  color: #ffd0d7;
 }
 
 :global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__urgent) {

@@ -43,6 +43,34 @@ export interface JobListItem {
   title: string
 }
 
+export type ComparisonStatus = 'available' | 'unavailable'
+export type ComparisonFragmentKind = 'unchanged' | 'deleted' | 'inserted'
+
+export interface ComparisonFragment {
+  kind: ComparisonFragmentKind
+  text: string
+}
+
+export interface ComparisonDimensionChange {
+  field: string
+  historical: string
+  latest: string
+}
+
+export interface ComparisonBodySection {
+  fragments: ComparisonFragment[]
+  label: string
+  section: JDDetailBodySection
+}
+
+export interface JobComparison {
+  body_sections?: ComparisonBodySection[]
+  dimension_changes?: ComparisonDimensionChange[]
+  message?: string
+  retryable?: boolean
+  status: ComparisonStatus
+}
+
 export interface PageInfo {
   number: number
   page_size: number
@@ -61,6 +89,7 @@ export interface JobDetailResponse extends JobListItem {
     supplemental?: string
     technology_highlights?: TechnologyHighlightRange[]
   }
+  comparison?: JobComparison
 }
 
 export type TrendDrilldownStatus = 'current' | 'changed' | 'confirmed_closed'

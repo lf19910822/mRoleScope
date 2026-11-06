@@ -188,15 +188,21 @@ type ListJobsQuery struct {
 }
 
 type listMembershipRow struct {
-	ActivityState        string
-	BodyContentVersionID string
-	FirstDiscoveredDate  string
-	ID                   string
-	IsUrgent             bool
-	Locations            []string
-	MembershipID         string
-	Title                string
-	Total                int
+	ActivityState           string
+	BodyContentVersionID    string
+	FirstDiscoveredDate     string
+	ID                      string
+	IsUrgent                bool
+	Locations               []string
+	MembershipID            string
+	SourceMetadataVersionID string
+	Title                   string
+	Total                   int
+}
+
+type queryExecutor interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 // ListJobs reads only the current Serving inventory and its selected formal
@@ -274,23 +280,27 @@ func validateMinimumExperienceYears(years *int) error {
 }
 
 func (repository *Repository) loadListItem(ctx context.Context, row listMembershipRow) (JobListItem, error) {
-	mainFamily, otherFamilies, err := repository.loadJobFamilies(ctx, row.MembershipID)
+	return repository.loadListItemFrom(ctx, repository.pool, row)
+}
+
+func (repository *Repository) loadListItemFrom(ctx context.Context, executor queryExecutor, row listMembershipRow) (JobListItem, error) {
+	mainFamily, otherFamilies, err := repository.loadJobFamiliesFrom(ctx, executor, row.MembershipID)
 	if err != nil {
 		return JobListItem{}, err
 	}
-	technologies, err := repository.loadTechnologies(ctx, row.MembershipID)
+	technologies, err := repository.loadTechnologiesFrom(ctx, executor, row.MembershipID)
 	if err != nil {
 		return JobListItem{}, err
 	}
-	education, err := repository.loadEducation(ctx, row.MembershipID)
+	education, err := repository.loadEducationFrom(ctx, executor, row.MembershipID)
 	if err != nil {
 		return JobListItem{}, err
 	}
-	experience, err := repository.loadExperience(ctx, row.MembershipID)
+	experience, err := repository.loadExperienceFrom(ctx, executor, row.MembershipID)
 	if err != nil {
 		return JobListItem{}, err
 	}
-	projects, err := repository.loadProjects(ctx, row.MembershipID)
+	projects, err := repository.loadProjectsFrom(ctx, executor, row.MembershipID)
 	if err != nil {
 		return JobListItem{}, err
 	}
@@ -311,9 +321,13 @@ func (repository *Repository) loadListItem(ctx context.Context, row listMembersh
 }
 
 func (repository *Repository) loadEducation(ctx context.Context, membershipID string) (*EducationRequirement, error) {
+	return repository.loadEducationFrom(ctx, repository.pool, membershipID)
+}
+
+func (repository *Repository) loadEducationFrom(ctx context.Context, executor queryExecutor, membershipID string) (*EducationRequirement, error) {
 	var status string
 	var lowerBound, upperBound *string
-	err := repository.pool.QueryRow(ctx, `
+	err := executor.QueryRow(ctx, `
 SELECT result.status::text, result.lower_bound_level::text, result.upper_bound_level::text
 FROM (
     SELECT *
@@ -342,9 +356,13 @@ JOIN education_requirement_results AS result ON result.id = resolution.education
 }
 
 func (repository *Repository) loadExperience(ctx context.Context, membershipID string) (*ExperienceRequirement, error) {
+	return repository.loadExperienceFrom(ctx, repository.pool, membershipID)
+}
+
+func (repository *Repository) loadExperienceFrom(ctx context.Context, executor queryExecutor, membershipID string) (*ExperienceRequirement, error) {
 	var status string
 	var years *int
-	err := repository.pool.QueryRow(ctx, `
+	err := executor.QueryRow(ctx, `
 SELECT result.status::text, result.base_year
 FROM (
     SELECT *
@@ -370,8 +388,12 @@ JOIN experience_requirement_results AS result ON result.id = resolution.experien
 }
 
 func (repository *Repository) loadJobFamilies(ctx context.Context, membershipID string) (*FilterOption, []FilterOption, error) {
+	return repository.loadJobFamiliesFrom(ctx, repository.pool, membershipID)
+}
+
+func (repository *Repository) loadJobFamiliesFrom(ctx context.Context, executor queryExecutor, membershipID string) (*FilterOption, []FilterOption, error) {
 	var primary *string
-	err := repository.pool.QueryRow(ctx, `
+	err := executor.QueryRow(ctx, `
 SELECT result.primary_family_key
 FROM (
     SELECT *
@@ -393,7 +415,7 @@ JOIN job_family_results AS result ON result.id = resolution.job_family_result_id
 		return nil, []FilterOption{}, nil
 	}
 	main := &FilterOption{Value: *primary, Label: jdanalysis.JobFamilyDisplayName(*primary)}
-	rows, err := repository.pool.Query(ctx, `
+	rows, err := executor.Query(ctx, `
 SELECT match.family_key
 FROM (
     SELECT *
@@ -426,7 +448,11 @@ ORDER BY match.family_key`, membershipID)
 }
 
 func (repository *Repository) loadProjects(ctx context.Context, membershipID string) ([]FilterOption, error) {
-	rows, err := repository.pool.Query(ctx, `
+	return repository.loadProjectsFrom(ctx, repository.pool, membershipID)
+}
+
+func (repository *Repository) loadProjectsFrom(ctx context.Context, executor queryExecutor, membershipID string) ([]FilterOption, error) {
+	rows, err := executor.Query(ctx, `
 SELECT assignment.project_key, assignment.display_name
 FROM (
     SELECT *
@@ -458,7 +484,11 @@ ORDER BY assignment.display_name, assignment.project_key`, membershipID)
 }
 
 func (repository *Repository) loadTechnologies(ctx context.Context, membershipID string) ([]FilterOption, error) {
-	rows, err := repository.pool.Query(ctx, `
+	return repository.loadTechnologiesFrom(ctx, repository.pool, membershipID)
+}
+
+func (repository *Repository) loadTechnologiesFrom(ctx context.Context, executor queryExecutor, membershipID string) ([]FilterOption, error) {
+	rows, err := executor.Query(ctx, `
 SELECT identity.technology_key, identity.canonical_name
 FROM (
     SELECT *
