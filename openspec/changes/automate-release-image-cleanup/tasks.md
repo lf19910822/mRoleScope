@@ -24,6 +24,6 @@
 
 - [x] 3.1 Run shell syntax checks, deployment configuration tests, strict
       OpenSpec validation, and `git diff --check`.
-- [ ] 3.2 Install the reviewed root-owned helper on the CVM and verify the next
-      successful deployment records and runs cleanup without touching volumes
-      or live containers.
+- [ ] 3.2 The reviewed helper was checksum-verified and installed on the CVM
+      on 2026-11-06; verify the next successful deployment records and runs
+      cleanup without touching volumes or live containers.
