@@ -56,20 +56,36 @@ case "$1" in
   image)
     case "$2" in
       inspect)
-        if [[ " $* " == *'{{.Id}}'* ]]; then
+        if [[ " $* " == *'RepoDigests'* ]]; then
           case "${!#}" in
-            *3333333333333333333333333333333333333333333333333333333333333333)
-              printf '%s\n' 'sha256:stale-worker-image'
+            sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee|sha256:1111111111111111111111111111111111111111111111111111111111111111)
+              printf '%s\n' "mrolescopecleanup/mrolescope-api@${!#}"
+              ;;
+            sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff|sha256:2222222222222222222222222222222222222222222222222222222222222222)
+              printf '%s\n' "mrolescopecleanup/mrolescope-migrate@${!#}"
+              ;;
+            sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc|sha256:9999999999999999999999999999999999999999999999999999999999999999|sha256:3333333333333333333333333333333333333333333333333333333333333333)
+              printf '%s\n' "mrolescopecleanup/mrolescope-worker@${!#}"
+              ;;
+            sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd|sha256:8888888888888888888888888888888888888888888888888888888888888888|sha256:4444444444444444444444444444444444444444444444444444444444444444)
+              printf '%s\n' "mrolescopecleanup/mrolescope-web-edge@${!#}"
               ;;
             *)
-              printf '%s\n' "sha256:${!#}"
+              exit 1
               ;;
           esac
+        elif [[ " $* " == *'{{.Id}}'* ]]; then
+          image_reference="${!#}"
+          printf '%s\n' "sha256:${image_reference##*@sha256:}"
         else
           printf '%s\n' "$MROLESCOPE_TEST_REVISION"
         fi
         ;;
       ls)
+        if [[ " $* " != *'{{.ID}}'* ]]; then
+          printf '%s\n' 'mrolescopecleanup/mrolescope-api <none>'
+          exit 0
+        fi
         for row in \
           "mrolescopecleanup/mrolescope-api sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
           "mrolescopecleanup/mrolescope-migrate sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
@@ -101,7 +117,7 @@ case "$1" in
         printf '%s\n' stale-worker-container
         ;;
       inspect)
-        printf '%s\n' 'sha256:stale-worker-image'
+        printf '%s\n' 'sha256:3333333333333333333333333333333333333333333333333333333333333333'
         ;;
       *)
         exit 1
