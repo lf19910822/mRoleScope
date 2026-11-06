@@ -63,4 +63,13 @@ describe('JD browser router', () => {
     expect(router.currentRoute.value.name).toBe('job-trends')
     expect(router.currentRoute.value.path).toBe('/job-trends')
   })
+
+  it('keeps the incomplete-card highlight preview separate from the production dashboard', async () => {
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'job-trend-highlight-preview' })
+    await router.isReady()
+
+    expect(router.currentRoute.value.path).toBe('/job-trends/highlight-preview')
+    expect(router.currentRoute.value.name).toBe('job-trend-highlight-preview')
+  })
 })

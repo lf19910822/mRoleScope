@@ -77,7 +77,7 @@ describe('JobTrendView observation ledger', () => {
     wrapper.unmount()
   })
 
-  it('reuses the categorized technology selector for a technology curve and keeps it within the rail width', async () => {
+  it('reuses the categorized technology selector as an independent panel for a technology curve', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -100,13 +100,20 @@ describe('JobTrendView observation ledger', () => {
     )
 
     await selector.get('[data-testid="technology-keyword-trigger"]').trigger('click')
-    await selector.get('[data-testid="technology-keyword-go"]').trigger('click')
+    const technologyMenu = document.body.querySelector<HTMLElement>(
+      '[data-testid="technology-keyword-menu"]',
+    )
+    expect(technologyMenu).not.toBeNull()
+    await technologyMenu!
+      .querySelector<HTMLElement>('[data-testid="technology-keyword-go"]')
+      ?.click()
+    await nextTick()
     expect(wrapper.text()).toContain('技术关键词 · go')
 
     wrapper.unmount()
   })
 
-  it('carries a rendered curve’s stable observation colour and honest latest summary into its rail row', async () => {
+  it('carries a rendered curve’s stable observation colour into the compact rail card', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -152,15 +159,48 @@ describe('JobTrendView observation ledger', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.get('[data-testid="curve-marker-trend-1"]').attributes('style')).toContain(
-      '#007cab',
+    expect(wrapper.get('[data-testid="curve-card-trend-1"]').attributes('style')).toContain(
+      '#0072B2',
     )
-    expect(wrapper.get('[data-testid="curve-observation-trend-1"]').text()).toContain(
-      '最近观测 0',
+    expect(wrapper.find('[data-testid="curve-observation-trend-1"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('allows several draft cards and applies configured cards while highlighting every incomplete card', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        throw new Error(`unexpected request ${String(input)}`)
+      }),
     )
-    expect(wrapper.get('[data-testid="curve-observation-trend-1"]').text()).toContain(
-      '较前一有效日 -3',
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="start-first-curve"]').trigger('click')
+    await flushPromises()
+    const addButton = wrapper.findAll('button').find((button) => button.text().includes('添加曲线'))
+    expect(addButton).toBeDefined()
+    await addButton!.trigger('click')
+    expect(wrapper.findAll('.job-trend-view__curve-row')).toHaveLength(2)
+
+    await wrapper.get('[data-testid="apply-all-curves"]').trigger('click')
+    await nextTick()
+    expect(wrapper.findAll('.job-trend-view__curve-row--incomplete')).toHaveLength(2)
+    expect(wrapper.findAll('.job-trend-view__curve-pending')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="curve-card-trend-1"]').classes()).toContain(
+      'job-trend-view__curve-row--focused',
     )
+    expect(wrapper.text()).toContain('还有 2 张曲线卡待配置。')
+
+    await wrapper.get('[data-testid="clear-all-curves"]').trigger('click')
+    expect(wrapper.findAll('.job-trend-view__curve-row')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="trend-empty-state"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="curve-rail-footer"]').text()).toContain('0/8 条')
+    expect(wrapper.find('[data-testid="clear-all-curves"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="apply-all-curves"]').exists()).toBe(true)
 
     wrapper.unmount()
   })
@@ -216,5 +256,177 @@ describe('JobTrendView observation ledger', () => {
     )
 
     wrapper.unmount()
+  })
+
+  it('opens one anchored node list without exposing transport identities and preserves it after detail close', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 1, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Response(
+            JSON.stringify({
+              count_matches_expected: false,
+              items: [
+                {
+                  can_view_historical: false,
+                  can_view_latest: true,
+                  id: 'opaque-jd-should-not-render',
+                  status: 'current',
+                  title: 'Go 平台工程师',
+                },
+              ],
+              matched_total: 1,
+              node_date: '2026-11-05',
+              page: { number: 1, page_size: 20, total: 1 },
+            }),
+          )
+        }
+        if (path === '/api/v1/jobs/opaque-jd-should-not-render') {
+          return new Response(
+            JSON.stringify({
+              activity_state: 'effective',
+              body: { requirements: '熟悉 Go', responsibilities: '建设平台服务' },
+              first_discovered_date: '2026-11-05',
+              id: 'opaque-jd-should-not-render',
+              is_urgent: false,
+              locations: ['上海'],
+              other_job_families: [],
+              projects: [],
+              technology_keywords: [],
+              title: 'Go 平台工程师',
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })
+    expect(row).not.toBeNull()
+    row!.appliedCondition = { ...row!.condition }
+    row!.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 1, date: '2026-11-05' }],
+    }
+    row!.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    const historyLength = window.history.length
+    await wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-05', 1],
+      event: { event: { clientX: 400, clientY: 200 } },
+      seriesName: '技术关键词 · Go',
+    })
+    await flushPromises()
+
+    const drilldown = wrapper.get('[aria-label="趋势节点岗位"]')
+    expect(drilldown.attributes('style')).toContain('left:')
+    expect(drilldown.text()).toContain('Go 平台工程师')
+    expect(drilldown.text()).toContain('仍有效')
+    expect(drilldown.text()).toContain('数据已更新，请重新打开节点')
+    expect(drilldown.text()).not.toContain('opaque-jd-should-not-render')
+    expect(window.history.length).toBe(historyLength)
+
+    const latestAction = drilldown
+      .findAll('button')
+      .find((button) => button.text().includes('查看最新'))
+    expect(latestAction).toBeDefined()
+    await latestAction!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="岗位详情"]').text()).toContain('Go 平台工程师')
+
+    await wrapper.get('[aria-label="关闭岗位详情"]').trigger('click')
+    expect(wrapper.find('[aria-label="岗位详情"]').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').text()).toContain('Go 平台工程师')
+
+    wrapper.unmount()
+  })
+
+  it('uses a 390px sheet for a trusted zero and restores background scrolling when it closes', async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 0, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Response(
+            JSON.stringify({
+              count_matches_expected: true,
+              items: [],
+              matched_total: 0,
+              node_date: '2026-11-05',
+              page: { number: 1, page_size: 20, total: 0 },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })
+    expect(row).not.toBeNull()
+    row!.appliedCondition = { ...row!.condition }
+    row!.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 0, date: '2026-11-05' }],
+    }
+    row!.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-05', 0],
+      seriesName: '技术关键词 · Go',
+    })
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').text()).toContain('该日没有匹配岗位')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(wrapper.find('[aria-label="趋势节点岗位"]').exists()).toBe(false)
+    expect(document.body.style.overflow).toBe('')
+
+    wrapper.unmount()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
   })
 })

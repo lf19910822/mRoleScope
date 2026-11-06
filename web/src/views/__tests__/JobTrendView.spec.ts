@@ -34,6 +34,13 @@ describe('JobTrendView', () => {
     expect(source).toContain('end: 100')
   })
 
+  it('places an inclusive custom date control beside all history and reuses the shared date picker', () => {
+    expect(source).toContain('data-testid="open-custom-trend-range"')
+    expect(source).toContain('data-testid="apply-custom-trend-range"')
+    expect(source).toContain('FilterDatePicker')
+    expect(source).toContain('function applyCustomRange')
+  })
+
   it('keeps the fixed narrow-screen configurator clear of the chart and gives the dark rail local tokens', () => {
     const narrowStyles = source.slice(source.indexOf('@media (max-width: 760px)'))
 
@@ -44,7 +51,9 @@ describe('JobTrendView', () => {
       /\.job-trend-view__mobile-panel \{[\s\S]*?bottom:\s*calc\(18px \+ env\(safe-area-inset-bottom\)\);/u,
     )
     expect(source).toContain('--trend-muted: #a8c3ca')
-    expect(source).not.toContain('chartPointClicked')
+    expect(source).toContain('function chartPointClicked')
+    expect(source).toContain('job-trend-view__drilldown')
+    expect(source).toContain('该日没有匹配岗位')
     expect(source).not.toContain('pointFeedback')
   })
 
@@ -52,6 +61,50 @@ describe('JobTrendView', () => {
     expect(source).toContain('TechnologyKeywordSelect')
     expect(source).toMatch(
       /\.job-trend-view__technology-select \{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;/u,
+    )
+  })
+
+  it('keeps curve settings compact and card-like while preserving readable grouping', () => {
+    expect(source).toMatch(
+      /\.job-trend-view__curve-row \{[\s\S]*?border-radius:\s*12px;[\s\S]*?gap:\s*7px;[\s\S]*?padding:\s*11px;/u,
+    )
+    expect(source).toContain('job-trend-view__curve-identity')
+    expect(source).toContain('job-trend-view__curve-actions')
+    expect(source).toMatch(/\.job-trend-view__rail \{[\s\S]*?padding:\s*20px 16px 14px;/u)
+  })
+
+  it('makes the curve dimension the visual headline and uses the line color on the card edge', () => {
+    expect(source).toContain("{{ trendCurveLabel(row) || '未设置曲线' }}")
+    expect(source).toMatch(
+      /\.job-trend-view__curve-identity strong \{[\s\S]*?font-size:\s*0\.84rem;[\s\S]*?font-weight:\s*800;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__curve-row \{[\s\S]*?border-top:\s*4px solid var\(--curve-color\);/u,
+    )
+    expect(source).not.toContain('curveObservationText')
+  })
+
+  it('exposes a batch apply action and incomplete-card focus state', () => {
+    expect(source).toContain('data-testid="apply-all-curves"')
+    expect(source).toContain('data-testid="clear-all-curves"')
+    expect(source).toContain('function clearAllCurves')
+    expect(source).toContain('应用全部')
+    expect(source).toContain('job-trend-view__curve-row--incomplete')
+    expect(source).toContain('job-trend-view__curve-row--focused')
+    expect(source).toContain('scrollIntoView')
+    expect(source).toContain('job-trend-view__curve-pending')
+    expect(source).toContain(
+      'background: color-mix(in srgb, var(--curve-color), var(--trend-curve-surface) 90%)',
+    )
+  })
+
+  it('keeps the rail footer outside the scrollable curve list', () => {
+    expect(source).toContain('data-testid="curve-rail-footer"')
+    expect(source).toMatch(
+      /\.job-trend-view__curve-list \{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?scrollbar-gutter:\s*stable;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__rail-footer \{[\s\S]*?flex:\s*0 0 auto;/u,
     )
   })
 })

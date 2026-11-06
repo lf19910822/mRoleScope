@@ -7,7 +7,7 @@ export interface TrendChartSeries {
   itemStyle: { color: string }
   lineStyle: { color: string; width: number }
   name: string
-  showSymbol: false
+  showSymbol: boolean
   smooth: number
   symbol: 'circle'
   type: 'line'
@@ -54,14 +54,14 @@ export interface TrendChartOption {
 }
 
 const trendPalette = [
-  '#007cab',
-  '#0b9a8c',
-  '#9360c9',
-  '#dc7d32',
-  '#3c83d1',
-  '#c6546c',
-  '#648c38',
-  '#b060a8',
+  '#0072B2',
+  '#E69F00',
+  '#009E73',
+  '#D55E00',
+  '#CC79A7',
+  '#56B4E9',
+  '#B79F00',
+  '#332288',
 ]
 
 function representedCondition(row: TrendCurveRow) {
@@ -204,7 +204,7 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
       itemStyle: { color },
       lineStyle: { color, width: 2.5 },
       name: trendCurveLabel(row),
-      showSymbol: false as const,
+      showSymbol: true,
       smooth: 0.24,
       symbol: 'circle' as const,
       type: 'line' as const,
@@ -216,7 +216,7 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
   return {
     animationDuration: 300,
     animationDurationUpdate: 260,
-    dataZoom: range === 'all' ? allHistoryDataZoom() : [],
+    dataZoom: range === 'all' || range === 'custom' ? allHistoryDataZoom() : [],
     grid: { bottom: 78, left: 46, right: 24, top: 46 },
     legend: {
       bottom: 8,

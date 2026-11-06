@@ -142,3 +142,37 @@ type PageInfo struct {
 	PageSize int `json:"page_size"`
 	Total    int `json:"total"`
 }
+
+// TrendDrilldownStatus is the current availability of a job that belonged to
+// a historical trend node. It deliberately describes only the reader's next
+// action, never the source or SCD2 reason behind it.
+type TrendDrilldownStatus string
+
+const (
+	TrendDrilldownStatusChanged TrendDrilldownStatus = "changed"
+	TrendDrilldownStatusClosed  TrendDrilldownStatus = "confirmed_closed"
+	TrendDrilldownStatusCurrent TrendDrilldownStatus = "current"
+)
+
+// TrendDrilldownItem is a compact historical-node list item. ID is opaque
+// transport identity for opening a detail and is not a user-facing field.
+type TrendDrilldownItem struct {
+	CanViewHistorical bool                 `json:"can_view_historical"`
+	CanViewLatest     bool                 `json:"can_view_latest"`
+	ID                string               `json:"id"`
+	Status            TrendDrilldownStatus `json:"status"`
+	Title             string               `json:"title"`
+}
+
+// TrendDrilldownResponse describes one historical curve node. The node date
+// is a user-facing business date; all run/version provenance remains hidden.
+type TrendDrilldownResponse struct {
+	// CountMatchesExpected is present only for an unsearched node request. It
+	// distinguishes a changed historical collection from a title filter that
+	// intentionally makes MatchedTotal smaller than the chart point.
+	CountMatchesExpected *bool                `json:"count_matches_expected,omitempty"`
+	Items                []TrendDrilldownItem `json:"items"`
+	MatchedTotal         int                  `json:"matched_total"`
+	NodeDate             string               `json:"node_date"`
+	Page                 PageInfo             `json:"page"`
+}

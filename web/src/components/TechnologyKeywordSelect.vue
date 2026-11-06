@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { FilterOption, TechnologyKeywordFilterOption } from '@/api/jd-api'
 
+let selectorInstanceId = 0
+
 const props = withDefaults(
   defineProps<{
     modelValue: string[]
@@ -17,10 +19,14 @@ const emit = defineEmits<{
 }>()
 
 const root = ref<HTMLElement | null>(null)
+const trigger = ref<HTMLButtonElement | null>(null)
+const menu = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const isOpen = ref(false)
 const query = ref('')
 const activeCategoryValue = ref('all')
+const menuStyle = ref<Record<string, string>>({})
+const menuId = `technology-keyword-menu-${++selectorInstanceId}`
 const uncategorizedTechnology = { value: 'other', label: '其他技术' }
 
 function categoryOf(option: TechnologyKeywordFilterOption): FilterOption {
@@ -119,14 +125,46 @@ function onTriggerKeydown(event: KeyboardEvent): void {
   }
 }
 
+function onDocumentKeydown(event: KeyboardEvent): void {
+  if (isOpen.value && event.key === 'Escape') {
+    event.preventDefault()
+    closeMenu()
+    trigger.value?.focus()
+  }
+}
+
 function onDocumentPointerDown(event: PointerEvent): void {
-  if (!isOpen.value || root.value === null || !(event.target instanceof Node)) return
-  if (!root.value.contains(event.target)) closeMenu()
+  if (!isOpen.value || !(event.target instanceof Node)) return
+  if (root.value?.contains(event.target) || menu.value?.contains(event.target)) return
+  closeMenu()
+}
+
+function updateMenuPosition(): void {
+  if (!isOpen.value || trigger.value === null || menu.value === null) return
+
+  const margin = 16
+  const triggerRect = trigger.value.getBoundingClientRect()
+  const panelWidth = Math.min(640, Math.max(280, window.innerWidth - margin * 2))
+  const panelHeight = menu.value.getBoundingClientRect().height
+  const maxLeft = Math.max(margin, window.innerWidth - panelWidth - margin)
+  const preferredLeft = triggerRect.right - panelWidth
+  const left = Math.min(maxLeft, Math.max(margin, preferredLeft))
+  const belowTop = triggerRect.bottom + 8
+  const aboveTop = triggerRect.top - panelHeight - 8
+  const top =
+    belowTop + panelHeight <= window.innerHeight - margin ? belowTop : Math.max(margin, aboveTop)
+
+  menuStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${panelWidth}px`,
+  }
 }
 
 watch(isOpen, async (open) => {
   if (!open) return
   await nextTick()
+  updateMenuPosition()
   searchInput.value?.focus()
 })
 
@@ -136,18 +174,30 @@ watch(categories, (availableCategories) => {
   }
 })
 
-onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
+onMounted(() => {
+  document.addEventListener('keydown', onDocumentKeydown)
+  document.addEventListener('pointerdown', onDocumentPointerDown)
+  window.addEventListener('resize', updateMenuPosition)
+  window.addEventListener('scroll', updateMenuPosition, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onDocumentKeydown)
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+  window.removeEventListener('resize', updateMenuPosition)
+  window.removeEventListener('scroll', updateMenuPosition, true)
+})
 </script>
 
 <template>
   <div ref="root" class="technology-keyword-select">
     <button
+      ref="trigger"
       type="button"
       class="technology-keyword-select__trigger"
       :class="{ 'technology-keyword-select__trigger--open': isOpen }"
       aria-haspopup="dialog"
       :aria-expanded="isOpen"
+      :aria-controls="isOpen ? menuId : undefined"
       data-testid="technology-keyword-trigger"
       @click="toggleMenu"
       @keydown="onTriggerKeydown"
@@ -158,99 +208,126 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
       <span class="technology-keyword-select__chevron" aria-hidden="true">⌄</span>
     </button>
 
-    <section
-      v-if="isOpen"
-      class="technology-keyword-select__menu"
-      role="dialog"
-      aria-label="选择技术关键词"
-    >
-      <label class="technology-keyword-select__search">
-        <span class="technology-keyword-select__search-icon" aria-hidden="true">⌕</span>
-        <span class="visually-hidden">搜索全部技术关键词</span>
-        <input
-          ref="searchInput"
-          v-model="query"
-          type="search"
-          autocomplete="off"
-          placeholder="搜索技术关键词"
-          data-testid="technology-keyword-search"
+    <Teleport to="body">
+      <div v-if="isOpen" class="technology-keyword-select__portal">
+        <div
+          class="technology-keyword-select__backdrop"
+          aria-hidden="true"
+          data-testid="technology-keyword-backdrop"
+          @pointerdown="closeMenu"
         />
-      </label>
-
-      <div
-        v-if="selectedOptions.length"
-        class="technology-keyword-select__selected"
-        data-testid="technology-keyword-selected"
-      >
-        <span>已选择</span>
-        <div class="technology-keyword-select__chips">
-          <button
-            v-for="option in selectedOptions"
-            :key="option.value"
-            type="button"
-            class="technology-keyword-select__chip"
-            :aria-label="`移除 ${option.label}`"
-            @click="toggleSelection(option.value)"
-          >
-            {{ option.label }} <span aria-hidden="true">×</span>
-          </button>
-        </div>
-        <button type="button" class="technology-keyword-select__clear" @click="clearSelection">
-          清空
-        </button>
-      </div>
-
-      <div class="technology-keyword-select__browser">
-        <nav class="technology-keyword-select__categories" aria-label="技术关键词分类">
-          <button
-            v-for="category in categories"
-            :key="category.value"
-            type="button"
-            class="technology-keyword-select__category"
-            :class="{
-              'technology-keyword-select__category--active':
-                !isSearching && category.value === activeCategoryValue,
-            }"
-            :aria-current="
-              !isSearching && category.value === activeCategoryValue ? 'true' : undefined
-            "
-            :data-testid="`technology-category-${category.value}`"
-            @click="selectCategory(category.value)"
-          >
-            <span>{{ category.label }}</span
-            ><small>{{ category.count }}</small>
-          </button>
-        </nav>
-
-        <section class="technology-keyword-select__term-panel" aria-live="polite">
-          <header>
-            <strong>{{ isSearching ? '搜索结果' : activeCategory?.label }}</strong>
-            <span>{{ visibleOptions.length }} 项</span>
-          </header>
-          <div class="technology-keyword-select__terms" data-testid="technology-keyword-terms">
+        <section
+          :id="menuId"
+          ref="menu"
+          class="technology-keyword-select__menu"
+          role="dialog"
+          aria-label="选择技术关键词"
+          data-testid="technology-keyword-menu"
+          :style="menuStyle"
+        >
+          <header class="technology-keyword-select__menu-header">
+            <div>
+              <strong>技术关键词</strong>
+              <span>按分类浏览，或直接搜索</span>
+            </div>
             <button
-              v-for="option in visibleOptions"
-              :key="option.value"
               type="button"
-              class="technology-keyword-select__term"
-              :class="{ 'technology-keyword-select__term--selected': isSelected(option.value) }"
-              :aria-pressed="isSelected(option.value)"
-              :data-testid="`technology-keyword-${option.value}`"
-              @click="toggleSelection(option.value)"
+              class="technology-keyword-select__menu-close"
+              aria-label="关闭技术关键词选择器"
+              @click="closeMenu"
             >
-              <span class="technology-keyword-select__checkbox" aria-hidden="true">{{
-                isSelected(option.value) ? '✓' : ''
-              }}</span>
-              <span>{{ option.label }}</span>
-              <small v-if="isSearching">{{ categoryOf(option).label }}</small>
+              ×
             </button>
-            <p v-if="visibleOptions.length === 0" class="technology-keyword-select__empty">
-              未找到匹配的技术关键词。
-            </p>
+          </header>
+          <label class="technology-keyword-select__search">
+            <span class="technology-keyword-select__search-icon" aria-hidden="true">⌕</span>
+            <span class="visually-hidden">搜索全部技术关键词</span>
+            <input
+              ref="searchInput"
+              v-model="query"
+              type="search"
+              autocomplete="off"
+              placeholder="搜索技术关键词"
+              data-testid="technology-keyword-search"
+            />
+          </label>
+
+          <div
+            v-if="selectedOptions.length"
+            class="technology-keyword-select__selected"
+            data-testid="technology-keyword-selected"
+          >
+            <span>已选择</span>
+            <div class="technology-keyword-select__chips">
+              <button
+                v-for="option in selectedOptions"
+                :key="option.value"
+                type="button"
+                class="technology-keyword-select__chip"
+                :aria-label="`移除 ${option.label}`"
+                @click="toggleSelection(option.value)"
+              >
+                {{ option.label }} <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <button type="button" class="technology-keyword-select__clear" @click="clearSelection">
+              清空
+            </button>
+          </div>
+
+          <div class="technology-keyword-select__browser">
+            <nav class="technology-keyword-select__categories" aria-label="技术关键词分类">
+              <button
+                v-for="category in categories"
+                :key="category.value"
+                type="button"
+                class="technology-keyword-select__category"
+                :class="{
+                  'technology-keyword-select__category--active':
+                    !isSearching && category.value === activeCategoryValue,
+                }"
+                :aria-current="
+                  !isSearching && category.value === activeCategoryValue ? 'true' : undefined
+                "
+                :data-testid="`technology-category-${category.value}`"
+                @click="selectCategory(category.value)"
+              >
+                <span>{{ category.label }}</span
+                ><small>{{ category.count }}</small>
+              </button>
+            </nav>
+
+            <section class="technology-keyword-select__term-panel" aria-live="polite">
+              <header>
+                <strong>{{ isSearching ? '搜索结果' : activeCategory?.label }}</strong>
+                <span>{{ visibleOptions.length }} 项</span>
+              </header>
+              <div class="technology-keyword-select__terms" data-testid="technology-keyword-terms">
+                <button
+                  v-for="option in visibleOptions"
+                  :key="option.value"
+                  type="button"
+                  class="technology-keyword-select__term"
+                  :class="{ 'technology-keyword-select__term--selected': isSelected(option.value) }"
+                  :aria-pressed="isSelected(option.value)"
+                  :data-testid="`technology-keyword-${option.value}`"
+                  @click="toggleSelection(option.value)"
+                >
+                  <span class="technology-keyword-select__checkbox" aria-hidden="true">{{
+                    isSelected(option.value) ? '✓' : ''
+                  }}</span>
+                  <span>{{ option.label }}</span>
+                  <small v-if="isSearching">{{ categoryOf(option).label }}</small>
+                </button>
+                <p v-if="visibleOptions.length === 0" class="technology-keyword-select__empty">
+                  未找到匹配的技术关键词。
+                </p>
+              </div>
+            </section>
           </div>
         </section>
       </div>
-    </section>
+    </Teleport>
   </div>
 </template>
 
@@ -299,6 +376,20 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   margin-left: auto;
 }
 
+.technology-keyword-select__portal {
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 1000;
+}
+
+.technology-keyword-select__backdrop {
+  background: transparent;
+  inset: 0;
+  pointer-events: auto;
+  position: fixed;
+}
+
 .technology-keyword-select__menu {
   background: #fff;
   border: 1px solid #e3ebf0;
@@ -307,15 +398,62 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   box-shadow:
     0 9px 28px 0 rgba(11, 37, 50, 0.1),
     0 12px 48px 16px rgba(11, 37, 50, 0.04);
-  left: auto;
-  margin-top: 7px;
+  display: flex;
+  flex-direction: column;
+  left: 0;
+  max-height: min(620px, calc(100dvh - 32px));
   min-width: 0;
   overflow: hidden;
-  position: absolute;
-  right: 0;
-  top: 100%;
-  width: min(640px, 100%);
-  z-index: 20;
+  pointer-events: auto;
+  position: fixed;
+  top: 0;
+  width: min(640px, calc(100vw - 32px));
+  z-index: 1;
+}
+
+.technology-keyword-select__menu-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 15px 16px 4px;
+}
+
+.technology-keyword-select__menu-header div {
+  display: grid;
+  gap: 3px;
+}
+
+.technology-keyword-select__menu-header strong {
+  color: #14313d;
+  font-size: 0.94rem;
+  letter-spacing: -0.01em;
+}
+
+.technology-keyword-select__menu-header span {
+  color: #71828a;
+  font-size: 0.72rem;
+}
+
+.technology-keyword-select__menu-close {
+  align-items: center;
+  background: #f2f7f9;
+  border: 0;
+  border-radius: 8px;
+  color: #55717d;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 1.25rem;
+  height: 30px;
+  justify-content: center;
+  line-height: 1;
+  width: 30px;
+}
+
+.technology-keyword-select__menu-close:hover,
+.technology-keyword-select__menu-close:focus-visible {
+  background: #e3f4fa;
+  color: #00658e;
+  outline: 0;
 }
 
 .technology-keyword-select__search {
@@ -392,13 +530,14 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   border-top: 1px solid #e3ebf0;
   display: grid;
   grid-template-columns: minmax(164px, 43%) minmax(0, 1fr);
-  min-height: 332px;
+  flex: 1;
+  min-height: 0;
 }
 
 .technology-keyword-select__categories {
   background: #fbfdfe;
   border-right: 1px solid #e3ebf0;
-  max-height: 372px;
+  min-height: 0;
   overscroll-behavior: contain;
   overflow-y: auto;
   padding: 8px;
@@ -445,7 +584,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 }
 
 .technology-keyword-select__term-panel {
-  max-height: 372px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   padding: 10px;
 }
@@ -465,7 +605,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 }
 
 .technology-keyword-select__terms {
-  max-height: 326px;
+  flex: 1;
+  min-height: 0;
   overscroll-behavior: contain;
   overflow-y: auto;
 }
@@ -541,8 +682,22 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 }
 
 @media (max-width: 620px) {
+  .technology-keyword-select__backdrop {
+    background: rgba(11, 37, 50, 0.28);
+  }
+
   .technology-keyword-select__menu {
-    min-width: min(100%, calc(100vw - 32px));
+    border-radius: 18px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 16px !important;
+    max-height: min(82dvh, 680px);
+    right: 16px;
+    top: auto !important;
+    width: auto !important;
+  }
+
+  .technology-keyword-select__browser {
+    grid-template-columns: minmax(132px, 38%) minmax(0, 1fr);
   }
 
   .technology-keyword-select__categories {
@@ -581,6 +736,25 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   background: #17303a;
   border-color: #31505c;
   box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.7);
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__menu-header strong) {
+  color: #edf7f8;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__menu-header span) {
+  color: #9bb8c0;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__menu-close) {
+  background: #23434e;
+  color: #b5d7df;
+}
+
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__menu-close:hover),
+:global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__menu-close:focus-visible) {
+  background: #2a5862;
+  color: #e4faf5;
 }
 
 :global(.app-shell[data-color-scheme='dark'] .technology-keyword-select__search),

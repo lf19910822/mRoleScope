@@ -5,6 +5,7 @@ import {
   trendCurveColor,
   trendCurveLegendLabel,
   trendCurveObservationSummary,
+  trendPalette,
 } from '../job-trend-chart'
 import type { TrendCurveRow } from '../job-trend-dashboard-state'
 
@@ -46,13 +47,15 @@ describe('job trend chart option', () => {
     expect(option.dataZoom).toEqual([])
   })
 
-  it('enables bounded in-chart zoom and pan only for the all-history range', () => {
+  it('enables bounded in-chart zoom and pan for all-history and custom ranges', () => {
     const option = createTrendChartOption([row()], 'all')
 
     expect(option.dataZoom).toHaveLength(2)
     expect(option.dataZoom[0]).toMatchObject({ type: 'inside', xAxisIndex: 0 })
     expect(option.dataZoom[1]).toMatchObject({ type: 'inside', yAxisIndex: 0 })
     expect(option.yAxis.min).toBe(0)
+
+    expect(createTrendChartOption([row()], 'custom').dataZoom).toHaveLength(2)
   })
 
   it('restores a curve’s legend visibility without removing its data', () => {
@@ -74,10 +77,25 @@ describe('job trend chart option', () => {
 
     const option = createTrendChartOption([draft, applied], 'week')
 
-    expect(trendCurveColor(applied)).toBe('#0b9a8c')
-    expect(option.series[0]?.itemStyle.color).toBe('#0b9a8c')
+    expect(trendCurveColor(applied)).toBe(trendPalette[1])
+    expect(option.series[0]?.itemStyle.color).toBe(trendPalette[1])
     expect(trendCurveLegendLabel(applied)).toBe('技术 Go')
     expect(option.legend.formatter?.('技术关键词 · Go')).toBe('技术 Go')
+  })
+
+  it('provides eight distinct high-contrast colors for the eight curve slots', () => {
+    expect(trendPalette).toHaveLength(8)
+    expect(new Set(trendPalette).size).toBe(8)
+    expect(trendPalette).toEqual([
+      '#0072B2',
+      '#E69F00',
+      '#009E73',
+      '#D55E00',
+      '#CC79A7',
+      '#56B4E9',
+      '#B79F00',
+      '#332288',
+    ])
   })
 
   it('summarizes the latest numeric observation across a gap without treating zero as missing', () => {
