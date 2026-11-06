@@ -80,12 +80,12 @@ build_and_push() {
     --label "${revision_label}=${revision}" \
     --label "${source_label}=${source_url}" \
     --tag "$image_tag" \
-    "$repository_root"
+    "$repository_root" >&2
   local_revision=$(docker image inspect --format "{{index .Config.Labels \"${revision_label}\"}}" "$image_tag")
   [[ "$local_revision" == "$revision" ]] \
     || die "${image_name} is missing the expected immutable source revision label"
   printf 'Pushing %s…\n' "$image_name" >&2
-  docker push "$image_tag"
+  docker push "$image_tag" >&2
   resolve_pushed_digest "$image_name" "$image_tag"
 }
 
