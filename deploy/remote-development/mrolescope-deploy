@@ -3,7 +3,7 @@
 # Root-owned deployment entry point for the remote-development environment.
 #
 # Its interface is intentionally narrow: the self-hosted runner can supply
-# exactly three immutable Docker Hub image digests in one configured public
+# exactly four immutable Docker Hub image digests in one configured public
 # namespace. It cannot choose Compose files, secret files, image tags, ports,
 # commands, or a shell to execute.
 
@@ -37,6 +37,8 @@ migrate_pattern=""
 worker_pattern=""
 web_edge_pattern=""
 web_edge_enabled=false
+image_cleanup_enabled=true
+previous_release_images=()
 
 die() {
   printf 'mrolescope deployment failed during %s: %s\n' "$phase" "$1" >&2
@@ -151,6 +153,120 @@ prune_records() {
   prune_matching_records 'release-*-failed-*.env' 10
 }
 
+read_release_image_set() {
+  local record="$1" key candidate
+
+  [[ -f "$record" && ! -L "$record" ]] || return 1
+  is_root_owned_mode "$record" 600 || return 1
+
+  for key in api_image migrate_image worker_image web_edge_image; do
+    candidate=$(sed -nE "s|^${key}=(docker\\.io/${dockerhub_namespace}/mrolescope-[a-z-]+@sha256:[a-f0-9]{64})$|\\1|p" "$record")
+    case "$key" in
+      api_image)
+        [[ "$candidate" =~ $api_pattern ]] || return 1
+        ;;
+      migrate_image)
+        [[ "$candidate" =~ $migrate_pattern ]] || return 1
+        ;;
+      worker_image)
+        [[ "$candidate" =~ $worker_pattern ]] || return 1
+        ;;
+      web_edge_image)
+        [[ "$candidate" =~ $web_edge_pattern ]] || return 1
+        ;;
+    esac
+    printf '%s\n' "$candidate"
+  done
+}
+
+capture_previous_release_images() {
+  local current_file="$RELEASE_DIR/current.env" snapshot
+
+  if [[ ! -e "$current_file" && ! -L "$current_file" ]]; then
+    return 0
+  fi
+  if ! snapshot=$(read_release_image_set "$current_file"); then
+    image_cleanup_enabled=false
+    log 'existing release record is invalid; skipping image cleanup for this deployment'
+    return 0
+  fi
+  readarray -t previous_release_images <<<"$snapshot"
+  if [[ "${#previous_release_images[@]}" -ne 4 ]]; then
+    image_cleanup_enabled=false
+    previous_release_images=()
+    log 'existing release record is incomplete; skipping image cleanup for this deployment'
+  fi
+}
+
+is_managed_release_image() {
+  local image="$1"
+  [[ "$image" =~ $api_pattern || "$image" =~ $migrate_pattern || "$image" =~ $worker_pattern || "$image" =~ $web_edge_pattern ]]
+}
+
+list_managed_release_images() {
+  local rows repository digest image
+
+  rows=$(docker image ls --no-trunc --format '{{.Repository}} {{.Digest}}') || return 1
+  while IFS=' ' read -r repository digest; do
+    [[ -n "$repository" && -n "$digest" ]] || continue
+    repository="${repository#docker.io/}"
+    [[ "$digest" =~ ^${DIGEST_PATTERN}$ ]] || continue
+    image="docker.io/${repository}@${digest}"
+    is_managed_release_image "$image" || continue
+    printf '%s\n' "$image"
+  done <<<"$rows"
+}
+
+image_is_container_referenced() {
+  local image="$1" image_id container_ids container_id container_image_id
+
+  if ! image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null); then
+    return 0
+  fi
+  if ! container_ids=$(docker container ls -aq 2>/dev/null); then
+    return 0
+  fi
+  while IFS= read -r container_id; do
+    [[ -n "$container_id" ]] || continue
+    if ! container_image_id=$(docker container inspect --format '{{.Image}}' "$container_id" 2>/dev/null); then
+      return 0
+    fi
+    [[ "$container_image_id" == "$image_id" ]] && return 0
+  done <<<"$container_ids"
+  return 1
+}
+
+cleanup_stale_release_images() {
+  local available_images image
+  local -a candidates=()
+  local -A retained_images=()
+
+  [[ "$image_cleanup_enabled" == true ]] || return 0
+  for image in "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" "${previous_release_images[@]}"; do
+    retained_images["$image"]=true
+  done
+  if ! available_images=$(list_managed_release_images); then
+    log 'could not list local release images; cleanup incomplete'
+    return 0
+  fi
+  readarray -t candidates <<<"$available_images"
+  for image in "${candidates[@]}"; do
+    [[ -n "$image" ]] || continue
+    if [[ -n "${retained_images[$image]:-}" ]]; then
+      continue
+    fi
+    if image_is_container_referenced "$image"; then
+      log "retaining container-referenced image ${image}"
+      continue
+    fi
+    if docker image rm "$image" >/dev/null; then
+      log "removed stale release image ${image}"
+    else
+      log "could not remove stale release image ${image}; cleanup incomplete"
+    fi
+  done
+}
+
 healthy_api() {
   local attempt container_id status
   for ((attempt = 1; attempt <= 20; attempt += 1)); do
@@ -228,6 +344,7 @@ command -v curl >/dev/null 2>&1 || die "curl is not installed"
 command -v flock >/dev/null 2>&1 || die "flock is not installed"
 exec 9>"$LOCK_FILE"
 flock -n 9 || die "another deployment is already running"
+capture_previous_release_images
 
 # The root-owned file is a deliberately simple dotenv file. It is sourced only
 # after ownership and mode checks so Compose and the validation below use one
@@ -314,4 +431,7 @@ write_current
 write_record success "$phase" "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" "$api_revision"
 prune_records
 deployment_succeeded=true
+phase="prune-images"
+cleanup_stale_release_images
+phase="complete"
 log "deployment verified at revision ${api_revision}"

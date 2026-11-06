@@ -61,6 +61,7 @@ deploy-config-check:
 	bash scripts/test-check-remote-development-compose.sh
 	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
 	bash scripts/test-mrolescope-deploy-web-edge.sh
+	bash scripts/test-mrolescope-deploy-image-cleanup.sh
 	@if [ -z "$(DEPLOY_COMPOSE)" ]; then \
 		printf '%s\n' 'Docker Compose v2 plugin is unavailable; static network-boundary checks passed, and CI/CVM will run the full Compose v2 config check.'; \
 	else \
