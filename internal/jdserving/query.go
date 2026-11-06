@@ -26,6 +26,10 @@ const (
 	MaximumListSortRules = 4
 )
 
+// DefaultPageSize exposes the existing bounded public pagination default to
+// other HTTP adapters without duplicating a magic number.
+func DefaultPageSize() int { return defaultPageSize }
+
 // ListSort is one of the supported deterministic list orders.
 type ListSort string
 
@@ -311,10 +315,16 @@ func (repository *Repository) loadEducation(ctx context.Context, membershipID st
 	var lowerBound, upperBound *string
 	err := repository.pool.QueryRow(ctx, `
 SELECT result.status::text, result.lower_bound_level::text, result.upper_bound_level::text
-FROM serving_jd_current_dimension_resolutions AS resolution
+FROM (
+    SELECT *
+    FROM serving_jd_dimension_resolutions
+    WHERE serving_jd_inventory_membership_id = $1
+      AND dimension = 'education'
+    ORDER BY selection_priority, created_at DESC, id DESC
+    LIMIT 1
+) AS resolution
 JOIN education_requirement_results AS result ON result.id = resolution.education_requirement_result_id
-WHERE resolution.serving_jd_inventory_membership_id = $1
-  AND resolution.dimension = 'education'`, membershipID).Scan(&status, &lowerBound, &upperBound)
+`, membershipID).Scan(&status, &lowerBound, &upperBound)
 	if err == pgx.ErrNoRows || status == "uncertain" {
 		return nil, nil
 	}
@@ -336,10 +346,16 @@ func (repository *Repository) loadExperience(ctx context.Context, membershipID s
 	var years *int
 	err := repository.pool.QueryRow(ctx, `
 SELECT result.status::text, result.base_year
-FROM serving_jd_current_dimension_resolutions AS resolution
+FROM (
+    SELECT *
+    FROM serving_jd_dimension_resolutions
+    WHERE serving_jd_inventory_membership_id = $1
+      AND dimension = 'experience'
+    ORDER BY selection_priority, created_at DESC, id DESC
+    LIMIT 1
+) AS resolution
 JOIN experience_requirement_results AS result ON result.id = resolution.experience_requirement_result_id
-WHERE resolution.serving_jd_inventory_membership_id = $1
-  AND resolution.dimension = 'experience'`, membershipID).Scan(&status, &years)
+`, membershipID).Scan(&status, &years)
 	if err == pgx.ErrNoRows || status == "uncertain" {
 		return nil, nil
 	}
@@ -357,10 +373,16 @@ func (repository *Repository) loadJobFamilies(ctx context.Context, membershipID 
 	var primary *string
 	err := repository.pool.QueryRow(ctx, `
 SELECT result.primary_family_key
-FROM serving_jd_current_dimension_resolutions AS resolution
+FROM (
+    SELECT *
+    FROM serving_jd_dimension_resolutions
+    WHERE serving_jd_inventory_membership_id = $1
+      AND dimension = 'job_family'
+    ORDER BY selection_priority, created_at DESC, id DESC
+    LIMIT 1
+) AS resolution
 JOIN job_family_results AS result ON result.id = resolution.job_family_result_id
-WHERE resolution.serving_jd_inventory_membership_id = $1
-  AND resolution.dimension = 'job_family'`, membershipID).Scan(&primary)
+`, membershipID).Scan(&primary)
 	if err == pgx.ErrNoRows {
 		return nil, []FilterOption{}, nil
 	}
@@ -373,12 +395,17 @@ WHERE resolution.serving_jd_inventory_membership_id = $1
 	main := &FilterOption{Value: *primary, Label: jdanalysis.JobFamilyDisplayName(*primary)}
 	rows, err := repository.pool.Query(ctx, `
 SELECT match.family_key
-FROM serving_jd_current_dimension_resolutions AS resolution
+FROM (
+    SELECT *
+    FROM serving_jd_dimension_resolutions
+    WHERE serving_jd_inventory_membership_id = $1
+      AND dimension = 'job_family'
+    ORDER BY selection_priority, created_at DESC, id DESC
+    LIMIT 1
+) AS resolution
 JOIN job_family_results AS result ON result.id = resolution.job_family_result_id
 JOIN job_family_matches AS match ON match.job_family_result_id = result.id
-WHERE resolution.serving_jd_inventory_membership_id = $1
-  AND resolution.dimension = 'job_family'
-  AND match.family_key <> result.primary_family_key
+WHERE match.family_key <> result.primary_family_key
 ORDER BY match.family_key`, membershipID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load serving other job families: %w", err)
@@ -401,11 +428,16 @@ ORDER BY match.family_key`, membershipID)
 func (repository *Repository) loadProjects(ctx context.Context, membershipID string) ([]FilterOption, error) {
 	rows, err := repository.pool.Query(ctx, `
 SELECT assignment.project_key, assignment.display_name
-FROM serving_jd_current_dimension_resolutions AS resolution
+FROM (
+    SELECT *
+    FROM serving_jd_dimension_resolutions
+    WHERE serving_jd_inventory_membership_id = $1
+      AND dimension = 'project'
+    ORDER BY selection_priority, created_at DESC, id DESC
+    LIMIT 1
+) AS resolution
 JOIN project_tag_results AS result ON result.id = resolution.project_tag_result_id
 JOIN project_tag_assignments AS assignment ON assignment.project_tag_result_id = result.id
-WHERE resolution.serving_jd_inventory_membership_id = $1
-  AND resolution.dimension = 'project'
 ORDER BY assignment.display_name, assignment.project_key`, membershipID)
 	if err != nil {
 		return nil, fmt.Errorf("load serving projects: %w", err)
@@ -428,12 +460,17 @@ ORDER BY assignment.display_name, assignment.project_key`, membershipID)
 func (repository *Repository) loadTechnologies(ctx context.Context, membershipID string) ([]FilterOption, error) {
 	rows, err := repository.pool.Query(ctx, `
 SELECT identity.technology_key, identity.canonical_name
-FROM serving_jd_current_dimension_resolutions AS resolution
+FROM (
+    SELECT *
+    FROM serving_jd_dimension_resolutions
+    WHERE serving_jd_inventory_membership_id = $1
+      AND dimension = 'technology'
+    ORDER BY selection_priority, created_at DESC, id DESC
+    LIMIT 1
+) AS resolution
 JOIN technology_analysis_results AS result ON result.id = resolution.technology_analysis_result_id
 JOIN technology_mentions AS mention ON mention.analysis_result_id = result.id
 JOIN technology_identities AS identity ON identity.id = mention.technology_identity_id
-WHERE resolution.serving_jd_inventory_membership_id = $1
-  AND resolution.dimension = 'technology'
 ORDER BY identity.canonical_name, identity.technology_key`, membershipID)
 	if err != nil {
 		return nil, fmt.Errorf("load serving technologies: %w", err)

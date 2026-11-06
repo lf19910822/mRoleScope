@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 
-export type TrendRange = 'week' | 'month' | 'quarter' | 'year' | 'all'
+export type TrendRange = 'week' | 'month' | 'quarter' | 'year' | 'all' | 'custom'
 
 export type TrendDimension =
   | 'education'
@@ -21,7 +21,14 @@ export interface TrendCondition {
 
 export interface TrendRequest {
   condition: TrendCondition
+  endDate?: string
   range: TrendRange
+  startDate?: string
+}
+
+export interface TrendCustomRange {
+  endDate: string
+  startDate: string
 }
 
 export interface TrendPoint {
@@ -60,11 +67,13 @@ export interface TrendDashboardState {
   activate(): Promise<void>
   applyCurve(id: string, override?: TrendCurveRequestOverride): Promise<void>
   changeDimension(id: string, dimension: TrendDimension): boolean
+  customRange?: TrendCustomRange
   range: TrendRange
   refresh(): Promise<void>
   removeCurve(id: string): boolean
   rows: TrendCurveRow[]
   setCurveVisibility(id: string, visible: boolean): boolean
+  setCustomRange(startDate: string, endDate: string): Promise<void>
   setRange(range: TrendRange): Promise<void>
   updateCurve(id: string, condition: TrendCondition): boolean
 }
@@ -72,6 +81,7 @@ export interface TrendDashboardState {
 type TrendCurveRequestOverride = {
   commitCondition?: boolean
   condition: TrendCondition
+  customRange?: TrendCustomRange
   range: TrendRange
 }
 
@@ -92,6 +102,7 @@ export interface TrendDashboardStateOptions {
 
 type PersistedTrendDashboard = {
   cachedAt: number
+  customRange?: TrendCustomRange
   range: TrendRange
   rows: Array<{
     appliedCondition?: TrendCondition
@@ -102,8 +113,16 @@ type PersistedTrendDashboard = {
   }>
 }
 
-function trendResultCacheKey(range: TrendRange, condition: TrendCondition): string {
-  return `${range}:${normalizedCurveKey(condition)}`
+function trendResultCacheKey(
+  range: TrendRange,
+  condition: TrendCondition,
+  customRange?: TrendCustomRange,
+): string {
+  const rangeKey =
+    range === 'custom' && customRange !== undefined
+      ? `custom:${customRange.startDate}:${customRange.endDate}`
+      : range
+  return `${rangeKey}:${normalizedCurveKey(condition)}`
 }
 
 function normalizedCurveKey(condition: TrendCondition): string {
@@ -153,7 +172,8 @@ function validTrendRange(value: unknown): value is TrendRange {
     value === 'month' ||
     value === 'quarter' ||
     value === 'year' ||
-    value === 'all'
+    value === 'all' ||
+    value === 'custom'
   )
 }
 
@@ -190,6 +210,22 @@ function validTrendCondition(value: unknown): value is TrendCondition {
   )
 }
 
+function validCustomRange(value: unknown): value is TrendCustomRange {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<TrendCustomRange>
+  return (
+    typeof candidate.startDate === 'string' &&
+    typeof candidate.endDate === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/u.test(candidate.startDate) &&
+    /^\d{4}-\d{2}-\d{2}$/u.test(candidate.endDate) &&
+    candidate.startDate <= candidate.endDate
+  )
+}
+
+function copiedCustomRange(customRange: TrendCustomRange): TrendCustomRange {
+  return { endDate: customRange.endDate, startDate: customRange.startDate }
+}
+
 function loadPersistedTrendDashboard(
   storage: TrendDashboardStorage | undefined,
 ): PersistedTrendDashboard | undefined {
@@ -202,6 +238,8 @@ function loadPersistedTrendDashboard(
       typeof candidate.cachedAt !== 'number' ||
       !Number.isFinite(candidate.cachedAt) ||
       !validTrendRange(candidate.range) ||
+      (candidate.customRange !== undefined && !validCustomRange(candidate.customRange)) ||
+      (candidate.range === 'custom' && !validCustomRange(candidate.customRange)) ||
       !Array.isArray(candidate.rows)
     ) {
       return undefined
@@ -233,6 +271,8 @@ function loadPersistedTrendDashboard(
     })
     return {
       cachedAt: candidate.cachedAt,
+      customRange:
+        candidate.customRange === undefined ? undefined : copiedCustomRange(candidate.customRange),
       range: candidate.range,
       rows: rows.slice(0, maximumTrendCurves),
     }
@@ -252,7 +292,7 @@ export function createTrendDashboardState(
   for (const row of persisted?.rows ?? []) {
     if (row.series !== undefined && row.appliedCondition !== undefined) {
       cachedTrendResults.set(
-        trendResultCacheKey(persisted?.range ?? 'week', row.appliedCondition),
+        trendResultCacheKey(persisted?.range ?? 'week', row.appliedCondition, persisted?.customRange),
         row.series,
       )
     }
@@ -275,6 +315,8 @@ export function createTrendDashboardState(
     if (storage === undefined) return
     const payload: PersistedTrendDashboard = {
       cachedAt: cachedAt ?? 0,
+      customRange:
+        state.customRange === undefined ? undefined : copiedCustomRange(state.customRange),
       range: state.range,
       rows: state.rows.map((row) => ({
         appliedCondition:
@@ -297,9 +339,10 @@ export function createTrendDashboardState(
     row: TrendCurveRow,
     range: TrendRange,
     condition: TrendCondition,
+    customRange?: TrendCustomRange,
   ): boolean => {
     if (cacheExpired() || !isCompleteTrendCondition(condition)) return false
-    const cached = cachedTrendResults.get(trendResultCacheKey(range, condition))
+    const cached = cachedTrendResults.get(trendResultCacheKey(range, condition, customRange))
     if (cached === undefined) return false
     row.error = ''
     row.series = cached
@@ -309,11 +352,13 @@ export function createTrendDashboardState(
   const state: TrendDashboardState = reactive({
     addCurve(condition: TrendCondition): TrendCurveRow | null {
       const normalized = copiedCondition(condition)
+      const hasSelectedValue = normalized.value.trim() !== ''
       if (
         state.rows.length >= maximumTrendCurves ||
-        state.rows.some(
-          (row) => normalizedCurveKey(row.condition) === normalizedCurveKey(normalized),
-        )
+        (hasSelectedValue &&
+          state.rows.some(
+            (row) => normalizedCurveKey(row.condition) === normalizedCurveKey(normalized),
+          ))
       ) {
         return null
       }
@@ -344,6 +389,7 @@ export function createTrendDashboardState(
             state.applyCurve(row.id, {
               commitCondition: false,
               condition: row.appliedCondition,
+              customRange: state.range === 'custom' ? state.customRange : undefined,
               range: state.range,
             }),
           ),
@@ -358,12 +404,19 @@ export function createTrendDashboardState(
       const version = nextRequestVersion(id)
       const requestedCondition = copiedCondition(override?.condition ?? row.condition)
       const requestedRange = override?.range ?? state.range
+      const requestedCustomRange =
+        override?.customRange ?? (requestedRange === 'custom' ? state.customRange : undefined)
       const commitCondition = override?.commitCondition ?? true
       row.error = ''
       row.status = 'loading'
       try {
         const result = await _client.readTrend(
-          { condition: requestedCondition, range: requestedRange },
+          {
+            condition: requestedCondition,
+            endDate: requestedCustomRange?.endDate,
+            range: requestedRange,
+            startDate: requestedCustomRange?.startDate,
+          },
           controller.signal,
         )
         if (requestVersions.get(id) !== version) return
@@ -381,13 +434,20 @@ export function createTrendDashboardState(
           isFormalTrendDimension(requestedCondition.dimension) &&
           olderFormalFreshness.some((freshness) => freshness !== result.freshness)
         ) {
-          await refreshFormalCurveGroup(new Map([[row.id, requestedCondition]]), requestedRange)
+          await refreshFormalCurveGroup(
+            new Map([[row.id, requestedCondition]]),
+            requestedRange,
+            requestedCustomRange,
+          )
           return
         }
         row.series = result
         row.status = 'ready'
         if (commitCondition) row.appliedCondition = requestedCondition
-        cachedTrendResults.set(trendResultCacheKey(requestedRange, requestedCondition), result)
+        cachedTrendResults.set(
+          trendResultCacheKey(requestedRange, requestedCondition, requestedCustomRange),
+          result,
+        )
         cachedAt = now()
         persist()
       } catch {
@@ -412,6 +472,7 @@ export function createTrendDashboardState(
       row.status = 'idle'
       return true
     },
+    customRange: persisted?.customRange,
     range: persisted?.range ?? 'week',
     async refresh(): Promise<void> {
       await Promise.all(
@@ -422,6 +483,7 @@ export function createTrendDashboardState(
             state.applyCurve(row.id, {
               commitCondition: false,
               condition,
+              customRange: state.range === 'custom' ? state.customRange : undefined,
               range: state.range,
             }),
           ]
@@ -452,7 +514,33 @@ export function createTrendDashboardState(
       persist()
       return true
     },
+    async setCustomRange(startDate: string, endDate: string): Promise<void> {
+      const customRange = { endDate, startDate }
+      if (!validCustomRange(customRange)) return
+      state.customRange = copiedCustomRange(customRange)
+      state.range = 'custom'
+      const pending = state.rows.flatMap((row) => {
+        const condition = row.appliedCondition
+        if (condition === undefined || !isCompleteTrendCondition(condition)) return []
+        if (restoreCachedResult(row, 'custom', condition, customRange)) return []
+        return [
+          state.applyCurve(row.id, {
+            commitCondition: false,
+            condition,
+            customRange,
+            range: 'custom',
+          }),
+        ]
+      })
+      persist()
+      await Promise.all(pending)
+    },
     async setRange(range: TrendRange): Promise<void> {
+      if (range === 'custom') {
+        if (state.customRange !== undefined)
+          await state.setCustomRange(state.customRange.startDate, state.customRange.endDate)
+        return
+      }
       if (state.range === range) return
       state.range = range
       const pending = state.rows.flatMap((row) => {
@@ -493,6 +581,7 @@ export function createTrendDashboardState(
   const refreshFormalCurveGroup = async (
     requestedConditions: Map<string, TrendCondition>,
     requestedRange: TrendRange,
+    requestedCustomRange?: TrendCustomRange,
   ): Promise<void> => {
     const group = state.rows.flatMap((row) => {
       const condition = requestedConditions.get(row.id) ?? row.appliedCondition
@@ -519,7 +608,12 @@ export function createTrendDashboardState(
         row,
         version,
         promise: _client.readTrend(
-          { condition: copiedCondition(condition), range: requestedRange },
+          {
+            condition: copiedCondition(condition),
+            endDate: requestedCustomRange?.endDate,
+            range: requestedRange,
+            startDate: requestedCustomRange?.startDate,
+          },
           controller.signal,
         ),
       }
@@ -552,7 +646,10 @@ export function createTrendDashboardState(
         request.row.series = series
         request.row.appliedCondition = request.condition
         request.row.status = 'ready'
-        cachedTrendResults.set(trendResultCacheKey(requestedRange, request.condition), series)
+        cachedTrendResults.set(
+          trendResultCacheKey(requestedRange, request.condition, requestedCustomRange),
+          series,
+        )
       }
       cachedAt = now()
       persist()

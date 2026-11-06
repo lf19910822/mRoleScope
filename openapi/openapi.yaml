@@ -171,6 +171,18 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: version
+          schema:
+            type: string
+            enum: [latest, historical]
+            default: latest
+        - in: query
+          name: date
+          description: Required only for version=historical. Asia/Shanghai node date.
+          schema:
+            type: string
+            format: date
       responses:
         '200':
           description: Display-safe JD detail.
@@ -180,6 +192,35 @@ paths:
                 $ref: '#/components/schemas/JobDetailResponse'
         '404':
           description: The JD is not present in the latest serving inventory.
+        '503':
+          description: The requested historical JD cannot be reconstructed safely.
+  /api/v1/jobs/{id}/detail:
+    get:
+      summary: Read the latest or selected historical JD by its opaque public ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+        - in: query
+          name: version
+          required: true
+          schema: {type: string, enum: [latest, historical]}
+        - in: query
+          name: date
+          description: Required only for version=historical.
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          description: Display-safe selected JD detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetailResponse'
+        '400':
+          description: The requested version selector is invalid.
+        '503':
+          description: The selected historical JD cannot be reconstructed safely.
   /api/v1/job-trends:
     get:
       summary: Read one historical JD trend curve
@@ -190,7 +231,15 @@ paths:
           required: true
           schema:
             type: string
-            enum: [week, month, quarter, year, all]
+            enum: [week, month, quarter, year, all, custom]
+        - in: query
+          name: start_date
+          description: Required only with range=custom. Inclusive Asia/Shanghai start date.
+          schema: {type: string, format: date}
+        - in: query
+          name: end_date
+          description: Required only with range=custom. Inclusive Asia/Shanghai end date, no later than today.
+          schema: {type: string, format: date}
         - in: query
           name: dimension
           required: true
@@ -225,6 +274,58 @@ paths:
           description: The submitted trend condition is invalid or incompatible.
         '503':
           description: Historical trend data is temporarily unavailable.
+  /api/v1/job-trends/drilldown:
+    get:
+      summary: List one historical trend node's matching jobs
+      description: Reconstructs the final published snapshot for a numeric node. The response deliberately excludes source and version provenance.
+      parameters:
+        - in: query
+          name: date
+          required: true
+          schema: {type: string, format: date}
+        - in: query
+          name: count
+          required: true
+          description: Expected node count used only for consistency checking.
+          schema: {type: integer, minimum: 0}
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, default: 1}
+        - in: query
+          name: page_size
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+        - in: query
+          name: title
+          schema: {type: string}
+        - in: query
+          name: dimension
+          required: true
+          schema:
+            type: string
+            enum: [technology, job_family, education, project, location, experience]
+        - in: query
+          name: value
+          required: true
+          schema: {type: string}
+        - in: query
+          name: operator
+          description: Required only for education and experience.
+          schema: {type: string, enum: [eq, gt, gte, lt, lte]}
+        - in: query
+          name: include_secondary
+          description: Permitted only for job_family.
+          schema: {type: boolean}
+      responses:
+        '200':
+          description: A compact, paginated historical node list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendDrilldownResponse'
+        '400':
+          description: The submitted node condition is invalid.
+        '503':
+          description: The selected historical node is unavailable.
 components:
   schemas:
     Status:
@@ -318,6 +419,43 @@ components:
         freshness:
           type: string
           description: Opaque safe freshness marker.
+    TrendDrilldownStatus:
+      type: string
+      enum: [current, changed, confirmed_closed]
+    TrendDrilldownItem:
+      type: object
+      required: [id, title, status, can_view_historical, can_view_latest]
+      properties:
+        id:
+          type: string
+          description: Opaque JD reference for opening a permitted detail view.
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/TrendDrilldownStatus'
+        can_view_historical:
+          type: boolean
+        can_view_latest:
+          type: boolean
+    TrendDrilldownResponse:
+      type: object
+      required: [node_date, matched_total, items, page]
+      properties:
+        count_matches_expected:
+          description: Present only when no title search is applied. False means the reconstructed node collection changed since the displayed chart point.
+          type: boolean
+        node_date:
+          type: string
+          format: date
+        matched_total:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendDrilldownItem'
+        page:
+          $ref: '#/components/schemas/PageInfo'
     JobListItem:
       type: object
       required:

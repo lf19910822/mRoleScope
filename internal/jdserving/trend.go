@@ -24,6 +24,7 @@ const (
 	TrendRangeQuarter TrendRange = "quarter"
 	TrendRangeWeek    TrendRange = "week"
 	TrendRangeYear    TrendRange = "year"
+	TrendRangeCustom  TrendRange = "custom"
 )
 
 // TrendDimension identifies the one formal condition counted by a curve.
@@ -61,6 +62,11 @@ type TrendCondition struct {
 // TrendQuery asks for exactly one named range and one curve condition.
 type TrendQuery struct {
 	Condition TrendCondition
+	// StartDate and EndDate are used only with TrendRangeCustom. They are
+	// midnight Asia/Shanghai dates so the reader never has to infer a client
+	// timezone from an instant.
+	StartDate time.Time
+	EndDate   time.Time
 	Range     TrendRange
 }
 
@@ -94,6 +100,28 @@ type TrendReader interface {
 	ReadTrend(context.Context, TrendQuery) (TrendSeries, error)
 }
 
+// TrendDrilldownQuery is one bounded read of the jobs represented by a
+// numeric historical node. ExpectedCount is compared with the unsearched
+// result but never selects or filters memberships.
+type TrendDrilldownQuery struct {
+	Condition     TrendCondition
+	ExpectedCount int
+	NodeDate      time.Time
+	PageNumber    int
+	PageSize      int
+	Title         string
+}
+
+// TrendDrilldownReader hides final-run selection, formal predicate evaluation,
+// and current-status comparison behind the Serving boundary.
+type TrendDrilldownReader interface {
+	ReadTrendDrilldown(context.Context, TrendDrilldownQuery) (TrendDrilldownResponse, error)
+}
+
+// ErrTrendNodeUnavailable means the selected date cannot be reconstructed as
+// a trustworthy historical node. It carries no source/run detail.
+var ErrTrendNodeUnavailable = errors.New("trend node unavailable")
+
 // ErrInvalidTrendQuery denotes an incompatible or unbounded public condition.
 // HTTP maps it to a safe client error without exposing a storage detail.
 var ErrInvalidTrendQuery = errors.New("invalid trend query")
@@ -106,7 +134,7 @@ func (repository *Repository) ReadTrend(ctx context.Context, query TrendQuery) (
 	if repository == nil || repository.pool == nil {
 		return TrendSeries{}, fmt.Errorf("serving repository is unavailable")
 	}
-	calendarRange, err := resolveTrendCalendarRange(query.Range)
+	calendarRange, err := resolveTrendCalendarRange(query)
 	if err != nil {
 		return TrendSeries{}, err
 	}
@@ -119,6 +147,11 @@ func (repository *Repository) ReadTrend(ctx context.Context, query TrendQuery) (
 		return TrendSeries{}, fmt.Errorf("begin trend read: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	if query.Range == TrendRangeCustom {
+		if err := validateCustomTrendHistory(ctx, tx, calendarRange); err != nil {
+			return TrendSeries{}, err
+		}
+	}
 
 	var series TrendSeries
 	switch query.Condition.Dimension {
@@ -285,18 +318,31 @@ type trendCalendarRange struct {
 	Start *string
 }
 
-func resolveTrendCalendarRange(value TrendRange) (trendCalendarRange, error) {
+func resolveTrendCalendarRange(query TrendQuery) (trendCalendarRange, error) {
 	shanghai, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		return trendCalendarRange{}, fmt.Errorf("load trend calendar location: %w", err)
 	}
 	today := time.Now().In(shanghai)
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)
 	format := func(date time.Time) string { return date.Format("2006-01-02") }
 	rangeValue := trendCalendarRange{End: format(today)}
 	var start time.Time
-	switch value {
+	switch query.Range {
 	case TrendRangeAll:
 		return rangeValue, nil
+	case TrendRangeCustom:
+		start := query.StartDate.In(shanghai)
+		end := query.EndDate.In(shanghai)
+		if query.StartDate.IsZero() || query.EndDate.IsZero() ||
+			start.Hour() != 0 || start.Minute() != 0 || start.Second() != 0 || start.Nanosecond() != 0 ||
+			end.Hour() != 0 || end.Minute() != 0 || end.Second() != 0 || end.Nanosecond() != 0 ||
+			start.After(end) || end.After(todayStart) {
+			return trendCalendarRange{}, ErrInvalidTrendQuery
+		}
+		formattedStart := format(start)
+		formattedEnd := format(end)
+		return trendCalendarRange{Start: &formattedStart, End: formattedEnd}, nil
 	case TrendRangeWeek:
 		start = today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
 	case TrendRangeMonth:
@@ -312,6 +358,29 @@ func resolveTrendCalendarRange(value TrendRange) (trendCalendarRange, error) {
 	formattedStart := format(start)
 	rangeValue.Start = &formattedStart
 	return rangeValue, nil
+}
+
+// validateCustomTrendHistory keeps custom windows inside retained published
+// history. Named ranges intentionally retain their established gap behaviour;
+// a custom request is explicit enough that a wholly pre-retention start is a
+// safe client error rather than a long row of indistinguishable null points.
+func validateCustomTrendHistory(ctx context.Context, tx pgx.Tx, calendarRange trendCalendarRange) error {
+	if calendarRange.Start == nil {
+		return ErrInvalidTrendQuery
+	}
+	var firstAvailable *string
+	err := tx.QueryRow(ctx, `
+SELECT min((published_at AT TIME ZONE 'Asia/Shanghai')::date)::text
+FROM collection_runs
+WHERE status = 'published'
+  AND published_at IS NOT NULL`).Scan(&firstAvailable)
+	if err != nil {
+		return fmt.Errorf("read earliest trend history: %w", err)
+	}
+	if firstAvailable == nil || *calendarRange.Start < *firstAvailable {
+		return ErrInvalidTrendQuery
+	}
+	return nil
 }
 
 func validateEducationTrendQuery(query TrendQuery) (string, string, error) {

@@ -31,6 +31,12 @@ type JDDetailReader interface {
 	GetJobDetail(context.Context, string) (jdserving.JobDetailResponse, error)
 }
 
+// JDHistoricalDetailReader exposes a selected historical JD version without
+// letting HTTP inspect source-version or run identities.
+type JDHistoricalDetailReader interface {
+	GetHistoricalJobDetail(context.Context, string, time.Time) (jdserving.JobDetailResponse, error)
+}
+
 // JDFilterOptionsReader supplies the display-safe structured filter vocabulary.
 // It deliberately does not expose source, provenance, or audit reads.
 type JDFilterOptionsReader interface {
@@ -43,12 +49,20 @@ type JDTrendReader interface {
 	ReadTrend(context.Context, jdserving.TrendQuery) (jdserving.TrendSeries, error)
 }
 
+// JDTrendDrilldownReader keeps node snapshot reconstruction behind the
+// Serving seam; HTTP only validates bounded display-safe query parameters.
+type JDTrendDrilldownReader interface {
+	ReadTrendDrilldown(context.Context, jdserving.TrendDrilldownQuery) (jdserving.TrendDrilldownResponse, error)
+}
+
 type Router struct {
-	readiness ReadinessChecker
-	jdDetail  JDDetailReader
-	jdFilters JDFilterOptionsReader
-	jdList    JDListReader
-	jdTrend   JDTrendReader
+	readiness          ReadinessChecker
+	jdDetail           JDDetailReader
+	jdHistoricalDetail JDHistoricalDetailReader
+	jdFilters          JDFilterOptionsReader
+	jdList             JDListReader
+	jdDrilldown        JDTrendDrilldownReader
+	jdTrend            JDTrendReader
 }
 
 func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
@@ -58,7 +72,9 @@ func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
 	if len(readers) > 0 {
 		server.jdList = readers[0]
 		server.jdDetail, _ = readers[0].(JDDetailReader)
+		server.jdHistoricalDetail, _ = readers[0].(JDHistoricalDetailReader)
 		server.jdFilters, _ = readers[0].(JDFilterOptionsReader)
+		server.jdDrilldown, _ = readers[0].(JDTrendDrilldownReader)
 		server.jdTrend, _ = readers[0].(JDTrendReader)
 	}
 	router.GET("/healthz", server.health)
@@ -66,8 +82,32 @@ func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
 	router.GET("/api/v1/jobs", server.listJobs)
 	router.GET("/api/v1/jobs/filter-options", server.filterOptions)
 	router.GET("/api/v1/jobs/:id", server.jobDetail)
+	router.GET("/api/v1/jobs/:id/detail", server.jobDetail)
 	router.GET("/api/v1/job-trends", server.jobTrend)
+	router.GET("/api/v1/job-trends/drilldown", server.jobTrendDrilldown)
 	return router
+}
+
+func (r Router) jobTrendDrilldown(context *gin.Context) {
+	if r.jdDrilldown == nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	query, err := parseTrendDrilldownQuery(context)
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	response, err := r.jdDrilldown.ReadTrendDrilldown(context.Request.Context(), query)
+	if errors.Is(err, jdserving.ErrInvalidTrendQuery) {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	if err != nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	context.JSON(http.StatusOK, response)
 }
 
 func (r Router) health(context *gin.Context) {
@@ -105,9 +145,27 @@ func (r Router) jobDetail(context *gin.Context) {
 		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
 		return
 	}
-	response, err := r.jdDetail.GetJobDetail(context.Request.Context(), context.Param("id"))
+	version, nodeDate, err := parseDetailVersion(context)
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	var response jdserving.JobDetailResponse
+	if version == "historical" {
+		if r.jdHistoricalDetail == nil {
+			context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+			return
+		}
+		response, err = r.jdHistoricalDetail.GetHistoricalJobDetail(context.Request.Context(), context.Param("id"), nodeDate)
+	} else {
+		response, err = r.jdDetail.GetJobDetail(context.Request.Context(), context.Param("id"))
+	}
 	if errors.Is(err, jdserving.ErrJobNotFound) {
 		context.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+		return
+	}
+	if errors.Is(err, jdserving.ErrInvalidTrendQuery) {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
 		return
 	}
 	if err != nil {
@@ -115,6 +173,51 @@ func (r Router) jobDetail(context *gin.Context) {
 		return
 	}
 	context.JSON(http.StatusOK, response)
+}
+
+func parseDetailVersion(context *gin.Context) (string, time.Time, error) {
+	values := context.Request.URL.Query()
+	for key := range values {
+		if key != "version" && key != "date" {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+	}
+	version := values["version"]
+	if len(version) == 0 {
+		if len(values["date"]) != 0 {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+		return "latest", time.Time{}, nil
+	}
+	if len(version) != 1 || len(values["date"]) > 1 {
+		return "", time.Time{}, strconv.ErrSyntax
+	}
+	switch strings.TrimSpace(version[0]) {
+	case "latest":
+		if len(values["date"]) != 0 {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+		return "latest", time.Time{}, nil
+	case "historical":
+		if len(values["date"]) != 1 {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+		shanghai, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+		nodeDate, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(values["date"][0]), shanghai)
+		if err != nil {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+		today := time.Now().In(shanghai)
+		if nodeDate.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)) {
+			return "", time.Time{}, strconv.ErrSyntax
+		}
+		return "historical", nodeDate, nil
+	default:
+		return "", time.Time{}, strconv.ErrSyntax
+	}
 }
 
 func (r Router) filterOptions(context *gin.Context) {
@@ -156,7 +259,7 @@ func parseTrendQuery(context *gin.Context) (jdserving.TrendQuery, error) {
 	values := context.Request.URL.Query()
 	for key := range values {
 		switch key {
-		case "range", "dimension", "value", "operator", "include_secondary":
+		case "range", "dimension", "value", "operator", "include_secondary", "start_date", "end_date":
 		default:
 			return jdserving.TrendQuery{}, strconv.ErrSyntax
 		}
@@ -188,6 +291,39 @@ func parseTrendQuery(context *gin.Context) (jdserving.TrendQuery, error) {
 	switch query.Range {
 	case jdserving.TrendRangeWeek, jdserving.TrendRangeMonth, jdserving.TrendRangeQuarter,
 		jdserving.TrendRangeYear, jdserving.TrendRangeAll:
+		if _, present := values["start_date"]; present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		if _, present := values["end_date"]; present {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+	case jdserving.TrendRangeCustom:
+		startDate, ok := one("start_date", true)
+		if !ok {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		endDate, ok := one("end_date", true)
+		if !ok {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		shanghai, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		parsedStart, err := time.ParseInLocation("2006-01-02", startDate, shanghai)
+		if err != nil {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		parsedEnd, err := time.ParseInLocation("2006-01-02", endDate, shanghai)
+		if err != nil || parsedStart.After(parsedEnd) {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		today := time.Now().In(shanghai)
+		todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)
+		if parsedEnd.After(todayStart) {
+			return jdserving.TrendQuery{}, strconv.ErrSyntax
+		}
+		query.StartDate, query.EndDate = parsedStart, parsedEnd
 	default:
 		return jdserving.TrendQuery{}, strconv.ErrSyntax
 	}
@@ -233,6 +369,114 @@ func parseTrendQuery(context *gin.Context) (jdserving.TrendQuery, error) {
 		return jdserving.TrendQuery{}, strconv.ErrSyntax
 	}
 	return query, nil
+}
+
+func parseTrendDrilldownQuery(context *gin.Context) (jdserving.TrendDrilldownQuery, error) {
+	values := context.Request.URL.Query()
+	for key := range values {
+		switch key {
+		case "date", "count", "page", "page_size", "title", "dimension", "value", "operator", "include_secondary":
+		default:
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+	}
+	one := func(key string, required bool) (string, bool) {
+		items := values[key]
+		if len(items) != 1 {
+			return "", false
+		}
+		value := strings.TrimSpace(items[0])
+		if required && value == "" {
+			return "", false
+		}
+		return value, true
+	}
+	date, ok := one("date", true)
+	if !ok {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	nodeDate, err := time.ParseInLocation("2006-01-02", date, shanghai)
+	if err != nil {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	today := time.Now().In(shanghai)
+	if nodeDate.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)) {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	count, ok := one("count", true)
+	if !ok {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	expectedCount, err := strconv.Atoi(count)
+	if err != nil || expectedCount < 0 {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	pageNumber, pageSize := 1, jdserving.DefaultPageSize()
+	if raw, present := one("page", false); present {
+		pageNumber, err = strconv.Atoi(raw)
+		if err != nil || pageNumber < 1 {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+	}
+	if raw, present := one("page_size", false); present {
+		pageSize, err = strconv.Atoi(raw)
+		if err != nil || pageSize < 1 || pageSize > jdserving.MaximumPageSize {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+	}
+	dimension, ok := one("dimension", true)
+	if !ok {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	value, ok := one("value", true)
+	if !ok {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	condition := jdserving.TrendCondition{Dimension: jdserving.TrendDimension(dimension), Value: value}
+	switch condition.Dimension {
+	case jdserving.TrendDimensionEducation, jdserving.TrendDimensionExperience:
+		rawOperator, present := one("operator", true)
+		if !present {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		condition.Operator = jdserving.TrendComparison(rawOperator)
+		if condition.Operator != jdserving.TrendComparisonEqual && condition.Operator != jdserving.TrendComparisonGreaterThan && condition.Operator != jdserving.TrendComparisonGreaterThanOrEqual && condition.Operator != jdserving.TrendComparisonLessThan && condition.Operator != jdserving.TrendComparisonLessThanOrEqual {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		if _, present := values["include_secondary"]; present {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+	case jdserving.TrendDimensionJobFamily:
+		if _, present := values["operator"]; present {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		if rawSecondary, present := one("include_secondary", false); present {
+			if rawSecondary != "true" && rawSecondary != "false" {
+				return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+			}
+			condition.IncludeSecondary = rawSecondary == "true"
+		} else if _, supplied := values["include_secondary"]; supplied {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+	case jdserving.TrendDimensionTechnology, jdserving.TrendDimensionProject, jdserving.TrendDimensionLocation:
+		if _, present := values["operator"]; present {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		if _, present := values["include_secondary"]; present {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+	default:
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	title := strings.TrimSpace(values.Get("title"))
+	if len(values["title"]) > 1 {
+		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+	}
+	return jdserving.TrendDrilldownQuery{Condition: condition, ExpectedCount: expectedCount, NodeDate: nodeDate, PageNumber: pageNumber, PageSize: pageSize, Title: title}, nil
 }
 
 func parseListJobsQuery(context *gin.Context) (jdserving.ListJobsQuery, error) {

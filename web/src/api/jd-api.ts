@@ -63,6 +63,33 @@ export interface JobDetailResponse extends JobListItem {
   }
 }
 
+export type TrendDrilldownStatus = 'current' | 'changed' | 'confirmed_closed'
+
+export interface TrendDrilldownRequest {
+  condition: TrendRequest['condition']
+  count: number
+  date: string
+  page: number
+  pageSize: number
+  title: string
+}
+
+export interface TrendDrilldownItem {
+  can_view_historical: boolean
+  can_view_latest: boolean
+  id: string
+  status: TrendDrilldownStatus
+  title: string
+}
+
+export interface TrendDrilldownResponse {
+	count_matches_expected?: boolean
+  items: TrendDrilldownItem[]
+  matched_total: number
+  node_date: string
+  page: PageInfo
+}
+
 export interface FilterOptionsResponse {
   activity_states: FilterOption[]
   education_levels: FilterOption[]
@@ -130,8 +157,13 @@ export function getJobList(state: JDListState): Promise<JobListResponse> {
   return getJSON<JobListResponse>(jobListPath(state))
 }
 
-export function getJobDetail(id: string): Promise<JobDetailResponse> {
-  return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}`)
+export function getJobDetail(
+  id: string,
+  version: { date: string; mode: 'historical' } | { mode: 'latest' } = { mode: 'latest' },
+): Promise<JobDetailResponse> {
+  if (version.mode === 'latest') return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}`)
+  const parameters = new URLSearchParams({ date: version.date, version: version.mode })
+  return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}/detail?${parameters.toString()}`)
 }
 
 export function getFilterOptions(): Promise<FilterOptionsResponse> {
@@ -143,6 +175,10 @@ export function jobTrendPath(query: TrendRequest): string {
   parameters.set('range', query.range)
   parameters.set('dimension', query.condition.dimension)
   parameters.set('value', query.condition.value)
+  if (query.range === 'custom') {
+    if (query.startDate) parameters.set('start_date', query.startDate)
+    if (query.endDate) parameters.set('end_date', query.endDate)
+  }
   if (query.condition.operator) parameters.set('operator', query.condition.operator)
   if (query.condition.dimension === 'job_family') {
     parameters.set('include_secondary', String(query.condition.includeSecondary))
@@ -152,4 +188,27 @@ export function jobTrendPath(query: TrendRequest): string {
 
 export function getJobTrend(query: TrendRequest, signal?: AbortSignal): Promise<TrendSeries> {
   return getJSON<TrendSeries>(jobTrendPath(query), signal)
+}
+
+export function jobTrendDrilldownPath(query: TrendDrilldownRequest): string {
+  const parameters = new URLSearchParams()
+  parameters.set('date', query.date)
+  parameters.set('count', String(query.count))
+  parameters.set('page', String(query.page))
+  parameters.set('page_size', String(query.pageSize))
+  if (query.title.trim()) parameters.set('title', query.title.trim())
+  parameters.set('dimension', query.condition.dimension)
+  parameters.set('value', query.condition.value)
+  if (query.condition.operator) parameters.set('operator', query.condition.operator)
+  if (query.condition.dimension === 'job_family') {
+    parameters.set('include_secondary', String(query.condition.includeSecondary))
+  }
+  return `/api/v1/job-trends/drilldown?${parameters.toString()}`
+}
+
+export function getJobTrendDrilldown(
+  query: TrendDrilldownRequest,
+  signal?: AbortSignal,
+): Promise<TrendDrilldownResponse> {
+  return getJSON<TrendDrilldownResponse>(jobTrendDrilldownPath(query), signal)
 }

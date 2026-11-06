@@ -89,6 +89,45 @@ describe('trend dashboard state', () => {
     })
   })
 
+  it('allows several empty draft cards before requiring distinct selected conditions', () => {
+    const dashboard = createTrendDashboardState(client)
+
+    expect(
+      dashboard.addCurve({
+        dimension: 'technology',
+        includeSecondary: false,
+        operator: '',
+        value: '',
+      }),
+    ).toBeTruthy()
+    expect(
+      dashboard.addCurve({
+        dimension: 'technology',
+        includeSecondary: false,
+        operator: '',
+        value: '',
+      }),
+    ).toBeTruthy()
+    expect(dashboard.rows).toHaveLength(2)
+
+    expect(
+      dashboard.updateCurve('trend-1', {
+        dimension: 'technology',
+        includeSecondary: false,
+        operator: '',
+        value: 'go',
+      }),
+    ).toBe(true)
+    expect(
+      dashboard.updateCurve('trend-2', {
+        dimension: 'technology',
+        includeSecondary: false,
+        operator: '',
+        value: 'go',
+      }),
+    ).toBe(false)
+  })
+
   it('updates only the applied row and never lets a late result overwrite its latest condition', async () => {
     const go = deferred<TrendSeries>()
     const python = deferred<TrendSeries>()
@@ -196,6 +235,37 @@ describe('trend dashboard state', () => {
     expect(dashboard.range).toBe('all')
     expect(requests).toEqual(['all:go', 'all:上海'])
     expect(dashboard.rows.map((row) => row.status)).toEqual(['ready', 'ready'])
+  })
+
+  it('requests an inclusive custom date range and preserves it as the active range', async () => {
+    const requests: Array<{ endDate?: string; range: string; startDate?: string }> = []
+    const dashboard = createTrendDashboardState({
+      readTrend: async (request) => {
+        requests.push({
+          endDate: request.endDate,
+          range: request.range,
+          startDate: request.startDate,
+        })
+        return series(request.condition.value)
+      },
+    })
+    const curve = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })
+    if (curve === null) throw new Error('test curve was not added')
+
+    await dashboard.applyCurve(curve.id)
+    requests.length = 0
+    await dashboard.setCustomRange('2026-10-01', '2026-10-15')
+
+    expect(dashboard.range).toBe('custom')
+    expect(dashboard.customRange).toEqual({ endDate: '2026-10-15', startDate: '2026-10-01' })
+    expect(requests).toEqual([
+      { endDate: '2026-10-15', range: 'custom', startDate: '2026-10-01' },
+    ])
   })
 
   it('reuses a fresh cached curve when returning to a previously viewed range', async () => {
