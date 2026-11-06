@@ -37,6 +37,10 @@ func TestPublicJDDTOsExposeOnlyDisplaySafeFields(t *testing.T) {
 				End:     5,
 			}},
 		},
+		Comparison: &JobComparison{
+			Status: ComparisonStatusAvailable,
+			DimensionChanges: []ComparisonDimensionChange{{Field: "技术关键词", Historical: "Go", Latest: "Go、Rust"}},
+		},
 	}
 	payload, err := json.Marshal(response)
 	if err != nil {
@@ -68,6 +72,9 @@ func TestPublicJDDTOsExposeOnlyDisplaySafeFields(t *testing.T) {
 			t.Fatalf("public JD DTO leaked forbidden field vocabulary %q: %s", forbidden, text)
 		}
 	}
+	if !strings.Contains(text, `"comparison"`) || strings.Contains(text, "body_content_version_id") {
+		t.Fatalf("comparison contract missing or leaked: %s", text)
+	}
 }
 
 func TestPublicOpenAPIDoesNotDeclareInternalResponseProperties(t *testing.T) {
@@ -91,6 +98,7 @@ func TestPublicOpenAPIDoesNotDeclareInternalResponseProperties(t *testing.T) {
 	for _, required := range []string{
 		"/api/v1/job-trends:", "TrendSeries:", "TrendCurve:", "TrendPoint:",
 		"freshness:", "nullable: true", "include_secondary:",
+		"JobComparison:", "ComparisonDimensionChange:", "ComparisonBodySection:", "ComparisonFragment:",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("OpenAPI does not describe bounded trend contract field %q", required)

@@ -41,6 +41,20 @@ describe('JobTrendView', () => {
     expect(source).toContain('function applyCustomRange')
   })
 
+  it('keeps range help and the custom calendar out of the chart layout flow', () => {
+    expect(source).toContain('job-trend-view__range-stage')
+    expect(source).toContain("dashboard.range === 'custom' || customRangeOpen")
+    expect(source).toMatch(
+      /\.job-trend-view__range-stage \{[\s\S]*?position:\s*relative;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__custom-range \{[\s\S]*?position:\s*absolute;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__all-history-gestures \{[\s\S]*?position:\s*absolute;/u,
+    )
+  })
+
   it('keeps the fixed narrow-screen configurator clear of the chart and gives the dark rail local tokens', () => {
     const narrowStyles = source.slice(source.indexOf('@media (max-width: 760px)'))
 
@@ -105,6 +119,46 @@ describe('JobTrendView', () => {
     )
     expect(source).toMatch(
       /\.job-trend-view__rail-footer \{[\s\S]*?flex:\s*0 0 auto;/u,
+    )
+  })
+
+  it('anchors the drilldown arrow to the source point and gives its compact list an explicit scroll region', () => {
+    expect(source).toContain("'--drilldown-arrow-offset'")
+    expect(source).toContain('job-trend-view__drilldown--above')
+    expect(source).toMatch(
+      /\.job-trend-view__drilldown \{[\s\S]*?display:\s*flex;[\s\S]*?overflow:\s*hidden;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__drilldown::before \{[\s\S]*?left:\s*var\(--drilldown-arrow-offset\);/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__drilldown-list \{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?overflow-y:\s*auto;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__drilldown-list li \{[\s\S]*?grid-template-areas:/u,
+    )
+  })
+
+  it('opens detail as an upward evidence sheet within the chart workspace and leaves the configuration rail uncovered', () => {
+    expect(source).toContain('<Transition name="job-trend-detail">')
+    expect(source).toMatch(
+      /\.job-trend-view__detail-drawer \{[\s\S]*?inset:\s*auto var\(--trend-workspace-right\) 32px var\(--trend-workspace-left\);/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__drilldown-backdrop \{[\s\S]*?inset:\s*0 var\(--trend-workspace-right\) 0 0;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-detail-enter-from,[\s\S]*?transform:\s*translateY\(calc\(100% \+ 28px\)\);/u,
+    )
+  })
+
+  it('keeps the detail sheet rounded while scrolling its content inside the frame', () => {
+    expect(source).toContain('job-trend-view__detail-content')
+    expect(source).toMatch(
+      /\.job-trend-view__detail-drawer \{[\s\S]*?display:\s*flex;[\s\S]*?overflow:\s*hidden;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__detail-content \{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/u,
     )
   })
 })

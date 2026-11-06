@@ -47,6 +47,19 @@ describe('job trend chart option', () => {
     expect(option.dataZoom).toEqual([])
   })
 
+  it('makes each drill-down observation easy to acquire and enlarges it on emphasis', () => {
+    const option = createTrendChartOption([row()], 'week')
+    const series = option.series[0]
+
+    expect(series?.symbolSize).toBe(8)
+    expect(series?.emphasis).toMatchObject({
+      focus: 'series',
+      scale: 1.5,
+      itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
+    })
+    expect(option.tooltip.axisPointer).toEqual({ snap: true, type: 'line' })
+  })
+
   it('enables bounded in-chart zoom and pan for all-history and custom ranges', () => {
     const option = createTrendChartOption([row()], 'all')
 

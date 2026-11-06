@@ -36,6 +36,79 @@ afterEach(() => {
 })
 
 describe('JDDetailReadingLayout', () => {
+  it('shows independent collapsed comparison tags and formatted dimension values', async () => {
+    const wrapper = mount(JDDetailReadingLayout, {
+      props: {
+        job: {
+          ...job,
+          comparison: {
+            status: 'available',
+            dimension_changes: [
+              { field: '技术关键词', historical: 'Go', latest: 'Go、Rust' },
+            ],
+            body_sections: [
+              {
+                label: '岗位职责',
+                section: 'responsibilities',
+                fragments: [
+                  { kind: 'unchanged', text: '负责' },
+                  { kind: 'deleted', text: '旧系统' },
+                  { kind: 'inserted', text: '新系统' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.get('.detail-comparison__tag--dimensions').text()).toContain('维度变动')
+    expect(wrapper.get('.detail-comparison__tag--dimensions').text()).toContain('1')
+    expect(wrapper.get('.detail-comparison__tag--body').text()).toContain('正文变动')
+    expect(wrapper.find('.detail-comparison__dimension-list').exists()).toBe(false)
+
+    await wrapper.get('.detail-comparison__tag--dimensions').trigger('click')
+    expect(wrapper.get('.detail-comparison__dimension-list').text()).toContain('Go → Go、Rust')
+    await wrapper.get('.detail-comparison__tag--body').trigger('click')
+    expect(wrapper.get('[aria-label="已删除"]').text()).toBe('旧系统')
+    expect(wrapper.get('[aria-label="最新新增"]').text()).toBe('新系统')
+    wrapper.unmount()
+  })
+
+  it('keeps historical content readable and emits a local comparison retry', async () => {
+    const wrapper = mount(JDDetailReadingLayout, {
+      props: {
+        job: {
+          ...job,
+          comparison: {
+            status: 'unavailable',
+            message: '变动对比暂不可用',
+            retryable: true,
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('变动对比暂不可用')
+    expect(wrapper.text()).toContain('负责服务端开发')
+    await wrapper.get('.detail-comparison__retry').trigger('click')
+    expect(wrapper.emitted('retry-comparison')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('labels a historical JD status with its node-day context and keeps the current comparison visible', () => {
+    const wrapper = mount(JDDetailReadingLayout, {
+      props: {
+        historicalContext: { currentStatus: 'confirmed_closed' },
+        job,
+      },
+    })
+
+    expect(wrapper.get('.detail-reading-layout__state').text()).toBe('节点当日：仍有效')
+    expect(wrapper.get('.detail-reading-layout__current-status').text()).toBe('当前：确认下线')
+    wrapper.unmount()
+  })
+
   it('scrolls through the margin index without adding a browser-history entry', () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {

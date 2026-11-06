@@ -30,7 +30,12 @@ func TestTrendDrilldownUsesFinalPublishedRunForTheNodeDay(t *testing.T) {
 	}, nil)
 	publishFixtureRun(t, repository, scope, finalPublication, 1, []Observation{
 		integrationServingFilterObservation("drilldown-final", "Final platform role", "drilldown-final-body", "上海", false, finalPublication),
-	}, nil)
+	}, map[string]RecheckResult{
+		// A job absent from a later source list remains effective until its
+		// recheck confirms unavailability. Model a completed final snapshot so
+		// the node is expected to contain only the final role.
+		"drilldown-first": {Outcome: RecheckDefinitelyUnavailable, Code: "fixture-closed"},
+	})
 
 	serving, err := jdserving.NewRepository(ctx, os.Getenv("TEST_DATABASE_URL"))
 	if err != nil {
@@ -200,6 +205,21 @@ func TestTrendDrilldownComparesCurrentStatusAndKeepsSearchSeparateFromNodeConsis
 		got[1].Status != jdserving.TrendDrilldownStatusChanged || !got[1].CanViewLatest || !got[1].CanViewHistorical ||
 		got[2].Status != jdserving.TrendDrilldownStatusClosed || got[2].CanViewLatest || !got[2].CanViewHistorical {
 		t.Fatalf("status/action mapping = %#v", got)
+	}
+	changedDetail, err := serving.GetHistoricalJobDetail(ctx, got[1].ID, nodeDate)
+	if err != nil {
+		t.Fatalf("read changed historical detail: %v", err)
+	}
+	if changedDetail.Comparison == nil || changedDetail.Comparison.Status != jdserving.ComparisonStatusAvailable ||
+		len(changedDetail.Comparison.DimensionChanges) == 0 || len(changedDetail.Comparison.BodySections) == 0 {
+		t.Fatalf("changed historical comparison = %#v", changedDetail.Comparison)
+	}
+	closedDetail, err := serving.GetHistoricalJobDetail(ctx, got[2].ID, nodeDate)
+	if err != nil {
+		t.Fatalf("read closed historical detail: %v", err)
+	}
+	if closedDetail.Comparison != nil {
+		t.Fatalf("closed historical comparison = %#v, want omitted", closedDetail.Comparison)
 	}
 
 	filtered, err := serving.ReadTrendDrilldown(ctx, jdserving.TrendDrilldownQuery{

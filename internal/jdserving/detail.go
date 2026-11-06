@@ -39,6 +39,7 @@ SELECT membership.id::text,
        membership.activity_state::text,
        membership.first_discovered_at::date::text,
        membership.is_urgent,
+       membership.source_metadata_version_id::text,
        membership.body_content_version_id::text,
        body.description_text,
        body.job_require_text,
@@ -54,6 +55,7 @@ WHERE identifier.public_id::text = $1`, publicID).Scan(
 		&row.ActivityState,
 		&row.FirstDiscoveredDate,
 		&row.IsUrgent,
+		&row.SourceMetadataVersionID,
 		&row.BodyContentVersionID,
 		&responsibilities,
 		&requirements,
@@ -120,6 +122,7 @@ SELECT membership.id::text,
        membership.activity_state::text,
        membership.first_discovered_at::date::text,
        membership.is_urgent,
+       membership.source_metadata_version_id::text,
        membership.body_content_version_id::text,
        body.description_text,
        body.job_require_text,
@@ -138,6 +141,7 @@ LIMIT 1`, nodeDate.Format("2006-01-02"), publicID).Scan(
 		&row.ActivityState,
 		&row.FirstDiscoveredDate,
 		&row.IsUrgent,
+		&row.SourceMetadataVersionID,
 		&row.BodyContentVersionID,
 		&responsibilities,
 		&requirements,
@@ -150,21 +154,73 @@ LIMIT 1`, nodeDate.Format("2006-01-02"), publicID).Scan(
 		return JobDetailResponse{}, fmt.Errorf("load historical serving JD detail: %w", err)
 	}
 	body := BodySections{Responsibilities: responsibilities, Requirements: requirements, Supplemental: supplemental}
-	item, err := repository.loadListItem(ctx, row)
+	item, err := repository.loadListItemFrom(ctx, tx, row)
 	if err != nil {
 		return JobDetailResponse{}, err
 	}
-	highlights, err := repository.loadTechnologyHighlights(ctx, row.MembershipID, row.BodyContentVersionID, body)
+	highlights, err := repository.loadTechnologyHighlightsFrom(ctx, tx, row.MembershipID, row.BodyContentVersionID, body)
 	if err != nil {
 		return JobDetailResponse{}, err
 	}
 	body.TechnologyHighlights = highlights
+	response := detailResponse(item, body, nil)
+	var currentRow listMembershipRow
+	var currentResponsibilities, currentRequirements string
+	var currentSupplemental *string
+	currentErr := tx.QueryRow(ctx, `
+SELECT membership.id::text,
+       identifier.public_id::text,
+       membership.title,
+       membership.locations,
+       membership.activity_state::text,
+       membership.first_discovered_at::date::text,
+       membership.is_urgent,
+       membership.source_metadata_version_id::text,
+       membership.body_content_version_id::text,
+       body.description_text,
+       body.job_require_text,
+       NULLIF(body.addition_text, '')
+FROM serving_jd_current_inventory_memberships AS membership
+JOIN serving_jd_public_identifiers AS identifier ON identifier.job_id = membership.job_id
+JOIN job_body_content_versions AS body ON body.id = membership.body_content_version_id
+WHERE identifier.public_id::text = $1`, publicID).Scan(
+		&currentRow.MembershipID,
+		&currentRow.ID,
+		&currentRow.Title,
+		&currentRow.Locations,
+		&currentRow.ActivityState,
+		&currentRow.FirstDiscoveredDate,
+		&currentRow.IsUrgent,
+		&currentRow.SourceMetadataVersionID,
+		&currentRow.BodyContentVersionID,
+		&currentResponsibilities,
+		&currentRequirements,
+		&currentSupplemental,
+	)
+	if currentErr == nil && currentRow.ActivityState != string(ActivityStateConfirmedClosed) &&
+		(currentRow.SourceMetadataVersionID != row.SourceMetadataVersionID || currentRow.BodyContentVersionID != row.BodyContentVersionID) {
+		currentItem, itemErr := repository.loadListItemFrom(ctx, tx, currentRow)
+		if itemErr != nil {
+			response.Comparison = unavailableComparison()
+		} else {
+			currentBody := BodySections{Responsibilities: currentResponsibilities, Requirements: currentRequirements, Supplemental: currentSupplemental}
+			comparison := compareJobDetails(response, detailResponse(currentItem, currentBody, nil))
+			response.Comparison = &comparison
+		}
+	} else if currentErr != nil && currentErr != pgx.ErrNoRows {
+		response.Comparison = unavailableComparison()
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return JobDetailResponse{}, fmt.Errorf("commit historical detail read: %w", err)
 	}
+	return response, nil
+}
+
+func detailResponse(item JobListItem, body BodySections, comparison *JobComparison) JobDetailResponse {
 	return JobDetailResponse{
 		ActivityState:       item.ActivityState,
 		Body:                body,
+		Comparison:          comparison,
 		Education:           item.Education,
 		Experience:          item.Experience,
 		FirstDiscoveredDate: item.FirstDiscoveredDate,
@@ -176,7 +232,15 @@ LIMIT 1`, nodeDate.Format("2006-01-02"), publicID).Scan(
 		Projects:            item.Projects,
 		TechnologyKeywords:  item.TechnologyKeywords,
 		Title:               item.Title,
-	}, nil
+	}
+}
+
+func unavailableComparison() *JobComparison {
+	return &JobComparison{
+		Status:    ComparisonStatusUnavailable,
+		Message:   "变动对比暂不可用",
+		Retryable: true,
+	}
 }
 
 func validateHistoricalDetailDate(nodeDate time.Time) error {
@@ -204,7 +268,11 @@ type technologyHighlightCandidate struct {
 // valid for technology tags but cannot safely identify a substring in the
 // current body, so they are intentionally excluded here.
 func (repository *Repository) loadTechnologyHighlights(ctx context.Context, membershipID, bodyContentVersionID string, sections BodySections) ([]TechnologyHighlight, error) {
-	rows, err := repository.pool.Query(ctx, `
+	return repository.loadTechnologyHighlightsFrom(ctx, repository.pool, membershipID, bodyContentVersionID, sections)
+}
+
+func (repository *Repository) loadTechnologyHighlightsFrom(ctx context.Context, executor queryExecutor, membershipID, bodyContentVersionID string, sections BodySections) ([]TechnologyHighlight, error) {
+	rows, err := executor.Query(ctx, `
 SELECT evidence.source_field, evidence.codepoint_start, evidence.codepoint_end
 FROM (
     SELECT *

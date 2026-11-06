@@ -3,13 +3,18 @@ import type { TrendCurveRow, TrendRange } from './job-trend-dashboard-state'
 export interface TrendChartSeries {
   connectNulls: false
   data: Array<[string, number | null]>
-  emphasis: { focus: 'series' }
+  emphasis: {
+    focus: 'series'
+    itemStyle: { borderColor: string; borderWidth: number }
+    scale: number
+  }
   itemStyle: { color: string }
   lineStyle: { color: string; width: number }
   name: string
   showSymbol: boolean
   smooth: number
   symbol: 'circle'
+  symbolSize: number
   type: 'line'
 }
 
@@ -42,7 +47,7 @@ export interface TrendChartOption {
     type: 'scroll'
   }
   series: TrendChartSeries[]
-  tooltip: { axisPointer: { type: 'line' }; trigger: 'axis' }
+  tooltip: { axisPointer: { snap: boolean; type: 'line' }; trigger: 'axis' }
   xAxis: { axisLabel: { hideOverlap: true }; boundaryGap: false; type: 'time' }
   yAxis: {
     axisLabel: { formatter: '{value}' }
@@ -200,13 +205,18 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
     return {
       connectNulls: false as const,
       data: row.series.points.map((point) => [point.date, point.count] as [string, number | null]),
-      emphasis: { focus: 'series' as const },
+      emphasis: {
+        focus: 'series' as const,
+        itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
+        scale: 1.5,
+      },
       itemStyle: { color },
       lineStyle: { color, width: 2.5 },
       name: trendCurveLabel(row),
       showSymbol: true,
       smooth: 0.24,
       symbol: 'circle' as const,
+      symbolSize: 8,
       type: 'line' as const,
     }
   })
@@ -230,7 +240,7 @@ export function createTrendChartOption(rows: TrendCurveRow[], range: TrendRange)
       type: 'scroll',
     },
     series,
-    tooltip: { axisPointer: { type: 'line' }, trigger: 'axis' },
+    tooltip: { axisPointer: { snap: true, type: 'line' }, trigger: 'axis' },
     xAxis: { axisLabel: { hideOverlap: true }, boundaryGap: false, type: 'time' },
     yAxis: {
       axisLabel: { formatter: '{value}' },
