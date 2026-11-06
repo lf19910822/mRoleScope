@@ -55,6 +55,7 @@ set -euo pipefail
 printf 'docker %s\n' "$*" >>"$MROLESCOPE_RELEASE_TEST_LOG"
 case "$1" in
   build|push|version)
+    printf 'simulated docker progress for %s\n' "$1"
     exit 0
     ;;
   image)
