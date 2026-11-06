@@ -204,16 +204,26 @@ is_managed_release_image() {
 }
 
 list_managed_release_images() {
-  local rows repository digest image
+  local rows repository image_id repo_digests image
 
-  rows=$(docker image ls --no-trunc --format '{{.Repository}} {{.Digest}}') || return 1
-  while IFS=' ' read -r repository digest; do
-    [[ -n "$repository" && -n "$digest" ]] || continue
+  rows=$(docker image ls --no-trunc --format '{{.Repository}} {{.ID}}') || return 1
+  while IFS=' ' read -r repository image_id; do
+    [[ -n "$repository" && -n "$image_id" ]] || continue
     repository="${repository#docker.io/}"
-    [[ "$digest" =~ ^${DIGEST_PATTERN}$ ]] || continue
-    image="docker.io/${repository}@${digest}"
-    is_managed_release_image "$image" || continue
-    printf '%s\n' "$image"
+    case "$repository" in
+      "${dockerhub_namespace}/mrolescope-api"|"${dockerhub_namespace}/mrolescope-migrate"|"${dockerhub_namespace}/mrolescope-worker"|"${dockerhub_namespace}/mrolescope-web-edge")
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    repo_digests=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image_id") || return 1
+    while IFS= read -r image; do
+      [[ -n "$image" ]] || continue
+      image="docker.io/${image#docker.io/}"
+      is_managed_release_image "$image" || continue
+      printf '%s\n' "$image"
+    done <<<"$repo_digests"
   done <<<"$rows"
 }
 
