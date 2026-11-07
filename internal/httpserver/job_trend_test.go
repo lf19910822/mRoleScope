@@ -240,7 +240,6 @@ func TestJobTrendRouteRejectsInvalidOrIncompatibleQueryShapes(t *testing.T) {
 		"range=custom&start_date=2026-10-01&start_date=2026-10-02&end_date=2026-10-15&dimension=location&value=%E4%B8%8A%E6%B5%B7",
 		"range=custom&start_date=2026-10-15&end_date=2026-10-01&dimension=location&value=%E4%B8%8A%E6%B5%B7",
 		"range=custom&start_date=not-a-date&end_date=2026-10-15&dimension=location&value=%E4%B8%8A%E6%B5%B7",
-		"range=custom&start_date=2027-01-01&end_date=2027-01-01&dimension=location&value=%E4%B8%8A%E6%B5%B7",
 		"range=month&start_date=2026-10-01&end_date=2026-10-15&dimension=location&value=%E4%B8%8A%E6%B5%B7",
 	} {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends?"+rawQuery, nil)

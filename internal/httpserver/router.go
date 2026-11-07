@@ -318,11 +318,6 @@ func parseTrendQuery(context *gin.Context) (jdserving.TrendQuery, error) {
 		if err != nil || parsedStart.After(parsedEnd) {
 			return jdserving.TrendQuery{}, strconv.ErrSyntax
 		}
-		today := time.Now().In(shanghai)
-		todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)
-		if parsedEnd.After(todayStart) {
-			return jdserving.TrendQuery{}, strconv.ErrSyntax
-		}
 		query.StartDate, query.EndDate = parsedStart, parsedEnd
 	default:
 		return jdserving.TrendQuery{}, strconv.ErrSyntax

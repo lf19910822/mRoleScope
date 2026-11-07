@@ -106,6 +106,7 @@ const isRefreshing = computed(() => dashboard.rows.some((row) => row.status === 
 const supportsChartNavigation = computed(
   () => dashboard.range === 'all' || dashboard.range === 'custom',
 )
+const trendCoverage = computed(() => dashboard.rows.find((row) => row.series?.coverage)?.series?.coverage)
 const chartOption = computed(() => createTrendChartOption(dashboard.rows, dashboard.range))
 const echartsOption = computed(() => chartOption.value as unknown as EChartsOption)
 const chartTheme = computed(() => (osTheme.value === 'dark' ? 'dark' : undefined))
@@ -564,6 +565,9 @@ onBeforeUnmount(() => {
           <NButton data-testid="apply-custom-trend-range" size="small" type="primary" @click="applyCustomRange">
             应用
           </NButton>
+          <p v-if="trendCoverage?.first_date && trendCoverage?.last_date" class="job-trend-view__coverage">
+            系统数据覆盖：{{ trendCoverage.first_date }} 至 {{ trendCoverage.last_date }}
+          </p>
           <p v-if="customRangeError" role="alert">{{ customRangeError }}</p>
         </div>
         <p
@@ -1022,6 +1026,11 @@ onBeforeUnmount(() => {
 .job-trend-view__custom-range p {
   color: #a8424d;
   font-size: 0.72rem;
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.job-trend-view__custom-range .job-trend-view__coverage {
+  color: var(--trend-subtle);
   grid-column: 1 / -1;
   margin: 0;
 }

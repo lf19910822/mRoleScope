@@ -36,14 +36,18 @@ func TestResolveTrendCalendarRangeRejectsReversedOrNonMidnightCustomDates(t *tes
 	}
 }
 
-func TestResolveTrendCalendarRangeRejectsFutureCustomEnd(t *testing.T) {
+func TestResolveTrendCalendarRangeAcceptsDatesOutsidePublishedHistoryAndFuture(t *testing.T) {
 	shanghai, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		t.Fatal(err)
 	}
 	today := time.Now().In(shanghai)
 	future := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai).AddDate(0, 0, 1)
-	if _, err := resolveTrendCalendarRange(TrendQuery{Range: TrendRangeCustom, StartDate: future, EndDate: future}); err != ErrInvalidTrendQuery {
+	got, err := resolveTrendCalendarRange(TrendQuery{Range: TrendRangeCustom, StartDate: future, EndDate: future})
+	if err != nil {
 		t.Fatalf("future custom range error = %v", err)
+	}
+	if got.Start == nil || *got.Start != future.Format("2006-01-02") || got.End != future.Format("2006-01-02") {
+		t.Fatalf("future custom range = %#v", got)
 	}
 }

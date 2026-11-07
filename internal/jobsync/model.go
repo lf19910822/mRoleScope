@@ -50,10 +50,11 @@ const (
 	TriggerInitialization TriggerKind = "initialization"
 	TriggerScheduled      TriggerKind = "scheduled"
 	TriggerRetry          TriggerKind = "retry"
+	TriggerRepair         TriggerKind = "repair"
 )
 
 func (trigger TriggerKind) Valid() bool {
-	return trigger == TriggerInitialization || trigger == TriggerScheduled || trigger == TriggerRetry
+	return trigger == TriggerInitialization || trigger == TriggerScheduled || trigger == TriggerRetry || trigger == TriggerRepair
 }
 
 // Observation is a validated, normalized list/detail observation. RawFields

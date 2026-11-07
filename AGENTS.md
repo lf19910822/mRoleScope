@@ -20,7 +20,7 @@
 ## 变更与数据安全
 
 - 改变可观察行为、数据模型、API 或运行流程前，先创建或更新对应 OpenSpec change；实现前确认 proposal/design/tasks 完整，完成后运行严格校验并如实更新任务状态。
-- 可使用 GitHub MCP 完成分支、Pull Request、受保护主线合并状态及 CI 状态等 GitHub 操作；遵守仓库保护规则，绝不强推或绕过 PR 审查。远端镜像发布不再使用 GitHub Actions 或 self-hosted runner，必须遵循[自主镜像发布运行手册](Docs/开发指导/部署/自主镜像发布运行手册.md)及其受控脚本。
+- 可使用 GitHub MCP 完成分支、Pull Request 和受保护主线合并状态等 GitHub 源码协作操作；遵守仓库保护规则，绝不强推或绕过 PR 审查。GitHub Actions CI 不作为本项目的验证或发布门：不要触发、重跑或等待它。远端镜像发布不再使用 GitHub Actions 或 self-hosted runner，必须遵循[自主镜像发布运行手册](Docs/开发指导/部署/自主镜像发布运行手册.md)及其受控脚本。
 - 绝不读取、打印、提交或写入密码、密钥、令牌、连接串等凭据；不要从其他进程、容器或环境中提取凭据。需要真实数据库时，由操作者在本机配置 `DATABASE_URL` / `TEST_DATABASE_URL`。
 - 不开放数据库或内部 API 到公网；DNS、域名、端口暴露、镜像推送、外部部署及向外部模型发送 JD 内容，均须得到用户对该次操作的明确授权。
 - 工作树可能包含用户未提交的改动。只修改与当前任务直接相关的文件；不用 `reset --hard`、`checkout --` 或清理命令覆盖、删除无关工作。
@@ -32,6 +32,12 @@
 - CVM API 以 Compose 的 `api` 服务运行，内部监听 `:8080`，加入 `backend` 和 `edge` 网络；同样不要硬编码其容器 IP。应用通过运行时 `DATABASE_URL` 在私网中连接数据库，连接串只保存在 CVM root 所有、`0600` 的运行时配置中，禁止读取或打印。
 - 需要审计或验证真实数据时，先用 `ssh root@118.89.68.77` 登录 CVM，再通过 Compose 的 `postgres`/`api` 服务从 Docker 私网执行范围明确的只读检查；先以 `docker compose ps` 识别运行中的服务，不能猜测容器 IP。开发机的 `127.0.0.1:5175` 是唯一前端预览入口；它要展示真实数据时，只能经获授权的本地回环 SSH 隧道访问 CVM 私网 API，绝不直接暴露数据库或 API。
 - 经明确发布授权后，只能从 clean、已同步的本地 `main` 使用 `scripts/release-remote-development.sh --deploy`。它在开发机验证与构建四个镜像，CVM 仅拉取 digest、迁移、验收、记录与清理；不得在 CVM build 源码、手工替换 root helper、使用可变 tag、全局 prune 或读取 Docker/运行时凭据。
+
+## 默认发布通道
+
+- 本项目默认且唯一的远端发布链是本机 `main` 的 `make remote-release-verify` 加 `scripts/release-remote-development.sh --deploy`。本地质量门通过后即可进入自主镜像发布流程。
+- GitHub Actions（包括 Pull Request CI、部署 workflow 和 self-hosted runner）视为不可用的历史通道；不得为了发布主动触发、重跑、等待或绕过失败状态。GitHub 仅保留受保护源码、分支和 Pull Request 协作职责。
+- 任何文档、任务或旧 OpenSpec 记录中的“通过 GitHub Actions 构建/部署”均是历史背景；新变更和实际操作以自主镜像发布运行手册为准。
 
 ## 实现、测试与前端
 

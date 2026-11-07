@@ -23,6 +23,10 @@ import type { JDDetailBodySection } from '@/lib/highlighted-text'
 
 type ListItem = Extract<JDSectionItem, { kind: 'bullet-item' } | { kind: 'ordered-item' }>
 
+type ComparisonListLine =
+  | { kind: 'lead' | 'group-heading'; text: string }
+  | { children?: string[]; kind: 'item'; marker: string; text: string }
+
 type ReadingSection = {
   id: string
   key: JDDetailBodySection
@@ -92,6 +96,31 @@ function comparisonFragmentLabel(fragment: ComparisonFragment): string | undefin
   return undefined
 }
 
+function comparisonFragmentLines(fragment: ComparisonFragment): ComparisonListLine[] {
+  const presentation = presentJDSection(fragment.text)
+  if (presentation.kind === 'fallback') return []
+
+  return presentation.items.map((item) => {
+    if (item.kind === 'lead' || item.kind === 'group-heading') {
+      return { kind: item.kind, text: item.text }
+    }
+
+    const mainText = item.childItems
+      ? Array.from(fragment.text)
+          .slice(item.start, item.childLeadEnd ?? item.end)
+          .join('')
+          .trim()
+      : item.text
+
+    return {
+      children: item.childItems?.map((child) => child.text),
+      kind: 'item',
+      marker: sourceMarker(item),
+      text: mainText,
+    }
+  })
+}
+
 watch(
   () => props.job.id,
   () => {
@@ -159,12 +188,12 @@ function scrollToSection(id: string): void {
       </div>
     </dl>
 
-    <section
-      v-if="comparison"
-      class="detail-comparison"
-      aria-label="JD 变动对比"
-    >
-      <p v-if="comparison.status === 'unavailable'" class="detail-comparison__unavailable" role="status">
+    <section v-if="comparison" class="detail-comparison" aria-label="JD 变动对比">
+      <p
+        v-if="comparison.status === 'unavailable'"
+        class="detail-comparison__unavailable"
+        role="status"
+      >
         {{ comparison.message ?? '变动对比暂不可用' }}
         <button
           v-if="comparison.retryable"
@@ -176,37 +205,73 @@ function scrollToSection(id: string): void {
         </button>
       </p>
       <template v-else-if="dimensionChanges.length || bodyComparisons.length">
+        <header class="detail-comparison__header">
+          <div class="detail-comparison__heading">
+            <span class="detail-comparison__eyebrow">变更摘要</span>
+            <strong>{{ dimensionChanges.length + bodyComparisons.length }} 项变动</strong>
+          </div>
+        </header>
         <div class="detail-comparison__tags">
           <button
             v-if="dimensionChanges.length"
             class="detail-comparison__tag detail-comparison__tag--dimensions"
             type="button"
             :aria-expanded="dimensionComparisonExpanded"
+            aria-controls="detail-comparison-dimensions"
             @click="dimensionComparisonExpanded = !dimensionComparisonExpanded"
           >
-            <span>维度变动</span><strong>{{ dimensionChanges.length }}</strong>
+            <span class="detail-comparison__tag-marker" aria-hidden="true" />
+            <span class="detail-comparison__tag-copy">
+              <span>维度变动</span>
+            </span>
+            <strong>{{ dimensionChanges.length }}</strong>
+            <span class="detail-comparison__tag-chevron" aria-hidden="true" />
           </button>
           <button
             v-if="bodyComparisons.length"
             class="detail-comparison__tag detail-comparison__tag--body"
             type="button"
             :aria-expanded="bodyComparisonExpanded"
+            aria-controls="detail-comparison-body"
             @click="bodyComparisonExpanded = !bodyComparisonExpanded"
           >
-            <span>正文变动</span><strong>{{ bodyComparisons.length }}</strong>
+            <span class="detail-comparison__tag-marker" aria-hidden="true" />
+            <span class="detail-comparison__tag-copy">
+              <span>正文变动</span>
+            </span>
+            <strong>{{ bodyComparisons.length }}</strong>
+            <span class="detail-comparison__tag-chevron" aria-hidden="true" />
           </button>
         </div>
-        <ul v-if="dimensionComparisonExpanded" class="detail-comparison__dimension-list">
+        <ul
+          v-if="dimensionComparisonExpanded"
+          id="detail-comparison-dimensions"
+          class="detail-comparison__dimension-list"
+        >
           <li v-for="change in dimensionChanges" :key="change.field">
             <strong>{{ change.field }}</strong>
             <span>{{ change.historical }} → {{ change.latest }}</span>
           </li>
         </ul>
-        <div v-if="bodyComparisonExpanded" class="detail-comparison__body-summary">
-          <span v-for="section in bodyComparisons" :key="section.section">{{ section.label }}</span>
+        <div
+          v-if="bodyComparisonExpanded"
+          id="detail-comparison-body"
+          class="detail-comparison__body-summary"
+        >
+          <span class="detail-comparison__body-label">涉及正文</span>
+          <span
+            v-for="section in bodyComparisons"
+            :key="section.section"
+            class="detail-comparison__body-section"
+            >{{ section.label }}</span
+          >
           <span class="detail-comparison__legend" aria-label="正文变动图例">
-            <span class="detail-comparison__legend-item detail-comparison__legend-item--deleted">已删除</span>
-            <span class="detail-comparison__legend-item detail-comparison__legend-item--inserted">最新新增</span>
+            <span class="detail-comparison__legend-item detail-comparison__legend-item--deleted"
+              >已删除</span
+            >
+            <span class="detail-comparison__legend-item detail-comparison__legend-item--inserted"
+              >最新新增</span
+            >
           </span>
         </div>
       </template>
@@ -259,18 +324,75 @@ function scrollToSection(id: string): void {
         >
           <header class="margin-dossier__heading">
             <h2>{{ section.label }}</h2>
-            <span v-if="bodyComparison(section.key)" class="margin-dossier__change-marker">已变动</span>
+            <span v-if="bodyComparison(section.key)" class="margin-dossier__change-marker"
+              >已变动</span
+            >
           </header>
           <div
             v-if="bodyComparisonExpanded && bodyComparison(section.key)"
             class="detail-comparison__diff"
             :aria-label="`${section.label}变动内容`"
           >
-            <template v-for="(fragment, index) in bodyComparison(section.key)?.fragments" :key="`${index}-${fragment.kind}`">
+            <template
+              v-for="(fragment, index) in bodyComparison(section.key)?.fragments"
+              :key="`${index}-${fragment.kind}`"
+            >
+              <div
+                v-if="comparisonFragmentLines(fragment).length"
+                class="detail-comparison__fragment-list"
+              >
+                <div
+                  v-for="(line, lineIndex) in comparisonFragmentLines(fragment)"
+                  :key="`${index}-${lineIndex}-${line.kind}`"
+                  :class="[
+                    line.kind === 'item'
+                      ? 'margin-dossier__row'
+                      : line.kind === 'lead'
+                        ? 'margin-dossier__lead'
+                        : 'margin-dossier__group',
+                    'detail-comparison__fragment-line',
+                    `detail-comparison__fragment-line--${line.kind}`,
+                  ]"
+                >
+                  <span
+                    v-if="line.kind === 'item'"
+                    class="margin-dossier__marker detail-comparison__fragment-marker"
+                  >
+                    {{ line.marker }}
+                  </span>
+                  <div class="detail-comparison__fragment-copy">
+                    <span
+                      :class="['detail-comparison__fragment', comparisonFragmentClass(fragment)]"
+                      :aria-label="comparisonFragmentLabel(fragment)"
+                      >{{ line.text }}</span
+                    >
+                    <ul
+                      v-if="line.kind === 'item' && line.children?.length"
+                      class="margin-dossier__children detail-comparison__fragment-children"
+                    >
+                      <li
+                        v-for="(child, childIndex) in line.children"
+                        :key="`${index}-${lineIndex}-${childIndex}`"
+                      >
+                        <span
+                          :class="[
+                            'detail-comparison__fragment',
+                            comparisonFragmentClass(fragment),
+                          ]"
+                          :aria-label="comparisonFragmentLabel(fragment)"
+                          >{{ child }}</span
+                        >
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
               <span
+                v-else
                 :class="['detail-comparison__fragment', comparisonFragmentClass(fragment)]"
                 :aria-label="comparisonFragmentLabel(fragment)"
-              >{{ fragment.text }}</span>
+                >{{ fragment.text }}</span
+              >
             </template>
           </div>
           <div v-else-if="section.presentation.kind === 'list'" class="margin-dossier__items">
@@ -644,85 +766,211 @@ function scrollToSection(id: string): void {
 }
 
 .detail-comparison {
-  background: color-mix(in srgb, var(--detail-paper) 90%, var(--detail-tide));
-  border: 1px solid var(--detail-rule);
-  border-radius: 12px;
-  margin-top: 14px;
-  padding: 12px 16px;
+  border-left: 2px solid var(--detail-rule);
+  box-sizing: border-box;
+  margin-top: 12px;
+  max-width: 100%;
+  padding: 0 0 0 10px;
+  width: min(100%, 360px);
+}
+
+.detail-comparison__header {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.detail-comparison__heading {
+  align-items: baseline;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+}
+
+.detail-comparison__eyebrow {
+  color: var(--detail-tide);
+  font-size: 0.7rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.detail-comparison__heading strong {
+  color: var(--detail-ink);
+  font-size: 0.82rem;
 }
 
 .detail-comparison__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1fr;
+  margin-top: 4px;
 }
 
 .detail-comparison__tag {
   align-items: center;
-  background: var(--detail-tag);
-  border: 1px solid var(--detail-rule);
-  border-radius: 999px;
-  color: var(--detail-tag-ink);
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--detail-rule);
+  border-radius: 0;
+  color: var(--detail-ink);
   cursor: pointer;
-  display: inline-flex;
+  display: grid;
   font: inherit;
-  gap: 8px;
-  padding: 5px 10px;
+  gap: 0 8px;
+  grid-template-columns: 4px minmax(0, 1fr) auto 9px;
+  min-height: 31px;
+  padding: 5px 4px;
+  text-align: left;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.detail-comparison__tag:hover {
+  background: color-mix(in srgb, var(--detail-tag) 55%, transparent);
+}
+
+.detail-comparison__tag:focus-visible,
+.detail-comparison__retry:focus-visible {
+  outline: 2px solid var(--detail-tide);
+  outline-offset: 2px;
+}
+
+.detail-comparison__tag-marker {
+  align-self: stretch;
+  background: var(--detail-tide);
+  border-radius: 3px;
+  min-height: 18px;
+}
+
+.detail-comparison__tag--body .detail-comparison__tag-marker {
+  background: #b04b55;
+}
+
+.detail-comparison__tag-copy {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.detail-comparison__tag-copy > span {
+  font-size: 0.75rem;
+  font-weight: 780;
+  line-height: 1.2;
 }
 
 .detail-comparison__tag strong {
-  font-size: 0.78rem;
+  align-self: center;
+  color: var(--detail-tide);
+  font-size: 0.82rem;
+  min-width: 1.2em;
+  text-align: right;
+}
+
+.detail-comparison__tag--body strong {
+  color: #a4434d;
+}
+
+.detail-comparison__tag-chevron {
+  border-bottom: 1.5px solid var(--detail-muted);
+  border-right: 1.5px solid var(--detail-muted);
+  height: 6px;
+  justify-self: end;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 150ms ease;
+  width: 6px;
 }
 
 .detail-comparison__tag[aria-expanded='true'] {
-  border-color: var(--detail-tide);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--detail-tide) 18%, transparent);
+  background: var(--detail-tag);
+}
+
+.detail-comparison__tag[aria-expanded='true'] .detail-comparison__tag-chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.detail-comparison__tag--body[aria-expanded='true'] {
+  background: color-mix(in srgb, #b04b55 8%, transparent);
 }
 
 .detail-comparison__dimension-list {
+  background: transparent;
+  border: 0;
+  border-top: 1px dashed var(--detail-rule);
+  border-radius: 0;
   display: grid;
-  gap: 7px;
+  gap: 8px;
   list-style: none;
-  margin: 11px 0 0;
-  padding: 0;
+  margin: 0 0 0 12px;
+  padding: 6px 8px;
 }
 
 .detail-comparison__dimension-list li {
   align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
+  grid-template-columns: minmax(70px, auto) minmax(0, 1fr);
+  line-height: 1.35;
+}
+
+.detail-comparison__dimension-list li + li {
+  border-top: 1px dashed var(--detail-rule);
+  padding-top: 6px;
+}
+
+.detail-comparison__dimension-list li strong {
+  color: var(--detail-ink);
+  font-size: 0.74rem;
 }
 
 .detail-comparison__dimension-list li span {
   color: var(--detail-muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
 }
 
 .detail-comparison__body-summary {
   align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px dashed var(--detail-rule);
+  border-radius: 0;
   color: var(--detail-muted);
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 11px;
+  gap: 6px;
+  margin: 0 0 0 12px;
+  padding: 6px 8px;
 }
 
-.detail-comparison__body-summary > span:not(.detail-comparison__legend) {
+.detail-comparison__body-label {
+  font-size: 0.7rem;
+  font-weight: 760;
+  margin-right: 2px;
+}
+
+.detail-comparison__body-section {
   background: var(--detail-tag);
   border-radius: 5px;
-  padding: 3px 7px;
+  color: var(--detail-tag-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 6px;
 }
 
 .detail-comparison__legend {
   display: inline-flex;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
 }
 
 .detail-comparison__legend-item {
   border-radius: 3px;
-  font-size: 0.74rem;
-  padding: 2px 5px;
+  font-size: 0.68rem;
+  padding: 3px 7px;
 }
 
 .detail-comparison__legend-item--deleted,
@@ -760,12 +1008,36 @@ function scrollToSection(id: string): void {
 
 .detail-comparison__diff {
   color: inherit;
-  line-height: 1.85;
+  line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.detail-comparison__fragment-list {
+  display: grid;
+  gap: 0;
+  white-space: normal;
+}
+
+.detail-comparison__fragment-line {
+  min-width: 0;
+}
+
+.detail-comparison__fragment-copy {
+  min-width: 0;
+}
+
+.detail-comparison__fragment-line--lead .detail-comparison__fragment-copy,
+.detail-comparison__fragment-line--group-heading .detail-comparison__fragment-copy {
+  display: block;
+}
+
+.detail-comparison__fragment-marker {
+  padding-top: 0.14em;
 }
 
 .detail-comparison__fragment {
   border-radius: 2px;
+  box-decoration-break: clone;
   padding: 0 0.1em;
 }
 
@@ -819,7 +1091,7 @@ function scrollToSection(id: string): void {
   }
 
   .detail-comparison {
-    padding: 11px 13px;
+    padding: 0 0 0 8px;
   }
 
   .detail-comparison__legend {
@@ -910,7 +1182,9 @@ function scrollToSection(id: string): void {
   color: #f5d991;
 }
 
-:global(.app-shell[data-color-scheme='dark'] .detail-reading-layout__current-status--confirmed_closed) {
+:global(
+  .app-shell[data-color-scheme='dark'] .detail-reading-layout__current-status--confirmed_closed
+) {
   background: #5a3039;
   color: #ffd0d7;
 }

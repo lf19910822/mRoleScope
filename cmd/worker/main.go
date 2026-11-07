@@ -41,6 +41,9 @@ func main() {
 		case "backfill-versioned-content":
 			runVersionedContentBackfill(arguments[1:])
 			return
+		case "repair-observation":
+			runObservationRepair(arguments[1:])
+			return
 		case "dictionary-v0.1":
 			runV01Dictionary(arguments[1:])
 			return
@@ -731,6 +734,64 @@ func runVersionedContentBackfill(arguments []string) {
 		"body_periods_created", summary.BodyPeriodsCreated,
 		"skipped_observations", summary.SkippedObservations,
 		"skipped_body_periods", summary.SkippedBodyPeriods,
+	)
+}
+
+// runObservationRepair is intentionally date-only and scope-fixed. The
+// operator cannot supply SQL, a run ID, a scope ID, or an arbitrary member
+// list; the repository selects and audits the immutable source publication.
+func runObservationRepair(arguments []string) {
+	flags := flag.NewFlagSet("repair-observation", flag.ExitOnError)
+	sourceDate := flags.String("source-date", "", "successful source calendar date (YYYY-MM-DD)")
+	targetDate := flags.String("target-date", "", "missing target calendar date (YYYY-MM-DD)")
+	_ = flags.Parse(arguments)
+	if flags.NArg() != 0 || strings.TrimSpace(*sourceDate) == "" || strings.TrimSpace(*targetDate) == "" {
+		fmt.Fprintln(os.Stderr, "repair-observation requires --source-date and --target-date")
+		os.Exit(2)
+	}
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		slog.Error("repair calendar configuration failed")
+		os.Exit(1)
+	}
+	source, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(*sourceDate), shanghai)
+	if err != nil {
+		slog.Error("invalid repair source date")
+		os.Exit(2)
+	}
+	target, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(*targetDate), shanghai)
+	if err != nil {
+		slog.Error("invalid repair target date")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid repair configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jobsync.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("repair database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	scope, err := repository.EnsureScope(ctx, jobsync.MihoyoTechnicalScope())
+	if err != nil {
+		slog.Error("repair observation scope initialization failed")
+		os.Exit(1)
+	}
+	summary, err := repository.RepairPublishedObservation(ctx, scope, source, target)
+	if err != nil {
+		slog.Error("historical observation repair failed")
+		os.Exit(1)
+	}
+	slog.Info("historical observation repair completed",
+		"source_date", summary.SourceDate,
+		"target_date", summary.TargetDate,
+		"memberships_copied", summary.MembershipsCopied,
+		"already_repaired", summary.AlreadyRepaired,
 	)
 }
 

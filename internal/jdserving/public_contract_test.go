@@ -97,7 +97,7 @@ func TestPublicOpenAPIDoesNotDeclareInternalResponseProperties(t *testing.T) {
 	}
 	for _, required := range []string{
 		"/api/v1/job-trends:", "TrendSeries:", "TrendCurve:", "TrendPoint:",
-		"freshness:", "nullable: true", "include_secondary:",
+		"TrendCoverage:", "freshness:", "nullable: true", "include_secondary:",
 		"JobComparison:", "ComparisonDimensionChange:", "ComparisonBodySection:", "ComparisonFragment:",
 	} {
 		if !strings.Contains(text, required) {

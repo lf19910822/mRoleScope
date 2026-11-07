@@ -1038,6 +1038,7 @@ const (
 	CollectionTriggerKindInitialization CollectionTriggerKind = "initialization"
 	CollectionTriggerKindScheduled      CollectionTriggerKind = "scheduled"
 	CollectionTriggerKindRetry          CollectionTriggerKind = "retry"
+	CollectionTriggerKindRepair         CollectionTriggerKind = "repair"
 )
 
 func (e *CollectionTriggerKind) Scan(src interface{}) error {
