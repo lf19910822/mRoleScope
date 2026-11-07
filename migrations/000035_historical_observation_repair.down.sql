@@ -1,1 +1,2 @@
-DROP INDEX IF EXISTS collection_runs_one_repair_per_scope_date_idx;
+-- PostgreSQL enum labels cannot be removed safely. The repair label remains
+-- harmless when rolling back the compatibility migration.
