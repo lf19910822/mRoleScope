@@ -50,6 +50,23 @@ func ParseObservations(root string, manifest collector.Manifest) ([]Observation,
 	if len(listItems) != manifest.Counts.ListItems || len(detailFiles) != manifest.Counts.DetailSucceeded {
 		return nil, fmt.Errorf("validated manifest does not contain all expected list/detail files")
 	}
+	failedIDs := make(map[string]struct{}, len(manifest.FailedSourceJobIDs))
+	for _, sourceJobID := range manifest.FailedSourceJobIDs {
+		if _, listed := listItems[sourceJobID]; !listed {
+			return nil, fmt.Errorf("failed detail %s has no corresponding list item", sourceJobID)
+		}
+		if _, hasDetail := detailFiles[sourceJobID]; hasDetail {
+			return nil, fmt.Errorf("failed detail %s also has a detail file", sourceJobID)
+		}
+		failedIDs[sourceJobID] = struct{}{}
+	}
+	for sourceJobID := range listItems {
+		_, hasDetail := detailFiles[sourceJobID]
+		_, failed := failedIDs[sourceJobID]
+		if hasDetail == failed {
+			return nil, fmt.Errorf("list item %s is not represented by exactly one detail outcome", sourceJobID)
+		}
+	}
 
 	ids := make([]string, 0, len(detailFiles))
 	for id := range detailFiles {
