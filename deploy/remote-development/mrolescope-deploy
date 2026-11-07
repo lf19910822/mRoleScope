@@ -60,7 +60,8 @@ compose() {
 recover_known_dirty_migration() {
   local version_output
 
-  if version_output=$(compose run --rm --no-deps migrate version 2>&1); then
+  if version_output=$(compose run --rm --no-deps migrate \
+    -path=/migrations -database="$DATABASE_URL" version 2>&1); then
     if [[ "$version_output" != *'Dirty database version 35'* ]]; then
       return 0
     fi
@@ -73,7 +74,8 @@ recover_known_dirty_migration() {
   # its failed marker back to 34, then let the normal migration run apply 35
   # and 36. Any other dirty version remains a hard stop.
   log 'recovering the known dirty migration version 35 back to version 34'
-  compose run --rm --no-deps migrate force 34
+  compose run --rm --no-deps migrate \
+    -path=/migrations -database="$DATABASE_URL" force 34
 }
 
 is_root_owned_mode() {
