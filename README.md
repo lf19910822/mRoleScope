@@ -29,9 +29,9 @@ python3 -m unittest collector.test_collector
 ./scripts/bootstrap-web.sh
 ```
 
-它使用与项目 Node 20.20.2 兼容的官方 `create-vue@3.22.0`，生成 Vue 3 + TypeScript + Vue Router + Vitest + ESLint + Prettier 初始工程，再安装 Naive UI 和 ECharts。脚本以临时 `npm@11.21.1` 处理当前依赖图，不会修改全局 npm。生成并提交 `web/package-lock.json` 后，CI 会自动启用前端类型检查、单测与构建。
+它使用与项目 Node 20.20.2 兼容的官方 `create-vue@3.22.0`，生成 Vue 3 + TypeScript + Vue Router + Vitest + ESLint + Prettier 初始工程，再安装 Naive UI 和 ECharts。脚本以临时 `npm@11.21.1` 处理当前依赖图，不会修改全局 npm。生成并提交 `web/package-lock.json` 后，本地发布质量门会执行前端类型检查、单测与构建。
 
-Go 的版本在 `go.mod`、Dockerfile 与 CI 中固定为 1.22.5，Gin 和 pgx 也使用精确版本；依赖已通过 `go mod tidy` 锁定并完成测试。前端 Node 版本固定在 `.nvmrc` 和 CI 的 `20.20.2`。运行 `make test` 执行 Go 与 Python 测试，前端测试命令见 `web/package.json`。
+Go 的版本在 `go.mod`、Dockerfile 与本地发布质量门中固定为 1.22.5，Gin 和 pgx 也使用精确版本；依赖已通过 `go mod tidy` 锁定并完成测试。前端 Node 版本固定在 `.nvmrc` 和本地质量门的 `20.20.2`。运行 `make test` 执行 Go 与 Python 测试，前端测试命令见 `web/package.json`。
 
 ## 常用命令
 
