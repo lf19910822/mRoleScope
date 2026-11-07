@@ -121,8 +121,16 @@ func (service Service) Run(ctx context.Context, options RunOptions) error {
 	}); err != nil {
 		return fail(err)
 	}
+	if len(manifest.FailedSourceJobIDs) > 0 {
+		if err := service.Repository.AppendAudit(ctx, run, AuditEvent{
+			Stage: stage, Severity: "warning", Code: "detail_failures_isolated", Message: "some job details failed; valid observations retained",
+			Diagnostics: map[string]any{"observations": len(observations), "detail_failed": len(manifest.FailedSourceJobIDs)},
+		}); err != nil {
+			return fail(err)
+		}
+	}
 
-	rechecks, err := service.recheckMissing(ctx, storedScope, observations, options.FixturePath != "", run)
+	rechecks, err := service.recheckMissing(ctx, storedScope, observations, manifest.FailedSourceJobIDs, options.FixturePath != "", run)
 	if err != nil {
 		return fail(err)
 	}
@@ -151,14 +159,15 @@ func (service Service) Run(ctx context.Context, options RunOptions) error {
 		return fail(err)
 	}
 	if err := service.Repository.Publish(ctx, PublishInput{
-		Run: run, Scope: storedScope, Manifest: manifest, Observations: observations, Rechecks: rechecks, Archive: archive,
+		Run: run, Scope: storedScope, Manifest: manifest, Observations: observations, Rechecks: rechecks,
+		FailedSourceJobIDs: manifest.FailedSourceJobIDs, Archive: archive,
 	}); err != nil {
 		return fail(fmt.Errorf("publish archived batch: %w", err))
 	}
 	return nil
 }
 
-func (service Service) recheckMissing(ctx context.Context, scope StoredScope, observations []Observation, fixtureMode bool, run Run) (map[string]RecheckResult, error) {
+func (service Service) recheckMissing(ctx context.Context, scope StoredScope, observations []Observation, failedSourceJobIDs []string, fixtureMode bool, run Run) (map[string]RecheckResult, error) {
 	openPeriods, err := service.Repository.OpenPresence(ctx, scope.ID)
 	if err != nil {
 		return nil, err
@@ -167,6 +176,10 @@ func (service Service) recheckMissing(ctx context.Context, scope StoredScope, ob
 	for _, observation := range observations {
 		observed[observation.SourceJobID] = struct{}{}
 	}
+	failed := make(map[string]struct{}, len(failedSourceJobIDs))
+	for _, sourceJobID := range failedSourceJobIDs {
+		failed[sourceJobID] = struct{}{}
+	}
 	checker := service.Rechecker
 	if checker == nil || fixtureMode {
 		checker = IndeterminateRechecker{}
@@ -174,6 +187,9 @@ func (service Service) recheckMissing(ctx context.Context, scope StoredScope, ob
 	results := make(map[string]RecheckResult)
 	for _, period := range openPeriods {
 		if _, currentlyListed := observed[period.SourceJobID]; currentlyListed {
+			continue
+		}
+		if _, detailFailed := failed[period.SourceJobID]; detailFailed {
 			continue
 		}
 		// This loop is intentionally sequential: a list omission cannot turn

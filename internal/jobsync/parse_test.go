@@ -24,6 +24,27 @@ func TestParseObservationsAcceptsValidatedTaskDirectory(t *testing.T) {
 	}
 }
 
+func TestParseObservationsAcceptsValidDetailsAndChecksFailedIDCoverage(t *testing.T) {
+	list := `{"success":true,"data":{"total":3,"list":[{"id":"observed-job"},{"id":"failed-job-a"},{"id":"failed-job-b"}]}}`
+	detail := `{"success":true,"data":{"id":"observed-job","title":"Server","description":"body","jobRequire":"Go"}}`
+	root, manifest := writeTaskDirectoryForID(t, "observed-job", list, detail)
+	manifest.Counts = collector.Counts{ListReportedTotal: 3, ListItems: 3, UniqueSourceJobID: 3, DetailSucceeded: 1, DetailFailed: 2}
+	manifest.FailedSourceJobIDs = []string{"failed-job-a", "failed-job-b"}
+
+	observations, err := ParseObservations(root, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observations) != 1 || observations[0].SourceJobID != "observed-job" {
+		t.Fatalf("observations = %#v, want observed-job only", observations)
+	}
+
+	manifest.FailedSourceJobIDs = []string{"not-in-list"}
+	if _, err := ParseObservations(root, manifest); err == nil {
+		t.Fatal("expected failed ID outside the validated list to be rejected")
+	}
+}
+
 func TestParseObservationsRejectsInvalidOrIncompleteEvidence(t *testing.T) {
 	t.Run("detail_id_mismatch", func(t *testing.T) {
 		root, manifest := writeTaskDirectory(t, `{"success":true,"data":{"total":1,"list":[{"id":"8771"}]}}`, `{"success":true,"data":{"id":"other","title":"Server","description":"body","jobRequire":"Go"}}`)

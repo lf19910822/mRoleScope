@@ -34,6 +34,20 @@ func TestValidateFilesAcceptsCompleteManifest(t *testing.T) {
 	}
 }
 
+func TestManifestAcceptsValidatedPartialDetails(t *testing.T) {
+	now := time.Now().UTC()
+	manifest := Manifest{
+		SchemaVersion: 1, Status: "complete", RunID: "partial-run", StartedAt: now, FinishedAt: now,
+		Source:             Source{Company: "mihoyo", Filter: map[string]any{"hireType": 0}, FilterSHA256: "0000000000000000000000000000000000000000000000000000000000000000"},
+		Counts:             Counts{ListReportedTotal: 2, ListItems: 2, UniqueSourceJobID: 2, DetailSucceeded: 1, DetailFailed: 1},
+		FailedSourceJobIDs: []string{"failed-job"},
+		Files:              []File{{Path: "raw/list/page-001.json", SHA256: "0000000000000000000000000000000000000000000000000000000000000000", Bytes: 0}},
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManifestRejectsTraversalPath(t *testing.T) {
 	now := time.Now().UTC()
 	manifest := Manifest{

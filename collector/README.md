@@ -4,7 +4,7 @@
 
 - raw list and detail API responses are retained separately;
 - a `schema_version=1` manifest records scope, timing, counts and SHA-256 values;
-- an incomplete response yields `status=failed`, never a publishable partial task;
+- detail-level failures are isolated in `failed_source_job_ids`; valid details remain publishable while a batch with no valid details yields `status=failed`;
 - the collector does not calculate business aggregates, diffs or publication state.
 
 Run the offline contract fixture without contacting the public API:

@@ -472,12 +472,13 @@ type ArchiveResult struct {
 }
 
 type PublishInput struct {
-	Run          Run
-	Scope        StoredScope
-	Manifest     collector.Manifest
-	Observations []Observation
-	Rechecks     map[string]RecheckResult
-	Archive      ArchiveResult
+	Run                Run
+	Scope              StoredScope
+	Manifest           collector.Manifest
+	Observations       []Observation
+	Rechecks           map[string]RecheckResult
+	FailedSourceJobIDs []string
+	Archive            ArchiveResult
 }
 
 // Publish is the only method that may create or close SCD2 intervals. It is
@@ -837,6 +838,9 @@ FOR UPDATE`, input.Scope.ID)
 		if _, listed := observed[period.SourceJobID]; listed {
 			continue
 		}
+		if containsSourceJobID(input.FailedSourceJobIDs, period.SourceJobID) {
+			continue
+		}
 		result, exists := input.Rechecks[period.SourceJobID]
 		if !exists {
 			result = RecheckResult{Outcome: RecheckIndeterminate, Code: "missing_recheck_not_run"}
@@ -898,6 +902,15 @@ WHERE presence_period_id = $1 AND valid_to IS NULL`, period.ID, input.Run.ID, no
 	return nil
 }
 
+func containsSourceJobID(sourceJobIDs []string, sourceJobID string) bool {
+	for _, candidate := range sourceJobIDs {
+		if candidate == sourceJobID {
+			return true
+		}
+	}
+	return false
+}
+
 func appendAuditTx(ctx context.Context, tx pgx.Tx, run Run, event AuditEvent) error {
 	diagnostics, err := safeDiagnostics(event.Diagnostics)
 	if err != nil {
@@ -921,7 +934,7 @@ func safeDiagnostics(input map[string]any) ([]byte, error) {
 	for key, value := range input {
 		// Field names themselves are constrained so callers cannot smuggle a
 		// complete request or raw body in under an arbitrary diagnostic key.
-		if key == "source_job_id" || key == "outcome" || key == "http_status" || key == "object_key" || key == "attempt" || key == "observations" {
+		if key == "source_job_id" || key == "outcome" || key == "http_status" || key == "object_key" || key == "attempt" || key == "observations" || key == "detail_failed" {
 			allowed[key] = SafeMessage(fmt.Sprint(value))
 		}
 	}

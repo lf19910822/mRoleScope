@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import math
 import os
 import random
+import re
 import sys
 import time
 import uuid
@@ -44,10 +46,11 @@ HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     ),
 }
+HTML_TAG_PATTERN = re.compile(r"(?s)<[^>]*>")
 
 
 class CollectionError(RuntimeError):
-    """A completeness or transport failure that must prevent publication."""
+    """A list-level or otherwise non-isolatable collection failure."""
 
 
 def utc_now() -> str:
@@ -135,6 +138,15 @@ def response_data(response: Dict[str, Any], endpoint_name: str) -> Dict[str, Any
     return data
 
 
+def has_usable_detail_text(value: Any) -> bool:
+    """Match the Go normalizer's non-empty text boundary before publishing."""
+    if not isinstance(value, str):
+        return False
+    text = html.unescape(value)
+    text = HTML_TAG_PATTERN.sub(" ", text)
+    return bool(" ".join(text.split()))
+
+
 def validate_list_pages(pages: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     pages = list(pages)
     if not pages:
@@ -155,19 +167,67 @@ def validate_list_pages(pages: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]
     return items
 
 
-def validate_details(items: List[Dict[str, Any]], details: Dict[str, Dict[str, Any]]) -> List[str]:
+def validate_detail(source_job_id: str, response: Dict[str, Any]) -> None:
+    data = response_data(response, "detail")
+    required = ("id", "title", "description", "jobRequire")
+    if str(data.get("id")) != source_job_id or any(
+        not has_usable_detail_text(data.get(field)) for field in required[1:]
+    ):
+        raise CollectionError("detail response is incomplete for job {0}".format(source_job_id))
+
+
+def classify_detail_responses(
+    items: List[Dict[str, Any]], details: Dict[str, Any]
+) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
     expected_ids = sorted(str(item["id"]) for item in items)
-    if sorted(details.keys()) != expected_ids:
+    unexpected_ids = sorted(set(details) - set(expected_ids))
+    if unexpected_ids:
         raise CollectionError("detail response IDs do not match the validated list")
+
+    valid_details: Dict[str, Dict[str, Any]] = {}
+    failed_ids: List[str] = []
     for source_job_id in expected_ids:
-        data = response_data(details[source_job_id], "detail")
-        required = ("id", "title", "description", "jobRequire")
-        if str(data.get("id")) != source_job_id or any(not data.get(field) for field in required):
-            raise CollectionError("detail response is incomplete for job {0}".format(source_job_id))
-    return expected_ids
+        response = details.get(source_job_id)
+        try:
+            if response is None:
+                raise CollectionError("detail response was not returned")
+            validate_detail(source_job_id, response)
+        except Exception:
+            failed_ids.append(source_job_id)
+            continue
+        valid_details[source_job_id] = response
+    return valid_details, failed_ids
 
 
-def collect_live(page_size: int, workers: int, retries: int, timeout_seconds: int) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+def collect_detail_responses(
+    items: List[Dict[str, Any]], workers: int, retries: int, timeout_seconds: int
+) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+    details: Dict[str, Dict[str, Any]] = {}
+    failed_ids: List[str] = []
+
+    def fetch(item: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        source_job_id = str(item["id"])
+        return source_job_id, post_json(DETAIL_API, detail_payload(source_job_id), retries, timeout_seconds)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(fetch, item): str(item["id"]) for item in items}
+        for future in as_completed(futures):
+            source_job_id = futures[future]
+            try:
+                returned_id, response = future.result()
+                if returned_id != source_job_id:
+                    raise CollectionError("detail response request identity changed")
+                validate_detail(source_job_id, response)
+            except Exception:
+                failed_ids.append(source_job_id)
+                continue
+            details[source_job_id] = response
+    return details, sorted(failed_ids)
+
+
+def collect_live(
+    page_size: int, workers: int, retries: int, timeout_seconds: int
+) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], List[str]]:
     first = post_json(LIST_API, list_payload(1, page_size), retries, timeout_seconds)
     total = response_data(first, "list").get("total")
     if not isinstance(total, int) or total <= 0:
@@ -176,17 +236,10 @@ def collect_live(page_size: int, workers: int, retries: int, timeout_seconds: in
     for page_number in range(2, int(math.ceil(float(total) / page_size)) + 1):
         pages.append(post_json(LIST_API, list_payload(page_number, page_size), retries, timeout_seconds))
     items = validate_list_pages(pages)
-    details: Dict[str, Dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(post_json, DETAIL_API, detail_payload(str(item["id"])), retries, timeout_seconds): str(item["id"])
-            for item in items
-        }
-        for future in as_completed(futures):
-            source_job_id = futures[future]
-            details[source_job_id] = future.result()
-    validate_details(items, details)
-    return pages, details
+    details, failed_ids = collect_detail_responses(items, workers, retries, timeout_seconds)
+    if not details:
+        raise CollectionError("all detail responses failed")
+    return pages, details, failed_ids
 
 
 def probe_live(retries: int, timeout_seconds: int) -> Dict[str, Any]:
@@ -221,7 +274,7 @@ def probe_live(retries: int, timeout_seconds: int) -> Dict[str, Any]:
     }
 
 
-def collect_fixture(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+def collect_fixture(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], List[str]]:
     try:
         fixture = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -230,11 +283,13 @@ def collect_fixture(path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[st
     details = fixture.get("details") if isinstance(fixture, dict) else None
     if not isinstance(pages, list) or not all(isinstance(page, dict) for page in pages):
         raise CollectionError("fixture list_pages must be an array of raw response objects")
-    if not isinstance(details, dict) or not all(isinstance(key, str) and isinstance(value, dict) for key, value in details.items()):
-        raise CollectionError("fixture details must map string IDs to raw response objects")
+    if not isinstance(details, dict) or not all(isinstance(key, str) for key in details):
+        raise CollectionError("fixture details must map string IDs to raw responses")
     items = validate_list_pages(pages)
-    validate_details(items, details)
-    return pages, details
+    valid_details, failed_ids = classify_detail_responses(items, details)
+    if not valid_details:
+        raise CollectionError("all detail responses failed")
+    return pages, valid_details, failed_ids
 
 
 def write_task_directory(
@@ -246,7 +301,22 @@ def write_task_directory(
     retries: int,
     timeout_seconds: int,
     workers: int,
+    failed_source_job_ids: List[str] | None = None,
 ) -> Dict[str, Any]:
+    failed_source_job_ids = list(failed_source_job_ids or [])
+    if len(set(failed_source_job_ids)) != len(failed_source_job_ids):
+        raise CollectionError("failed detail IDs are duplicated")
+    failed_source_job_ids.sort()
+    items = validate_list_pages(pages)
+    expected_ids = {str(item["id"]) for item in items}
+    detail_ids = set(details)
+    failed_ids = set(failed_source_job_ids)
+    if not failed_ids.issubset(expected_ids):
+        raise CollectionError("failed detail IDs do not match the validated list")
+    if not detail_ids.issubset(expected_ids):
+        raise CollectionError("detail response IDs do not match the validated list")
+    if detail_ids & failed_ids or len(detail_ids) + len(failed_ids) != len(expected_ids):
+        raise CollectionError("detail outcomes do not cover the validated list exactly")
     files: List[Dict[str, Any]] = []
     for index, page in enumerate(pages, start=1):
         relative_path = "raw/list/page-{0:03d}.json".format(index)
@@ -257,7 +327,6 @@ def write_task_directory(
         byte_count, digest = write_json(output_dir / relative_path, details[source_job_id])
         files.append({"path": relative_path, "sha256": digest, "bytes": byte_count})
 
-    items = validate_list_pages(pages)
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "status": "complete",
@@ -281,8 +350,9 @@ def write_task_directory(
             "list_items": len(items),
             "unique_source_job_ids": len(items),
             "detail_succeeded": len(details),
-            "detail_failed": 0,
+            "detail_failed": len(failed_source_job_ids),
         },
+        "failed_source_job_ids": failed_source_job_ids,
         "files": files,
     }
     write_json(output_dir / "manifest.json", manifest)
@@ -338,13 +408,18 @@ def run(arguments: List[str] = None) -> int:
     run_id = args.run_id or str(uuid.uuid4())
     try:
         if args.fixture:
-            pages, details = collect_fixture(Path(args.fixture))
+            pages, details, failed_ids = collect_fixture(Path(args.fixture))
         else:
-            pages, details = collect_live(args.page_size, args.workers, args.retries, args.timeout_seconds)
+            pages, details, failed_ids = collect_live(args.page_size, args.workers, args.retries, args.timeout_seconds)
         manifest = write_task_directory(
-            output_dir, run_id, started_at, pages, details, args.retries, args.timeout_seconds, args.workers
+            output_dir, run_id, started_at, pages, details, args.retries, args.timeout_seconds, args.workers, failed_ids
         )
-        print(json.dumps({"status": manifest["status"], "run_id": run_id, "jobs": manifest["counts"]["detail_succeeded"]}, ensure_ascii=False))
+        print(json.dumps({
+            "status": manifest["status"],
+            "run_id": run_id,
+            "jobs": manifest["counts"]["detail_succeeded"],
+            "failed_jobs": manifest["counts"]["detail_failed"],
+        }, ensure_ascii=False))
         return 0
     except CollectionError as exc:
         failure = {

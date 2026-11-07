@@ -19,16 +19,16 @@ The system SHALL collect only the configured miHoYo technical social-recruitment
 - **THEN** the system SHALL treat it as a new observation scope and baseline
 - **AND THEN** it SHALL not infer additions, removals, or reappearances by comparing it with the old scope
 
-### Requirement: Complete batches are the only publishable evidence
-The system SHALL accept a collector batch for persistence only when its manifest, paths, counts, and file SHA-256 values validate as complete. It SHALL archive the validated raw batch and manifest in private immutable object storage before marking the batch usable.
+### Requirement: Validated batches are publishable with isolated detail failures
+The system SHALL accept a collector batch for persistence when its list manifest, paths, counts, and file SHA-256 values validate, even if one or more individual detail outcomes are recorded as failed. It SHALL archive the list, successful detail responses, failed source job IDs, and manifest in private immutable object storage before marking the usable observations published. A batch with no usable details SHALL remain failed.
 
-#### Scenario: A complete collector directory passes validation
-- **WHEN** every manifest entry is safe, present, hash-valid, and count-consistent
-- **THEN** the system SHALL archive the raw list responses, detail responses, and manifest under the batch identity
-- **AND THEN** it SHALL retain the archive URI and archive digest with the run record
+#### Scenario: A partial collector directory passes validation
+- **WHEN** the validated list is complete and at least one detail response is valid while other detail IDs are recorded as failed
+- **THEN** the system SHALL archive the successful evidence and failed ID list under the batch identity
+- **AND THEN** it SHALL publish the valid observations and retain the failed count on the run record
 
-#### Scenario: A collector batch is incomplete or invalid
-- **WHEN** manifest validation, file validation, or collection completeness fails
+#### Scenario: A collector list or file set is incomplete or invalid
+- **WHEN** list pagination, manifest validation, or file validation fails, or no detail produces a usable observation
 - **THEN** the system SHALL record the failed attempt and a safe failure summary
 - **AND THEN** it SHALL not publish the batch or alter job visibility/content history
 

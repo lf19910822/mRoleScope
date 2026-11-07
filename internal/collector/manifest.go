@@ -15,14 +15,15 @@ import (
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Manifest struct {
-	SchemaVersion int       `json:"schema_version"`
-	Status        string    `json:"status"`
-	RunID         string    `json:"run_id"`
-	StartedAt     time.Time `json:"started_at"`
-	FinishedAt    time.Time `json:"finished_at"`
-	Source        Source    `json:"source"`
-	Counts        Counts    `json:"counts"`
-	Files         []File    `json:"files"`
+	SchemaVersion      int       `json:"schema_version"`
+	Status             string    `json:"status"`
+	RunID              string    `json:"run_id"`
+	StartedAt          time.Time `json:"started_at"`
+	FinishedAt         time.Time `json:"finished_at"`
+	Source             Source    `json:"source"`
+	Counts             Counts    `json:"counts"`
+	FailedSourceJobIDs []string  `json:"failed_source_job_ids,omitempty"`
+	Files              []File    `json:"files"`
 }
 
 type Source struct {
@@ -74,8 +75,21 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("manifest timestamps are invalid")
 	}
 	c := m.Counts
-	if c.ListReportedTotal <= 0 || c.ListItems != c.ListReportedTotal || c.UniqueSourceJobID != c.ListReportedTotal || c.DetailSucceeded != c.ListReportedTotal || c.DetailFailed != 0 {
+	if c.ListReportedTotal <= 0 || c.ListItems != c.ListReportedTotal || c.UniqueSourceJobID != c.ListReportedTotal || c.DetailSucceeded < 0 || c.DetailFailed < 0 || c.DetailSucceeded+c.DetailFailed != c.ListItems {
 		return fmt.Errorf("manifest counts are incomplete or inconsistent")
+	}
+	if len(m.FailedSourceJobIDs) != c.DetailFailed {
+		return fmt.Errorf("manifest failed detail IDs do not match detail_failed")
+	}
+	failedIDs := make(map[string]struct{}, len(m.FailedSourceJobIDs))
+	for _, sourceJobID := range m.FailedSourceJobIDs {
+		if sourceJobID == "" {
+			return fmt.Errorf("manifest contains an empty failed detail ID")
+		}
+		if _, exists := failedIDs[sourceJobID]; exists {
+			return fmt.Errorf("manifest failed detail ID is duplicated: %q", sourceJobID)
+		}
+		failedIDs[sourceJobID] = struct{}{}
 	}
 	if len(m.Files) == 0 {
 		return fmt.Errorf("manifest has no archived files")

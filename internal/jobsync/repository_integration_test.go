@@ -109,6 +109,37 @@ WHERE p.observation_scope_id = $1 AND j.source_job_id = '8771'`, scope.ID).Scan(
 	}
 }
 
+func TestRepositoryFailedDetailDoesNotCloseExistingPresence(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	scope, err := repository.EnsureScope(ctx, MihoyoTechnicalScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC)
+	publishFixtureRun(t, repository, scope, base, 1, []Observation{integrationObservation("v1", base)}, nil)
+	run := publishFixtureRunWithFailedIDs(t, repository, scope, base.Add(time.Minute), []string{"8771"})
+
+	var open, firstMissing bool
+	if err := repository.pool.QueryRow(ctx, `
+SELECT closed_at IS NULL, first_missing_at IS NULL
+FROM job_presence_periods p
+JOIN jobs j ON j.id = p.job_id
+WHERE p.observation_scope_id = $1 AND j.source_job_id = '8771'`, scope.ID).Scan(&open, &firstMissing); err != nil {
+		t.Fatal(err)
+	}
+	if !open || !firstMissing {
+		t.Fatalf("failed detail changed presence state: open=%t first_missing_clear=%t", open, firstMissing)
+	}
+	var failedCount int
+	if err := repository.pool.QueryRow(ctx, `SELECT detail_failed FROM collection_runs WHERE id = $1`, run.ID).Scan(&failedCount); err != nil {
+		t.Fatal(err)
+	}
+	if failedCount != 1 {
+		t.Fatalf("detail_failed = %d, want 1", failedCount)
+	}
+}
+
 func TestRepositoryAutomaticSourceClosureRetainsSafeEvidence(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()
@@ -557,6 +588,27 @@ func publishFixtureRun(t *testing.T, repository *Repository, scope StoredScope, 
 	if err := repository.Publish(context.Background(), PublishInput{
 		Run: run, Scope: scope, Manifest: manifest, Observations: observations, Rechecks: rechecks,
 		Archive: ArchiveResult{URI: "s3://test-bucket/run/" + run.ID, ManifestSHA256: "0000000000000000000000000000000000000000000000000000000000000000"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
+func publishFixtureRunWithFailedIDs(t *testing.T, repository *Repository, scope StoredScope, at time.Time, failedIDs []string) Run {
+	t.Helper()
+	run, err := repository.CreateRun(context.Background(), scope, newUUID(), TriggerScheduled, 1, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := collector.Manifest{
+		SchemaVersion: 1, Status: "complete", RunID: run.ID, StartedAt: at, FinishedAt: at.Add(time.Second),
+		Source:             collector.Source{Company: scope.SourceCompany, Filter: scope.Filter, FilterSHA256: scope.FilterSHA256},
+		Counts:             collector.Counts{ListReportedTotal: len(failedIDs), ListItems: len(failedIDs), UniqueSourceJobID: len(failedIDs), DetailFailed: len(failedIDs)},
+		FailedSourceJobIDs: failedIDs,
+	}
+	if err := repository.Publish(context.Background(), PublishInput{
+		Run: run, Scope: scope, Manifest: manifest, Rechecks: map[string]RecheckResult{}, FailedSourceJobIDs: failedIDs,
+		Archive: ArchiveResult{URI: "s3://test-bucket/run/" + run.ID, ManifestSHA256: strings.Repeat("c", 64)},
 	}); err != nil {
 		t.Fatal(err)
 	}
