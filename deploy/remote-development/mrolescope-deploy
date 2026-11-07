@@ -60,12 +60,17 @@ compose() {
 recover_known_dirty_migration() {
   local version_output
 
+  is_known_dirty_migration() {
+    local output="$1"
+    [[ "$output" == *'35 (dirty)'* || "$output" == *'Dirty database version 35'* ]]
+  }
+
   if version_output=$(compose run --rm --no-deps migrate \
     -path=/migrations -database="$DATABASE_URL" version 2>&1); then
-    if [[ "$version_output" != *'Dirty database version 35'* ]]; then
+    if ! is_known_dirty_migration "$version_output"; then
       return 0
     fi
-  elif [[ "$version_output" != *'Dirty database version 35'* ]]; then
+  elif ! is_known_dirty_migration "$version_output"; then
     die 'database migration state is dirty or unavailable; manual recovery is not allowed'
   fi
 
