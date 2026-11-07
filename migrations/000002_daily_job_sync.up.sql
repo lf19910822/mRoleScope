@@ -3,7 +3,7 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TYPE collection_trigger_kind AS ENUM ('initialization', 'scheduled', 'retry');
+CREATE TYPE collection_trigger_kind AS ENUM ('initialization', 'scheduled', 'retry', 'repair');
 ALTER TYPE collection_run_status ADD VALUE IF NOT EXISTS 'persisting';
 
 CREATE TABLE observation_scopes (

@@ -238,7 +238,7 @@ paths:
           schema: {type: string, format: date}
         - in: query
           name: end_date
-          description: Required only with range=custom. Inclusive Asia/Shanghai end date, no later than today.
+          description: Required only with range=custom. Inclusive Asia/Shanghai end date; dates outside available history are returned as null points.
           schema: {type: string, format: date}
         - in: query
           name: dimension
@@ -408,7 +408,7 @@ components:
           description: Null means unavailable historical input; zero means a complete snapshot with no matching JD.
     TrendSeries:
       type: object
-      required: [curve, points, freshness]
+      required: [curve, points, freshness, coverage]
       properties:
         curve:
           $ref: '#/components/schemas/TrendCurve'
@@ -419,6 +419,20 @@ components:
         freshness:
           type: string
           description: Opaque safe freshness marker.
+        coverage:
+          $ref: '#/components/schemas/TrendCoverage'
+    TrendCoverage:
+      type: object
+      required: [first_date, last_date]
+      properties:
+        first_date:
+          type: string
+          format: date
+          description: Earliest successful published observation date.
+        last_date:
+          type: string
+          format: date
+          description: Latest successful published observation date.
     TrendDrilldownStatus:
       type: string
       enum: [current, changed, confirmed_closed]

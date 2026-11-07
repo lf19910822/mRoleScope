@@ -36,6 +36,11 @@ export interface TrendPoint {
   date: string
 }
 
+export interface TrendCoverage {
+  first_date: string
+  last_date: string
+}
+
 export interface TrendSeries {
   curve: {
     dimension: TrendDimension
@@ -46,6 +51,7 @@ export interface TrendSeries {
   }
   freshness: string
   points: TrendPoint[]
+  coverage?: TrendCoverage
 }
 
 export interface TrendRequestClient {

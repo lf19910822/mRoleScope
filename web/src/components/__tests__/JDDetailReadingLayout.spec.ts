@@ -43,9 +43,7 @@ describe('JDDetailReadingLayout', () => {
           ...job,
           comparison: {
             status: 'available',
-            dimension_changes: [
-              { field: '技术关键词', historical: 'Go', latest: 'Go、Rust' },
-            ],
+            dimension_changes: [{ field: '技术关键词', historical: 'Go', latest: 'Go、Rust' }],
             body_sections: [
               {
                 label: '岗位职责',
@@ -72,6 +70,43 @@ describe('JDDetailReadingLayout', () => {
     await wrapper.get('.detail-comparison__tag--body').trigger('click')
     expect(wrapper.get('[aria-label="已删除"]').text()).toBe('旧系统')
     expect(wrapper.get('[aria-label="最新新增"]').text()).toBe('新系统')
+    wrapper.unmount()
+  })
+
+  it('restores numbered list structure inside deleted and inserted body fragments', async () => {
+    const wrapper = mount(JDDetailReadingLayout, {
+      props: {
+        job: {
+          ...job,
+          body: {
+            ...job.body,
+            responsibilities: '1. 维护稳定\n2. 负责平台',
+          },
+          comparison: {
+            status: 'available',
+            body_sections: [
+              {
+                label: '岗位职责',
+                section: 'responsibilities',
+                fragments: [
+                  { kind: 'deleted', text: '1. 负责平台\n2. 维护稳定' },
+                  { kind: 'inserted', text: '1. 维护稳定\n2. 负责平台' },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    await wrapper.get('.detail-comparison__tag--body').trigger('click')
+
+    expect(wrapper.findAll('.detail-comparison__fragment-line--item')).toHaveLength(4)
+    expect(
+      wrapper.findAll('.detail-comparison__fragment-marker').map((node) => node.text()),
+    ).toEqual(['1', '2', '1', '2'])
+    expect(wrapper.findAll('.detail-comparison__fragment--deleted')).toHaveLength(2)
+    expect(wrapper.findAll('.detail-comparison__fragment--inserted')).toHaveLength(2)
     wrapper.unmount()
   })
 

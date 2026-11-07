@@ -86,12 +86,21 @@ type TrendPoint struct {
 	Date  string `json:"date"`
 }
 
+// TrendCoverage is the display-safe envelope of successful published history.
+// It describes only the outer bounds; intermediate unavailable dates remain
+// represented by null points and are intentionally not enumerated here.
+type TrendCoverage struct {
+	FirstDate string `json:"first_date"`
+	LastDate  string `json:"last_date"`
+}
+
 // TrendSeries is the complete display-safe result for one requested curve.
 // Freshness is opaque and is never a source/run/parser/dictionary identifier.
 type TrendSeries struct {
-	Curve     TrendCurve   `json:"curve"`
-	Freshness string       `json:"freshness"`
-	Points    []TrendPoint `json:"points"`
+	Curve     TrendCurve    `json:"curve"`
+	Coverage  TrendCoverage `json:"coverage"`
+	Freshness string        `json:"freshness"`
+	Points    []TrendPoint  `json:"points"`
 }
 
 // TrendReader is the public Serving seam for a single historical curve.
@@ -147,12 +156,6 @@ func (repository *Repository) ReadTrend(ctx context.Context, query TrendQuery) (
 		return TrendSeries{}, fmt.Errorf("begin trend read: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if query.Range == TrendRangeCustom {
-		if err := validateCustomTrendHistory(ctx, tx, calendarRange); err != nil {
-			return TrendSeries{}, err
-		}
-	}
-
 	var series TrendSeries
 	switch query.Condition.Dimension {
 	case TrendDimensionLocation:
@@ -298,10 +301,15 @@ func (repository *Repository) ReadTrend(ctx context.Context, query TrendQuery) (
 	if series.Freshness != "" {
 		freshnessInput += "\nformal=" + series.Freshness
 	}
+	coverage, err := readTrendCoverage(ctx, tx)
+	if err != nil {
+		return TrendSeries{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return TrendSeries{}, fmt.Errorf("commit trend read: %w", err)
 	}
 	series.Freshness = trendFreshness(freshnessInput)
+	series.Coverage = coverage
 	return series, nil
 }
 
@@ -324,7 +332,6 @@ func resolveTrendCalendarRange(query TrendQuery) (trendCalendarRange, error) {
 		return trendCalendarRange{}, fmt.Errorf("load trend calendar location: %w", err)
 	}
 	today := time.Now().In(shanghai)
-	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)
 	format := func(date time.Time) string { return date.Format("2006-01-02") }
 	rangeValue := trendCalendarRange{End: format(today)}
 	var start time.Time
@@ -337,7 +344,7 @@ func resolveTrendCalendarRange(query TrendQuery) (trendCalendarRange, error) {
 		if query.StartDate.IsZero() || query.EndDate.IsZero() ||
 			start.Hour() != 0 || start.Minute() != 0 || start.Second() != 0 || start.Nanosecond() != 0 ||
 			end.Hour() != 0 || end.Minute() != 0 || end.Second() != 0 || end.Nanosecond() != 0 ||
-			start.After(end) || end.After(todayStart) {
+			start.After(end) {
 			return trendCalendarRange{}, ErrInvalidTrendQuery
 		}
 		formattedStart := format(start)
@@ -358,29 +365,6 @@ func resolveTrendCalendarRange(query TrendQuery) (trendCalendarRange, error) {
 	formattedStart := format(start)
 	rangeValue.Start = &formattedStart
 	return rangeValue, nil
-}
-
-// validateCustomTrendHistory keeps custom windows inside retained published
-// history. Named ranges intentionally retain their established gap behaviour;
-// a custom request is explicit enough that a wholly pre-retention start is a
-// safe client error rather than a long row of indistinguishable null points.
-func validateCustomTrendHistory(ctx context.Context, tx pgx.Tx, calendarRange trendCalendarRange) error {
-	if calendarRange.Start == nil {
-		return ErrInvalidTrendQuery
-	}
-	var firstAvailable *string
-	err := tx.QueryRow(ctx, `
-SELECT min((published_at AT TIME ZONE 'Asia/Shanghai')::date)::text
-FROM collection_runs
-WHERE status = 'published'
-  AND published_at IS NOT NULL`).Scan(&firstAvailable)
-	if err != nil {
-		return fmt.Errorf("read earliest trend history: %w", err)
-	}
-	if firstAvailable == nil || *calendarRange.Start < *firstAvailable {
-		return ErrInvalidTrendQuery
-	}
-	return nil
 }
 
 func validateEducationTrendQuery(query TrendQuery) (string, string, error) {
@@ -1467,6 +1451,20 @@ FROM selected_runs`, calendarRange.Start, calendarRange.End).Scan(&input)
 		return "", fmt.Errorf("read trend freshness input: %w", err)
 	}
 	return input, nil
+}
+
+func readTrendCoverage(ctx context.Context, tx pgx.Tx) (TrendCoverage, error) {
+	var coverage TrendCoverage
+	err := tx.QueryRow(ctx, `
+SELECT COALESCE(min((published_at AT TIME ZONE 'Asia/Shanghai')::date)::text, ''),
+       COALESCE(max((published_at AT TIME ZONE 'Asia/Shanghai')::date)::text, '')
+FROM collection_runs
+WHERE status = 'published'
+  AND published_at IS NOT NULL`).Scan(&coverage.FirstDate, &coverage.LastDate)
+	if err != nil {
+		return TrendCoverage{}, fmt.Errorf("read trend coverage: %w", err)
+	}
+	return coverage, nil
 }
 
 func trendFreshness(input string) string {
