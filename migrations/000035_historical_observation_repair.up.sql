@@ -1,9 +1,5 @@
--- A target calendar date may have at most one controlled historical repair.
--- The source publication itself remains immutable and the current publication
--- pointer is deliberately not changed by a repair.
-CREATE UNIQUE INDEX collection_runs_one_repair_per_scope_date_idx
-    ON collection_runs (observation_scope_id, data_date)
-    WHERE trigger_kind = 'repair';
-
-COMMENT ON INDEX collection_runs_one_repair_per_scope_date_idx IS
-    'At most one idempotent historical observation repair per scope and calendar date.';
+-- Older installations already applied migration 000002 before the repair
+-- trigger was added to its source file. Add the enum label in its own
+-- migration so the next migration can safely use it after this transaction
+-- commits.
+ALTER TYPE collection_trigger_kind ADD VALUE IF NOT EXISTS 'repair';

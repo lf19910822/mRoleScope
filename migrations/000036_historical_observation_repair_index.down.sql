@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS collection_runs_one_repair_per_scope_date_idx;
