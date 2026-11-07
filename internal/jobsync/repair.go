@@ -201,7 +201,7 @@ SELECT count(*) FROM inserted`, targetRunID, sourceRunRow.id).Scan(&membershipsC
 INSERT INTO collection_run_audit_events (run_id, stage, severity, code, attempt_number, message, diagnostics)
 VALUES ($1, 'persisting', 'info', 'historical_observation_repaired', 1,
         'historical observation was copied from a successful publication',
-        jsonb_build_object('source_date', $2, 'target_date', $3, 'source_run_id', $4, 'memberships', $5))`,
+        jsonb_build_object('source_date', $2::text, 'target_date', $3::text, 'source_run_id', $4::text, 'memberships', $5::int))`,
 		targetRunID, source.Format("2006-01-02"), target.Format("2006-01-02"), sourceRunRow.id, membershipsCopied); err != nil {
 		return RepairSummary{}, fmt.Errorf("audit historical repair publication: %w", err)
 	}

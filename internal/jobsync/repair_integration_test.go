@@ -73,9 +73,9 @@ func TestRepairPublishedObservationRejectsExistingPublishedTarget(t *testing.T) 
 	}
 	sourceAt := time.Date(2026, 11, 7, 13, 20, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
 	sourceDate := time.Date(2026, 11, 7, 0, 0, 0, 0, sourceAt.Location())
-	publishFixtureRun(t, repository, scope, sourceAt, 1, []Observation{integrationObservation("repair-source", sourceAt)}, nil)
 	targetAt := time.Date(2026, 11, 6, 13, 20, 0, 0, sourceAt.Location())
 	publishFixtureRun(t, repository, scope, targetAt, 1, []Observation{integrationObservation("existing-target", targetAt)}, nil)
+	publishFixtureRun(t, repository, scope, sourceAt, 1, []Observation{integrationObservation("repair-source", sourceAt)}, nil)
 	_, err = repository.RepairPublishedObservation(ctx, scope, sourceDate, time.Date(2026, 11, 6, 0, 0, 0, 0, sourceAt.Location()))
 	if !errors.Is(err, ErrRepairTargetPublished) {
 		t.Fatalf("existing target error = %v, want %v", err, ErrRepairTargetPublished)
