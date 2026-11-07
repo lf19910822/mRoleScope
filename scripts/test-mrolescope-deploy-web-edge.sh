@@ -84,6 +84,8 @@ grep -Fqx '  [[ "$metadata" == "root:root:${expected_mode}" ]]' "$source_helper"
   || die 'deployment helper no longer checks root file ownership and mode'
 grep -Fqx '[[ "$(stat -c '\''%U:%G:%a'\'' "$RELEASE_DIR")" == '\''root:root:700'\'' ]] || die "release directory must be root:root mode 0700"' "$source_helper" \
   || die 'deployment helper no longer checks release-directory ownership and mode'
+grep -Fqx '    [[ "$output" == *'\''35 (dirty)'\''* || "$output" == *'\''Dirty database version 35'\''* ]]' "$source_helper" \
+  || die 'deployment helper must recognize the migration tool dirty output for version 35'
 
 # Render a test-only copy with its fixed production paths redirected to the
 # temporary directory. The source helper's identity and root-ownership guards
