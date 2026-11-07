@@ -57,6 +57,25 @@ compose() {
     "$@"
 }
 
+recover_known_dirty_migration() {
+  local version_output
+
+  if version_output=$(compose run --rm --no-deps migrate version 2>&1); then
+    if [[ "$version_output" != *'Dirty database version 35'* ]]; then
+      return 0
+    fi
+  elif [[ "$version_output" != *'Dirty database version 35'* ]]; then
+    die 'database migration state is dirty or unavailable; manual recovery is not allowed'
+  fi
+
+  # Release f58f270 split migration 35/36 after an earlier deployment left
+  # version 35 dirty. Only that exact known failure is recoverable here: clear
+  # its failed marker back to 34, then let the normal migration run apply 35
+  # and 36. Any other dirty version remains a hard stop.
+  log 'recovering the known dirty migration version 35 back to version 34'
+  compose run --rm --no-deps migrate force 34
+}
+
 is_root_owned_mode() {
   local path="$1" expected_mode="$2" metadata
   [[ -f "$path" && ! -L "$path" ]] || return 1
@@ -404,6 +423,7 @@ phase="start-database"
 compose up -d --wait --wait-timeout 60 postgres
 
 phase="migrate-database"
+recover_known_dirty_migration
 compose run --rm migrate
 
 phase="start-api"
