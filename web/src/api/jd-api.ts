@@ -90,6 +90,38 @@ export interface JobDetailResponse extends JobListItem {
     technology_highlights?: TechnologyHighlightRange[]
   }
   comparison?: JobComparison
+  history_date?: string
+  history_node_type?: HistoryNodeType
+}
+
+export type HistoryNodeType =
+  | 'discovered'
+  | 'modified'
+  | 'confirmed_closed'
+  | 'reopened'
+  | 'latest'
+
+export type HistoryNodeTag =
+  | 'discovered'
+  | 'latest'
+  | 'dimension'
+  | 'body_responsibilities'
+  | 'body_requirements'
+  | 'body_supplemental'
+  | 'confirmed_closed'
+  | 'reopened'
+
+export interface HistoryNode {
+  can_view_historical: boolean
+  connect_previous: boolean
+  date: string
+  summary: string
+  tags: HistoryNodeTag[]
+  type: HistoryNodeType
+}
+
+export interface JobHistoryResponse {
+  nodes: HistoryNode[]
 }
 
 export type TrendDrilldownStatus = 'current' | 'changed' | 'confirmed_closed'
@@ -193,6 +225,28 @@ export function getJobDetail(
   if (version.mode === 'latest') return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}`)
   const parameters = new URLSearchParams({ date: version.date, version: version.mode })
   return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}/detail?${parameters.toString()}`)
+}
+
+export function getJobHistory(id: string, signal?: AbortSignal): Promise<JobHistoryResponse> {
+	return getJSON<JobHistoryResponse>(jobHistoryPath(id), signal)
+}
+
+export function jobHistoryPath(id: string): string {
+	return `/api/v1/jobs/${encodeURIComponent(id)}/history`
+}
+
+export function getJobHistoryDetail(
+  id: string,
+  date: string,
+  type: HistoryNodeType,
+  signal?: AbortSignal,
+): Promise<JobDetailResponse> {
+  return getJSON<JobDetailResponse>(jobHistoryDetailPath(id, date, type), signal)
+}
+
+export function jobHistoryDetailPath(id: string, date: string, type: HistoryNodeType): string {
+  const parameters = new URLSearchParams({ date, type })
+  return `/api/v1/jobs/${encodeURIComponent(id)}/history/detail?${parameters.toString()}`
 }
 
 export function getFilterOptions(): Promise<FilterOptionsResponse> {

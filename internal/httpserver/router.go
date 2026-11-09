@@ -37,6 +37,13 @@ type JDHistoricalDetailReader interface {
 	GetHistoricalJobDetail(context.Context, string, time.Time) (jdserving.JobDetailResponse, error)
 }
 
+// JDHistoryReader owns the derived per-job timeline and adjacent-node detail
+// selection. HTTP only validates the opaque ID and bounded date/type query.
+type JDHistoryReader interface {
+	GetJobHistory(context.Context, string) (jdserving.JobHistoryResponse, error)
+	GetJobHistoryDetail(context.Context, string, time.Time, jdserving.HistoryNodeType) (jdserving.JobDetailResponse, error)
+}
+
 // JDFilterOptionsReader supplies the display-safe structured filter vocabulary.
 // It deliberately does not expose source, provenance, or audit reads.
 type JDFilterOptionsReader interface {
@@ -59,6 +66,7 @@ type Router struct {
 	readiness          ReadinessChecker
 	jdDetail           JDDetailReader
 	jdHistoricalDetail JDHistoricalDetailReader
+	jdHistory          JDHistoryReader
 	jdFilters          JDFilterOptionsReader
 	jdList             JDListReader
 	jdDrilldown        JDTrendDrilldownReader
@@ -73,6 +81,7 @@ func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
 		server.jdList = readers[0]
 		server.jdDetail, _ = readers[0].(JDDetailReader)
 		server.jdHistoricalDetail, _ = readers[0].(JDHistoricalDetailReader)
+		server.jdHistory, _ = readers[0].(JDHistoryReader)
 		server.jdFilters, _ = readers[0].(JDFilterOptionsReader)
 		server.jdDrilldown, _ = readers[0].(JDTrendDrilldownReader)
 		server.jdTrend, _ = readers[0].(JDTrendReader)
@@ -83,9 +92,62 @@ func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
 	router.GET("/api/v1/jobs/filter-options", server.filterOptions)
 	router.GET("/api/v1/jobs/:id", server.jobDetail)
 	router.GET("/api/v1/jobs/:id/detail", server.jobDetail)
+	router.GET("/api/v1/jobs/:id/history", server.jobHistory)
+	router.GET("/api/v1/jobs/:id/history/detail", server.jobHistoryDetail)
 	router.GET("/api/v1/job-trends", server.jobTrend)
 	router.GET("/api/v1/job-trends/drilldown", server.jobTrendDrilldown)
 	return router
+}
+
+func (r Router) jobHistory(context *gin.Context) {
+	if r.jdHistory == nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	if len(context.Request.URL.Query()) != 0 {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	response, err := r.jdHistory.GetJobHistory(context.Request.Context(), context.Param("id"))
+	if errors.Is(err, jdserving.ErrJobNotFound) {
+		context.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+		return
+	}
+	if err != nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	context.JSON(http.StatusOK, response)
+}
+
+func (r Router) jobHistoryDetail(context *gin.Context) {
+	if r.jdHistory == nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	nodeDate, nodeType, err := parseHistoryDetailQuery(context)
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	response, err := r.jdHistory.GetJobHistoryDetail(context.Request.Context(), context.Param("id"), nodeDate, nodeType)
+	if errors.Is(err, jdserving.ErrJobNotFound) {
+		context.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+		return
+	}
+	if errors.Is(err, jdserving.ErrInvalidTrendQuery) {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	if errors.Is(err, jdserving.ErrHistoricalDetailUnavailable) {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	if err != nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	context.JSON(http.StatusOK, response)
 }
 
 func (r Router) jobTrendDrilldown(context *gin.Context) {
@@ -217,6 +279,39 @@ func parseDetailVersion(context *gin.Context) (string, time.Time, error) {
 		return "historical", nodeDate, nil
 	default:
 		return "", time.Time{}, strconv.ErrSyntax
+	}
+}
+
+func parseHistoryDetailQuery(context *gin.Context) (time.Time, jdserving.HistoryNodeType, error) {
+	values := context.Request.URL.Query()
+	for key := range values {
+		if key != "date" && key != "type" {
+			return time.Time{}, "", strconv.ErrSyntax
+		}
+	}
+	if len(values["date"]) != 1 || len(values["type"]) != 1 {
+		return time.Time{}, "", strconv.ErrSyntax
+	}
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.Time{}, "", strconv.ErrSyntax
+	}
+	date, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(values["date"][0]), location)
+	if err != nil {
+		return time.Time{}, "", strconv.ErrSyntax
+	}
+	today := time.Now().In(location)
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, location)
+	if date.After(todayStart) {
+		return time.Time{}, "", strconv.ErrSyntax
+	}
+	nodeType := jdserving.HistoryNodeType(strings.TrimSpace(values["type"][0]))
+	switch nodeType {
+	case jdserving.HistoryNodeDiscovered, jdserving.HistoryNodeModified,
+		jdserving.HistoryNodeConfirmedClosed, jdserving.HistoryNodeReopened, jdserving.HistoryNodeLatest:
+		return date, nodeType, nil
+	default:
+		return time.Time{}, "", strconv.ErrSyntax
 	}
 }
 
