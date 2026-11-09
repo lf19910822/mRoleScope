@@ -221,6 +221,56 @@ paths:
           description: The requested version selector is invalid.
         '503':
           description: The selected historical JD cannot be reconstructed safely.
+  /api/v1/jobs/{id}/history:
+    get:
+      summary: Read the display-safe JD history timeline
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: One node per derived history event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHistoryResponse'
+        '404':
+          description: The opaque JD identifier is unknown.
+        '503':
+          description: History facts are temporarily unavailable.
+  /api/v1/jobs/{id}/history/detail:
+    get:
+      summary: Read one JD history node or adjacent-node comparison
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+        - in: query
+          name: date
+          required: true
+          schema: {type: string, format: date}
+        - in: query
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [discovered, modified, confirmed_closed, reopened, latest]
+      responses:
+        '200':
+          description: Display-safe snapshot and, for modified/reopened nodes, an adjacent diff.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetailResponse'
+        '400':
+          description: The date or node type is invalid.
+        '404':
+          description: The opaque JD identifier is unknown.
+        '503':
+          description: The requested historical snapshot is unavailable.
   /api/v1/job-trends:
     get:
       summary: Read one historical JD trend curve
@@ -558,6 +608,41 @@ components:
               $ref: '#/components/schemas/BodySections'
             comparison:
               $ref: '#/components/schemas/JobComparison'
+            history_date:
+              type: string
+              format: date
+            history_node_type:
+              type: string
+              enum: [discovered, modified, confirmed_closed, reopened, latest]
+    JobHistoryResponse:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryNode'
+    HistoryNode:
+      type: object
+      required: [date, type, tags, summary, can_view_historical, connect_previous]
+      properties:
+        date:
+          type: string
+          format: date
+        type:
+          type: string
+          enum: [discovered, modified, confirmed_closed, reopened, latest]
+        tags:
+          type: array
+          items:
+            type: string
+            enum: [discovered, latest, dimension, body_responsibilities, body_requirements, body_supplemental, confirmed_closed, reopened]
+        summary:
+          type: string
+        can_view_historical:
+          type: boolean
+        connect_previous:
+          type: boolean
     JobComparison:
       type: object
       description: Display-safe historical JD comparison. Present only for changed historical jobs with a latest JD.

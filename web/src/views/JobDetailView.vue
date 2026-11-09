@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { getJobDetail, type JobDetailResponse } from '@/api/jd-api'
 import JDDetailReadingLayout from '@/components/JDDetailReadingLayout.vue'
+import JobHistoryTimeline from '@/components/JobHistoryTimeline.vue'
 import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
 
 const route = useRoute()
@@ -46,6 +47,7 @@ function returnToList(): void {
     <template v-else-if="response">
       <p v-if="error" class="error-message job-detail-refresh-error" role="alert">{{ error }}</p>
       <JDDetailReadingLayout :job="response" />
+      <JobHistoryTimeline :job-id="response.id" />
     </template>
   </main>
 </template>

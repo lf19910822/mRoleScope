@@ -754,3 +754,23 @@ OpenSpec change：`openspec/changes/add-jd-history-timeline/`
 已生成 `proposal.md`、`design.md`、`specs/jd-history-timeline/spec.md`、`tasks.md`，并通过严格校验。
 
 状态：待回答
+
+## 第 14 轮：实现与验收记录（已确认）
+
+本轮按 OpenSpec `add-jd-history-timeline` 执行 TDD 收尾。后端全量 Go
+测试、前端 Vitest（27 个文件、160 个测试）、类型检查、生产构建、差异
+检查和严格 OpenSpec 校验均通过。历史 PostgreSQL 集成夹具已加入，但当前
+开发环境未配置 `TEST_DATABASE_URL`，因此真实数据集成测试和单岗位 p95
+无法测量；不伪造结果，也不据此新增索引。
+
+固定预览地址 `http://127.0.0.1:5175/` 可返回页面。时间线的加载、空态、
+生命周期节点、快照不可用、重试、缓存、键盘操作、Esc 关闭/焦点回收、
+横向交互和安全字段均由组件与状态测试覆盖。当前环境没有浏览器自动化
+运行时，无法完成桌面与 390px 的像素级浏览器检查，已记录为环境限制，
+不视为功能失败。
+
+OpenSpec 变更目录已补充 `validation.md`，其中 21/22 项任务已按实际证据
+记录完成。唯一未完成项是 4.3：当前环境没有 `TEST_DATABASE_URL` 和保留
+的 PostgreSQL 数据，无法诚实测量单岗位 summary/detail p95；具备数据库
+连接后补测并根据 `EXPLAIN ANALYZE` 决定是否需要索引。桌面与 390px 已用
+Chrome 无头截图完成页面级检查，真实数据态仍由组件状态测试覆盖。

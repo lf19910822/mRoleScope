@@ -145,6 +145,53 @@ type JobDetailResponse struct {
 	Projects            []FilterOption         `json:"projects"`
 	TechnologyKeywords  []FilterOption         `json:"technology_keywords"`
 	Title               string                 `json:"title"`
+	HistoryDate         string                 `json:"history_date,omitempty"`
+	HistoryNodeType     HistoryNodeType        `json:"history_node_type,omitempty"`
+}
+
+// HistoryNodeType is the stable, display-safe event classification for one
+// successful Shanghai business-day observation.
+type HistoryNodeType string
+
+const (
+	HistoryNodeDiscovered      HistoryNodeType = "discovered"
+	HistoryNodeModified        HistoryNodeType = "modified"
+	HistoryNodeConfirmedClosed HistoryNodeType = "confirmed_closed"
+	HistoryNodeReopened        HistoryNodeType = "reopened"
+	HistoryNodeLatest          HistoryNodeType = "latest"
+)
+
+// HistoryNodeTag is a compact machine-stable label. The UI maps it to the
+// approved Chinese copy; no source, parser, or database identity crosses the
+// public boundary.
+type HistoryNodeTag string
+
+const (
+	HistoryNodeTagDiscovered           HistoryNodeTag = "discovered"
+	HistoryNodeTagLatest               HistoryNodeTag = "latest"
+	HistoryNodeTagDimension            HistoryNodeTag = "dimension"
+	HistoryNodeTagBodyResponsibilities HistoryNodeTag = "body_responsibilities"
+	HistoryNodeTagBodyRequirements     HistoryNodeTag = "body_requirements"
+	HistoryNodeTagBodySupplemental     HistoryNodeTag = "body_supplemental"
+	HistoryNodeTagConfirmedClosed      HistoryNodeTag = "confirmed_closed"
+	HistoryNodeTagReopened             HistoryNodeTag = "reopened"
+)
+
+// HistoryNode contains only what the timeline needs to render and route a
+// node. ConnectPrevious is false for the first node and for a reopen after a
+// confirmed close, so the client never draws a misleading lifecycle bridge.
+type HistoryNode struct {
+	CanViewHistorical bool             `json:"can_view_historical"`
+	ConnectPrevious   bool             `json:"connect_previous"`
+	Date              string           `json:"date"`
+	Summary           string           `json:"summary"`
+	Tags              []HistoryNodeTag `json:"tags"`
+	Type              HistoryNodeType  `json:"type"`
+}
+
+// JobHistoryResponse is the display-safe history summary for one opaque job.
+type JobHistoryResponse struct {
+	Nodes []HistoryNode `json:"nodes"`
 }
 
 // JobListItem is the display-safe, body-free representation used in a paged

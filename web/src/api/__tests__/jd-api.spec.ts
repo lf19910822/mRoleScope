@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobListPath, jobTrendDrilldownPath, jobTrendPath } from '../jd-api'
+import {
+  jobHistoryDetailPath,
+  jobHistoryPath,
+  jobListPath,
+  jobTrendDrilldownPath,
+  jobTrendPath,
+} from '../jd-api'
 import type { TrendRequest } from '@/lib/job-trend-dashboard-state'
 import type { JDListState } from '@/lib/list-state'
 
@@ -131,5 +137,20 @@ describe('JD browser list request', () => {
       'dimension',
       'value',
     ])
+  })
+
+  it('routes history summary and adjacent-node detail through opaque public IDs', () => {
+    const summary = new URL(jobHistoryPath('jd opaque/1'), 'https://jd-observatory.invalid')
+    const detail = new URL(
+      jobHistoryDetailPath('jd opaque/1', '2026-11-03', 'modified'),
+      'https://jd-observatory.invalid',
+    )
+
+    expect(summary.pathname).toBe('/api/v1/jobs/jd%20opaque%2F1/history')
+    expect([...summary.searchParams.keys()]).toEqual([])
+    expect(detail.pathname).toBe('/api/v1/jobs/jd%20opaque%2F1/history/detail')
+    expect(detail.searchParams.get('date')).toBe('2026-11-03')
+    expect(detail.searchParams.get('type')).toBe('modified')
+    expect([...detail.searchParams.keys()]).toEqual(['date', 'type'])
   })
 })

@@ -144,3 +144,22 @@ matrices, cache/retry behavior, timeline interaction, and detail reuse.
 
 No deployment or production data mutation is part of this change until the
 OpenSpec tasks and measured verification pass.
+
+## Existing seam alignment (implementation audit)
+
+The current Serving reader already exposes `GetHistoricalJobDetail` and the
+trend comparison/diff DTOs, but its historical comparison is still anchored
+to the current inventory membership. This change must preserve that existing
+public detail shape while adding an explicit adjacent-node selector; the
+current reader cannot be reused unchanged for modified/reopened nodes because
+it would compare against today's JD rather than the nearest successful
+business-day observation. The HTTP router likewise has only the latest and
+historical detail routes, so the summary and node-detail history routes must
+be added behind new narrow reader interfaces. The Vue detail page currently
+renders only the JD reading layout; the timeline therefore belongs in a
+separate component/API seam so failures remain local to the history module.
+
+The history reader uses the existing public-identifier lookup, membership
+`(job_id, published_run_id)` history index, and body-version job index. No
+new index is justified before a retained-data query plan is available; the
+measured verification task records that decision explicitly.
