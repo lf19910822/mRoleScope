@@ -45,6 +45,7 @@ const queryCanvasListResponse = {
       education: { explicit_requirement: true, lower_bound: 'master' },
       experience: { explicit_requirement: true, minimum_years: 5 },
       first_discovered_date: '2026-10-02',
+      last_modified_date: '2026-11-03',
       id: 'query-canvas-role',
       is_urgent: false,
       locations: ['北京'],
@@ -254,9 +255,11 @@ describe('JD list filters', () => {
     expect(roleCard.text()).toContain('学历要求')
     expect(roleCard.text()).toContain('硕士')
     expect(roleCard.text()).toContain('首次发现')
+    expect(roleCard.text()).toContain('最近修改日期')
+    expect(roleCard.text()).toContain('2026.11.03')
     expect(roleCard.text()).toContain('2026.10.02')
     const facts = roleCard.get('.job-card__facts')
-    expect(facts.findAll(':scope > div')).toHaveLength(4)
+    expect(facts.findAll(':scope > div')).toHaveLength(5)
     expect(facts.classes()).toContain('job-card__facts--terminal')
     expect(facts.text()).not.toContain('上线状态')
     expect(facts.text()).not.toContain('紧急标记')
@@ -315,6 +318,7 @@ describe('JD list filters', () => {
     await flushPromises()
 
     const roleCard = wrapper.get('[data-testid="query-canvas-dense-query-canvas-role"]')
+    expect(roleCard.get('.job-card__facts').text()).toContain('最近修改日期-')
     expect(roleCard.get('.job-card__headline h3').text()).toBe(
       '面向多城市内容交付与复杂依赖治理的资深平台研发工程师（预研项目）',
     )
@@ -656,6 +660,28 @@ describe('JD list filters', () => {
       'urgent_asc',
     ])
 
+    wrapper.unmount()
+  })
+
+  it('shows the last-modified sort selected from a shared URL', async () => {
+    const requests: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        requests.push(String(input))
+        if (String(input) === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptionsResponse))
+        return new Response(JSON.stringify(emptyListResponse))
+      }),
+    )
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'jobs', query: { sort: 'last_modified_desc' } })
+    await router.isReady()
+    const wrapper = mount(JobListView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="sort-kind-1"]').text()).toContain('最近修改日期')
+    expect(wrapper.get('[data-testid="sort-direction-1"]').text()).toContain('由新到旧')
+    expect(requests.some((request) => request.includes('sort=last_modified_desc'))).toBe(true)
     wrapper.unmount()
   })
 

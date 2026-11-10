@@ -4,6 +4,13 @@ import type { LocationQuery } from 'vue-router'
 import { listStateFromRoute, listStateToRoute, type JDListState } from '../list-state'
 
 describe('JD list URL state', () => {
+  it('retains either last-modified sort direction', () => {
+    for (const sort of ['last_modified_asc', 'last_modified_desc']) {
+      const state = listStateFromRoute({ sort } as LocationQuery)
+      expect(state.sortRules).toEqual([sort])
+      expect(listStateToRoute(state).sort).toBe(sort)
+    }
+  })
   it('round-trips unified job-family filters, ordered sorts, and pagination through the route query', () => {
     const state: JDListState = {
       activityStates: ['effective'],
@@ -65,6 +72,8 @@ describe('JD list URL state', () => {
     const state = listStateFromRoute({ minimum_experience_year: '9' } as LocationQuery)
     expect(state.minimumExperienceYear).toBe(9)
     expect(listStateToRoute(state).minimum_experience_year).toBe('9')
-    expect(listStateFromRoute({ minimum_experience_year: '10' } as LocationQuery).minimumExperienceYear).toBeUndefined()
+    expect(
+      listStateFromRoute({ minimum_experience_year: '10' } as LocationQuery).minimumExperienceYear,
+    ).toBeUndefined()
   })
 })
