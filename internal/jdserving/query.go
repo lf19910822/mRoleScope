@@ -666,7 +666,7 @@ WITH selected_history_scope AS (
            lag(body_content_version_id) OVER job_history AS previous_body
     FROM daily_history
     WINDOW job_history AS (PARTITION BY job_id, observation_scope_id ORDER BY calendar_date)
-), last_modified_dates AS (
+), last_modified_dates AS MATERIALIZED (
     SELECT job_id, max(calendar_date) AS last_modified_date
     FROM history_transitions
     WHERE previous_state IS NOT NULL
