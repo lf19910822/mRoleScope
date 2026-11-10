@@ -14,6 +14,20 @@ vi.mock('@/api/jd-api', async () => {
   }
 })
 
+vi.mock('vue-echarts', async () => {
+  const { h } = await import('vue')
+  return {
+    default: {
+      emits: ['click'],
+      name: 'VChart',
+      props: ['option'],
+      render() {
+        return h('div', { 'data-testid': 'mock-history-chart' })
+      },
+    },
+  }
+})
+
 const historyResponse: JobHistoryResponse = {
   nodes: [
     {
@@ -68,14 +82,52 @@ describe('JobHistoryTimeline', () => {
     const wrapper = mount(JobHistoryTimeline, { attachTo: document.body, props: { jobId: 'jd-1' } })
     await flushPromises()
 
-    expect(wrapper.find('[aria-label="岗位历史时间线，可横向滚动"]').exists()).toBe(true)
-    expect(wrapper.findAll('.job-history__node')).toHaveLength(3)
-    expect(wrapper.find('.job-history__node--disabled').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#job-detail-reading-history').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="岗位历史时间线，可缩放和平移"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mock-history-chart"]').exists()).toBe(true)
 
-    await wrapper.findAll('.job-history__node')[1]!.trigger('click')
+    wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-03', 0.5],
+      seriesName: '修改',
+    })
     await flushPromises()
     expect(getJobHistoryDetail).toHaveBeenCalledWith('jd-1', '2026-11-03', 'modified')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('平台工程师')
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('平台工程师')
+    wrapper.unmount()
+  })
+
+  it('marks the latest observation as the current timeline step', async () => {
+    vi.mocked(getJobHistory).mockResolvedValue({
+      nodes: [
+        {
+          can_view_historical: true,
+          connect_previous: true,
+          date: '2026-11-10',
+          summary: '最新观察',
+          tags: ['latest'],
+          type: 'latest',
+        },
+      ],
+    })
+    const wrapper = mount(JobHistoryTimeline, { props: { jobId: 'jd-1' } })
+    await flushPromises()
+
+    const option = wrapper.findComponent({ name: 'VChart' }).props('option') as {
+      dataZoom: Array<{ type: string; zoomOnMouseWheel: boolean }>
+      legend: { data: string[] }
+      series: Array<{ name: string; symbol: string }>
+      xAxis: { type: string }
+      yAxis: { show: boolean }
+    }
+    expect(option.xAxis.type).toBe('time')
+    expect(option.yAxis.show).toBe(false)
+    expect(option.dataZoom[0]?.type).toBe('inside')
+    expect(option.dataZoom[0]?.zoomOnMouseWheel).toBe(true)
+    expect(option.legend.data).toContain('最新观察')
+    expect(
+      option.series.some((series) => series.name === '最新观察' && series.symbol === 'circle'),
+    ).toBe(true)
+    wrapper.unmount()
   })
 
   it('keeps JD content usable in empty and retryable error states', async () => {
@@ -88,6 +140,7 @@ describe('JobHistoryTimeline', () => {
     await wrapper.get('[role="alert"] button').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('暂无可展示的岗位历史')
+    wrapper.unmount()
   })
 
   it('closes detail with Escape and returns focus to the activated node', async () => {
@@ -95,12 +148,53 @@ describe('JobHistoryTimeline', () => {
     vi.mocked(getJobHistoryDetail).mockResolvedValue(detail)
     const wrapper = mount(JobHistoryTimeline, { attachTo: document.body, props: { jobId: 'jd-1' } })
     await flushPromises()
-    const node = wrapper.findAll('.job-history__node')[0]!
-    await node.trigger('click')
+    wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-01', 0.5],
+      seriesName: '首次发现',
+    })
     await flushPromises()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
-    expect(document.activeElement).toBe(node.element)
+    expect(document.activeElement).toBe(wrapper.get('.job-history__chart-region').element)
+    wrapper.unmount()
+  })
+
+  it('locks body scrolling without shifting the page and restores the original styles', async () => {
+    const originalOverflow = document.body.style.overflow
+    const originalPaddingRight = document.body.style.paddingRight
+    const originalClientWidth = document.documentElement.clientWidth
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      configurable: true,
+      value: window.innerWidth - 24,
+    })
+    document.body.style.overflow = 'scroll'
+    document.body.style.paddingRight = '4px'
+
+    vi.mocked(getJobHistory).mockResolvedValue(historyResponse)
+    vi.mocked(getJobHistoryDetail).mockResolvedValue(detail)
+    const wrapper = mount(JobHistoryTimeline, { attachTo: document.body, props: { jobId: 'jd-1' } })
+    await flushPromises()
+    wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-01', 0.5],
+      seriesName: '首次发现',
+    })
+    await flushPromises()
+
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(document.body.style.paddingRight).toBe('24px')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(document.body.style.overflow).toBe('scroll')
+    expect(document.body.style.paddingRight).toBe('4px')
+
+    wrapper.unmount()
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      configurable: true,
+      value: originalClientWidth,
+    })
+    document.body.style.overflow = originalOverflow
+    document.body.style.paddingRight = originalPaddingRight
   })
 })

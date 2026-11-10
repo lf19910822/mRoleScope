@@ -313,6 +313,11 @@ function scrollToSection(id: string): void {
           @click.prevent="scrollToSection(section.id)"
           >{{ section.label }}</a
         >
+        <a
+          href="#job-detail-reading-history"
+          @click.prevent="scrollToSection('job-detail-reading-history')"
+          >观测历史</a
+        >
       </aside>
 
       <div class="detail-reading-layout__sections">

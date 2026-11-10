@@ -1,9 +1,4 @@
-import type {
-  HistoryNode,
-  HistoryNodeTag,
-  HistoryNodeType,
-  JobHistoryResponse,
-} from '@/api/jd-api'
+import type { HistoryNode, HistoryNodeTag, HistoryNodeType, JobHistoryResponse } from '@/api/jd-api'
 
 export const HISTORY_CACHE_TTL_MS = 10 * 60 * 1000
 
@@ -22,6 +17,30 @@ export const historyNodeTypeLabels: Record<HistoryNodeType, string> = {
   latest: '最新观察',
 }
 
+export const historyNodeChartLabels: Record<HistoryNodeType, string> = {
+  discovered: '首次发现',
+  modified: '修改',
+  confirmed_closed: '确认下线',
+  reopened: '重新上线',
+  latest: '最新观察',
+}
+
+export const historyNodeChartColors: Record<HistoryNodeType, string> = {
+  discovered: '#0072B2',
+  modified: '#E69F00',
+  confirmed_closed: '#D55E00',
+  reopened: '#CC79A7',
+  latest: '#22C55E',
+}
+
+export const historyNodeChartSymbols: Record<HistoryNodeType, 'circle' | 'diamond' | 'rect'> = {
+  discovered: 'circle',
+  modified: 'diamond',
+  confirmed_closed: 'rect',
+  reopened: 'diamond',
+  latest: 'circle',
+}
+
 export const historyNodeTagLabels: Record<HistoryNodeTag, string> = {
   discovered: '首次发现',
   latest: '最新观察',
@@ -35,6 +54,10 @@ export const historyNodeTagLabels: Record<HistoryNodeTag, string> = {
 
 export function historyNodeTypeLabel(type: HistoryNodeType): string {
   return historyNodeTypeLabels[type]
+}
+
+export function historyNodeChartLabel(type: HistoryNodeType): string {
+  return historyNodeChartLabels[type]
 }
 
 export function historyNodeTagLabel(tag: HistoryNodeTag): string {
