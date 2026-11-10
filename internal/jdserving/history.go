@@ -74,7 +74,10 @@ func buildHistoryNodes(observations []historyObservation) []HistoryNode {
 			node.Tags = append(node.Tags, HistoryNodeTagDiscovered)
 		} else {
 			closedTransition := current.ActivityState == ActivityStateConfirmedClosed && previous.ActivityState != ActivityStateConfirmedClosed
-			reopened := current.ActivityState == ActivityStateEffective && previous.ActivityState == ActivityStateConfirmedClosed && current.PresencePeriodID != previous.PresencePeriodID
+			// The effective-after-closed transition is the user-visible reopen fact.
+			// A controlled historical repair may reuse the original presence period,
+			// so the period ID cannot be required to classify this event.
+			reopened := current.ActivityState == ActivityStateEffective && previous.ActivityState == ActivityStateConfirmedClosed
 			sourceChanged := historySourceChanged(*previous, current)
 			switch {
 			case reopened:
@@ -89,7 +92,7 @@ func buildHistoryNodes(observations []historyObservation) []HistoryNode {
 			case sourceChanged:
 				node = newHistoryNode(current, HistoryNodeModified, true)
 				appendHistoryComparisonTags(node, compareHistoryObservations(*previous, current))
-			case isLatest:
+			case isLatest && current.ActivityState != ActivityStateConfirmedClosed:
 				node = newHistoryNode(current, HistoryNodeLatest, true)
 				node.Tags = append(node.Tags, HistoryNodeTagLatest)
 			}
@@ -102,6 +105,17 @@ func buildHistoryNodes(observations []historyObservation) []HistoryNode {
 		}
 		if current.ActivityState == ActivityStateEffective {
 			lastEffective = current
+		}
+	}
+	// A confirmed-closed job keeps receiving closed snapshots after the
+	// lifecycle transition. The final snapshot is still the latest observation,
+	// but it must not become a separate green node that suggests a reopen.
+	if observations[latestIndex].ActivityState == ActivityStateConfirmedClosed {
+		for index := len(nodes) - 1; index >= 0; index-- {
+			if nodes[index].Type == HistoryNodeConfirmedClosed {
+				nodes[index].Tags = appendUniqueHistoryTag(nodes[index].Tags, HistoryNodeTagLatest)
+				break
+			}
 		}
 	}
 	return nodes

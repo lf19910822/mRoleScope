@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import JobHistoryTimeline from '../JobHistoryTimeline.vue'
-import { clearHistoryCache } from '@/lib/job-history-timeline'
+import { clearHistoryCache, writeHistoryCache } from '@/lib/job-history-timeline'
 import { getJobHistory, getJobHistoryDetail, type JobHistoryResponse } from '@/api/jd-api'
 
 vi.mock('@/api/jd-api', async () => {
@@ -127,6 +127,37 @@ describe('JobHistoryTimeline', () => {
     expect(
       option.series.some((series) => series.name === '最新观察' && series.symbol === 'circle'),
     ).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('refreshes a closed job history instead of trusting a stale cached latest node', async () => {
+    writeHistoryCache('jd-1', {
+      nodes: [
+        {
+          can_view_historical: true,
+          connect_previous: true,
+          date: '2026-11-10',
+          summary: '最新观察',
+          tags: ['latest'],
+          type: 'latest',
+        },
+      ],
+    })
+    vi.mocked(getJobHistory).mockResolvedValue({ nodes: [historyResponse.nodes[2]!] })
+
+    const wrapper = mount(JobHistoryTimeline, {
+      props: { activityState: 'confirmed_closed', jobId: 'jd-1' },
+    })
+    await flushPromises()
+
+    expect(getJobHistory).toHaveBeenCalledWith('jd-1')
+    const option = wrapper.findComponent({ name: 'VChart' }).props('option') as {
+      legend: { data: string[] }
+      series: Array<{ name: string }>
+    }
+    expect(option.legend.data).toContain('确认下线')
+    expect(option.legend.data).not.toContain('最新观察')
+    expect(option.series.some((series) => series.name === '最新观察')).toBe(false)
     wrapper.unmount()
   })
 

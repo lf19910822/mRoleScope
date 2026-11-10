@@ -65,6 +65,42 @@ func TestBuildHistoryNodesIgnoresParserOnlyChangesAndMarksCloseReopenGap(t *test
 	}
 }
 
+func TestBuildHistoryNodesTreatsEffectiveObservationAfterCloseAsReopened(t *testing.T) {
+	rows := []historyObservation{
+		{Date: "2026-11-01", PublishedAt: historyAt("2026-11-01", 1), PresencePeriodID: "period-a", SourceMetadataVersionID: "meta-1", BodyContentVersionID: "body-1", ActivityState: ActivityStateEffective},
+		{Date: "2026-11-03", PublishedAt: historyAt("2026-11-03", 1), PresencePeriodID: "period-a", SourceMetadataVersionID: "meta-1", BodyContentVersionID: "body-1", ActivityState: ActivityStateConfirmedClosed},
+		// A controlled historical repair can retain the original presence period.
+		{Date: "2026-11-06", PublishedAt: historyAt("2026-11-06", 1), PresencePeriodID: "period-a", SourceMetadataVersionID: "meta-1", BodyContentVersionID: "body-1", ActivityState: ActivityStateEffective},
+	}
+
+	nodes := buildHistoryNodes(rows)
+	if len(nodes) != 3 {
+		t.Fatalf("history nodes = %#v, want discovered, closed, reopened", nodes)
+	}
+	if nodes[2].Type != HistoryNodeReopened {
+		t.Fatalf("effective observation after close = %#v, want reopened", nodes[2])
+	}
+}
+
+func TestBuildHistoryNodesDoesNotCreateLatestNodeAfterConfirmedClose(t *testing.T) {
+	rows := []historyObservation{
+		{Date: "2026-11-01", PublishedAt: historyAt("2026-11-01", 1), PresencePeriodID: "period-a", ActivityState: ActivityStateEffective},
+		{Date: "2026-11-02", PublishedAt: historyAt("2026-11-02", 1), PresencePeriodID: "period-a", ActivityState: ActivityStateConfirmedClosed},
+		{Date: "2026-11-03", PublishedAt: historyAt("2026-11-03", 1), PresencePeriodID: "period-a", ActivityState: ActivityStateConfirmedClosed},
+	}
+
+	nodes := buildHistoryNodes(rows)
+	if len(nodes) != 2 {
+		t.Fatalf("history nodes = %#v, want discovered and confirmed closed", nodes)
+	}
+	if nodes[1].Type != HistoryNodeConfirmedClosed {
+		t.Fatalf("latest closed node = %#v, want confirmed_closed", nodes[1])
+	}
+	if !historyNodeHasTag(nodes[1], HistoryNodeTagLatest) {
+		t.Fatalf("latest marker was not merged into the close node: %#v", nodes[1])
+	}
+}
+
 func TestHistoryComparisonUsesNearestSuccessfulObservationAndClassifiesBodySections(t *testing.T) {
 	previous := historyObservation{SourceMetadataVersionID: "meta-1", BodyContentVersionID: "body-1", Detail: JobDetailResponse{Title: "旧岗位", Body: BodySections{Responsibilities: "负责 A", Requirements: "要求 B", Supplemental: stringPointer("补充 C")}}}
 	current := historyObservation{SourceMetadataVersionID: "meta-2", BodyContentVersionID: "body-2", Detail: JobDetailResponse{Title: "新岗位", Body: BodySections{Responsibilities: "负责 A\n负责 D", Requirements: "要求 B", Supplemental: stringPointer("补充 E")}}}

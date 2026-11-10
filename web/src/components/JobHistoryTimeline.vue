@@ -15,6 +15,7 @@ import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 import {
   getJobHistory,
   getJobHistoryDetail,
+  type ActivityState,
   type HistoryNode,
   type HistoryNodeType,
   type JobDetailResponse,
@@ -39,7 +40,7 @@ use([
   TooltipComponent,
 ])
 
-const props = defineProps<{ jobId: string }>()
+const props = defineProps<{ activityState?: ActivityState; jobId: string }>()
 
 const history = ref<{ nodes: HistoryNode[] }>()
 const error = ref('')
@@ -92,7 +93,8 @@ function formatHistoryAxisDate(value: string | number): string {
 
 async function loadHistory(force = false): Promise<void> {
   const request = ++historyRequest
-  const cached = force ? undefined : readHistoryCache(props.jobId)
+  const cached =
+    force || props.activityState === 'confirmed_closed' ? undefined : readHistoryCache(props.jobId)
   if (cached) {
     history.value = cached
     error.value = ''
@@ -264,7 +266,7 @@ function onChartPointClicked(event: unknown): void {
 }
 
 watch(
-  () => props.jobId,
+  () => [props.jobId, props.activityState] as const,
   () => {
     selectedNode.value = undefined
     selectedDetail.value = undefined

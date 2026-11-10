@@ -47,7 +47,7 @@ function returnToList(): void {
     <template v-else-if="response">
       <p v-if="error" class="error-message job-detail-refresh-error" role="alert">{{ error }}</p>
       <JDDetailReadingLayout :job="response" />
-      <JobHistoryTimeline :job-id="response.id" />
+      <JobHistoryTimeline :activity-state="response.activity_state" :job-id="response.id" />
     </template>
   </main>
 </template>
