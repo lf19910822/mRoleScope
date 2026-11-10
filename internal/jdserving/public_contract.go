@@ -201,6 +201,7 @@ type JobListItem struct {
 	Education           *EducationRequirement  `json:"education,omitempty"`
 	Experience          *ExperienceRequirement `json:"experience,omitempty"`
 	FirstDiscoveredDate string                 `json:"first_discovered_date"`
+	LastModifiedDate    *string                `json:"last_modified_date"`
 	ID                  string                 `json:"id"`
 	IsUrgent            bool                   `json:"is_urgent"`
 	Locations           []string               `json:"locations"`

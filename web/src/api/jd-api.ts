@@ -33,6 +33,7 @@ export interface JobListItem {
   education?: EducationRequirement
   experience?: ExperienceRequirement
   first_discovered_date: string
+  last_modified_date?: string | null
   id: string
   is_urgent: boolean
   locations: string[]
@@ -94,12 +95,7 @@ export interface JobDetailResponse extends JobListItem {
   history_node_type?: HistoryNodeType
 }
 
-export type HistoryNodeType =
-  | 'discovered'
-  | 'modified'
-  | 'confirmed_closed'
-  | 'reopened'
-  | 'latest'
+export type HistoryNodeType = 'discovered' | 'modified' | 'confirmed_closed' | 'reopened' | 'latest'
 
 export type HistoryNodeTag =
   | 'discovered'
@@ -144,7 +140,7 @@ export interface TrendDrilldownItem {
 }
 
 export interface TrendDrilldownResponse {
-	count_matches_expected?: boolean
+  count_matches_expected?: boolean
   items: TrendDrilldownItem[]
   matched_total: number
   node_date: string
@@ -222,17 +218,20 @@ export function getJobDetail(
   id: string,
   version: { date: string; mode: 'historical' } | { mode: 'latest' } = { mode: 'latest' },
 ): Promise<JobDetailResponse> {
-  if (version.mode === 'latest') return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}`)
+  if (version.mode === 'latest')
+    return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}`)
   const parameters = new URLSearchParams({ date: version.date, version: version.mode })
-  return getJSON<JobDetailResponse>(`/api/v1/jobs/${encodeURIComponent(id)}/detail?${parameters.toString()}`)
+  return getJSON<JobDetailResponse>(
+    `/api/v1/jobs/${encodeURIComponent(id)}/detail?${parameters.toString()}`,
+  )
 }
 
 export function getJobHistory(id: string, signal?: AbortSignal): Promise<JobHistoryResponse> {
-	return getJSON<JobHistoryResponse>(jobHistoryPath(id), signal)
+  return getJSON<JobHistoryResponse>(jobHistoryPath(id), signal)
 }
 
 export function jobHistoryPath(id: string): string {
-	return `/api/v1/jobs/${encodeURIComponent(id)}/history`
+  return `/api/v1/jobs/${encodeURIComponent(id)}/history`
 }
 
 export function getJobHistoryDetail(

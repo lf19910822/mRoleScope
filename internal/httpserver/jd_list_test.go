@@ -177,6 +177,7 @@ func TestJDListRouteRejectsInvalidStructuredValues(t *testing.T) {
 		"page_size=101",
 		"sort=invalid",
 		"sort=education_desc&sort=education_asc",
+		"sort=last_modified_desc&sort=last_modified_asc",
 		"sort=title&sort=experience_desc",
 		"sort=education_desc&sort=experience_desc&sort=first_discovered_desc&sort=urgent_asc&sort=activity_state_desc",
 		"minimum_experience_year=-1",
@@ -205,6 +206,23 @@ func TestJDListRoutePreservesExplicitAllActivityStates(t *testing.T) {
 	New(nil, reader).ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("all activity-state response status = %d", response.Code)
+	}
+}
+
+func TestJDListRouteAcceptsLastModifiedSortAndReturnsNullableDate(t *testing.T) {
+	reader := jdListReaderFunc(func(_ context.Context, query jdserving.ListJobsQuery) (jdserving.JobListResponse, error) {
+		want := []jdserving.SortRule{{Field: jdserving.SortFieldLastModified, Direction: jdserving.SortDirectionDescending}}
+		if !reflect.DeepEqual(query.SortRules, want) {
+			t.Fatalf("sort rules = %#v", query.SortRules)
+		}
+		date := "2026-11-03"
+		return jdserving.JobListResponse{Items: []jdserving.JobListItem{{LastModifiedDate: &date}, {}}}, nil
+	})
+	response := httptest.NewRecorder()
+	New(nil, reader).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/jobs?sort=last_modified_desc", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"last_modified_date":"2026-11-03"`) ||
+		!strings.Contains(response.Body.String(), `"last_modified_date":null`) {
+		t.Fatalf("last-modified response = %d %s", response.Code, response.Body.String())
 	}
 }
 

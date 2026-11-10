@@ -71,6 +71,7 @@ const sortKindOptions: NamedSelectOption<SortKind>[] = [
   { value: 'experience', label: '最低工作年限' },
   { value: 'education', label: '学历要求' },
   { value: 'first_discovered', label: '首次发现日期' },
+  { value: 'last_modified', label: '最近修改日期' },
   { value: 'urgent', label: '紧急标记' },
   { value: 'activity_state', label: '活跃状态' },
   { value: 'title', label: '岗位标题' },
@@ -86,6 +87,10 @@ const sortDirectionOptions: Record<SortKind, NamedSelectOption<SortDirection>[]>
     { value: 'desc', label: '从高到低' },
   ],
   first_discovered: [
+    { value: 'asc', label: '由早到晚' },
+    { value: 'desc', label: '由新到旧' },
+  ],
+  last_modified: [
     { value: 'asc', label: '由早到晚' },
     { value: 'desc', label: '由新到旧' },
   ],
@@ -889,6 +894,16 @@ onMounted(() => {
                   <div>
                     <dt>首次发现</dt>
                     <dd>{{ formatFirstDiscoveredDate(job.first_discovered_date) }}</dd>
+                  </div>
+                  <div>
+                    <dt>最近修改日期</dt>
+                    <dd>
+                      {{
+                        job.last_modified_date
+                          ? formatFirstDiscoveredDate(job.last_modified_date)
+                          : '-'
+                      }}
+                    </dd>
                   </div>
                 </dl>
                 <div v-if="job.technology_keywords.length" class="job-card__technologies">

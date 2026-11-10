@@ -40,6 +40,8 @@ const (
 	ListSortExperienceDescending      ListSort = "experience_desc"
 	ListSortFirstDiscoveredAscending  ListSort = "first_discovered_asc"
 	ListSortFirstDiscoveredDescending ListSort = "first_discovered_desc"
+	ListSortLastModifiedAscending     ListSort = "last_modified_asc"
+	ListSortLastModifiedDescending    ListSort = "last_modified_desc"
 	ListSortUrgentAscending           ListSort = "urgent_asc"
 	ListSortUrgentDescending          ListSort = "urgent_desc"
 	ListSortActivityStateAscending    ListSort = "activity_state_asc"
@@ -57,6 +59,7 @@ const (
 	SortFieldEducation       SortField = "education"
 	SortFieldExperience      SortField = "experience"
 	SortFieldFirstDiscovered SortField = "first_discovered"
+	SortFieldLastModified    SortField = "last_modified"
 	SortFieldUrgent          SortField = "urgent"
 	SortFieldActivityState   SortField = "activity_state"
 	SortFieldTitle           SortField = "title"
@@ -107,6 +110,10 @@ func ParseListSortRules(values []string) ([]SortRule, ListSort, error) {
 			rule = SortRule{Field: SortFieldFirstDiscovered, Direction: SortDirectionAscending}
 		case ListSortFirstDiscoveredDescending:
 			rule = SortRule{Field: SortFieldFirstDiscovered, Direction: SortDirectionDescending}
+		case ListSortLastModifiedAscending:
+			rule = SortRule{Field: SortFieldLastModified, Direction: SortDirectionAscending}
+		case ListSortLastModifiedDescending:
+			rule = SortRule{Field: SortFieldLastModified, Direction: SortDirectionDescending}
 		case ListSortUrgentAscending:
 			rule = SortRule{Field: SortFieldUrgent, Direction: SortDirectionAscending}
 		case ListSortUrgentDescending:
@@ -155,7 +162,7 @@ func validateSortRules(rules []SortRule) error {
 
 func isSupportedSortField(field SortField) bool {
 	switch field {
-	case SortFieldEducation, SortFieldExperience, SortFieldFirstDiscovered,
+	case SortFieldEducation, SortFieldExperience, SortFieldFirstDiscovered, SortFieldLastModified,
 		SortFieldUrgent, SortFieldActivityState, SortFieldTitle:
 		return true
 	default:
@@ -191,6 +198,7 @@ type listMembershipRow struct {
 	ActivityState           string
 	BodyContentVersionID    string
 	FirstDiscoveredDate     string
+	LastModifiedDate        *string
 	ID                      string
 	IsUrgent                bool
 	Locations               []string
@@ -254,6 +262,7 @@ func (repository *Repository) ListJobs(ctx context.Context, query ListJobsQuery)
 			&row.Locations,
 			&row.ActivityState,
 			&row.FirstDiscoveredDate,
+			&row.LastModifiedDate,
 			&row.IsUrgent,
 			&row.Total,
 		); err != nil {
@@ -309,6 +318,7 @@ func (repository *Repository) loadListItemFrom(ctx context.Context, executor que
 		Education:           education,
 		Experience:          experience,
 		FirstDiscoveredDate: row.FirstDiscoveredDate,
+		LastModifiedDate:    row.LastModifiedDate,
 		ID:                  row.ID,
 		IsUrgent:            row.IsUrgent,
 		Locations:           row.Locations,
@@ -558,6 +568,10 @@ func listJobsOrder(sortRules []SortRule, legacySort ListSort) string {
 				fragments = append(fragments, listJobsFirstDiscoveredAscendingSortRule)
 			case SortRule{Field: SortFieldFirstDiscovered, Direction: SortDirectionDescending}:
 				fragments = append(fragments, listJobsFirstDiscoveredDescendingSortRule)
+			case SortRule{Field: SortFieldLastModified, Direction: SortDirectionAscending}:
+				fragments = append(fragments, "last_modified.last_modified_date ASC NULLS LAST")
+			case SortRule{Field: SortFieldLastModified, Direction: SortDirectionDescending}:
+				fragments = append(fragments, "last_modified.last_modified_date DESC NULLS LAST")
 			case SortRule{Field: SortFieldUrgent, Direction: SortDirectionAscending}:
 				fragments = append(fragments, listJobsUrgentAscendingSortRule)
 			case SortRule{Field: SortFieldUrgent, Direction: SortDirectionDescending}:
@@ -588,6 +602,10 @@ func listJobsOrder(sortRules []SortRule, legacySort ListSort) string {
 		return listJobsFirstDiscoveredAscendingOrder
 	case ListSortFirstDiscoveredDescending:
 		return listJobsFirstDiscoveredDescendingOrder
+	case ListSortLastModifiedAscending:
+		return "\nORDER BY last_modified.last_modified_date ASC NULLS LAST, lower(membership.title), identifier.public_id"
+	case ListSortLastModifiedDescending:
+		return "\nORDER BY last_modified.last_modified_date DESC NULLS LAST, lower(membership.title), identifier.public_id"
 	case ListSortUrgentAscending:
 		return listJobsUrgentAscendingOrder
 	case ListSortUrgentDescending:
@@ -622,16 +640,56 @@ func educationLevelValues(levels []EducationLevel) []string {
 }
 
 const listJobsSQL = `
+WITH selected_history_scope AS (
+    SELECT DISTINCT ON (membership.job_id) membership.job_id, membership.observation_scope_id
+    FROM serving_jd_current_inventory_memberships AS membership
+    JOIN collection_runs AS run ON run.id = membership.published_run_id
+    ORDER BY membership.job_id, run.published_at DESC, run.id DESC
+), daily_history AS (
+    SELECT DISTINCT ON (history.job_id, history.observation_scope_id, (run.published_at AT TIME ZONE 'Asia/Shanghai')::date)
+           history.job_id, history.observation_scope_id,
+           (run.published_at AT TIME ZONE 'Asia/Shanghai')::date AS calendar_date,
+           history.activity_state, history.source_metadata_version_id, history.body_content_version_id
+    FROM selected_history_scope AS current_membership
+    JOIN serving_jd_inventory_memberships AS history
+      ON history.job_id = current_membership.job_id
+     AND history.observation_scope_id = current_membership.observation_scope_id
+    JOIN collection_runs AS run ON run.id = history.published_run_id
+    WHERE run.status = 'published' AND run.published_at IS NOT NULL
+    ORDER BY history.job_id, history.observation_scope_id,
+             (run.published_at AT TIME ZONE 'Asia/Shanghai')::date,
+             run.published_at DESC, run.id DESC
+), history_transitions AS (
+    SELECT daily_history.*,
+           lag(activity_state) OVER job_history AS previous_state,
+           lag(source_metadata_version_id) OVER job_history AS previous_metadata,
+           lag(body_content_version_id) OVER job_history AS previous_body
+    FROM daily_history
+    WINDOW job_history AS (PARTITION BY job_id, observation_scope_id ORDER BY calendar_date)
+), last_modified_dates AS (
+    SELECT job_id, max(calendar_date) AS last_modified_date
+    FROM history_transitions
+    WHERE previous_state IS NOT NULL
+      AND (
+        (previous_state = 'confirmed_closed' AND activity_state = 'effective')
+        OR (NOT (previous_state <> 'confirmed_closed' AND activity_state = 'confirmed_closed')
+            AND (source_metadata_version_id IS DISTINCT FROM previous_metadata
+                 OR body_content_version_id IS DISTINCT FROM previous_body))
+      )
+    GROUP BY job_id
+)
 SELECT membership.id::text,
        identifier.public_id::text,
        membership.title,
        membership.locations,
        membership.activity_state::text,
        membership.first_discovered_at::date::text,
+       last_modified.last_modified_date::text,
        membership.is_urgent,
        count(*) OVER ()::integer
 FROM serving_jd_current_inventory_memberships AS membership
 JOIN serving_jd_public_identifiers AS identifier ON identifier.job_id = membership.job_id
+LEFT JOIN last_modified_dates AS last_modified ON last_modified.job_id = membership.job_id
 LEFT JOIN LATERAL (
     SELECT CASE
                WHEN result.status <> 'configured' THEN NULL

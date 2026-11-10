@@ -6,6 +6,7 @@ export type SortKind =
   | 'education'
   | 'experience'
   | 'first_discovered'
+  | 'last_modified'
   | 'urgent'
   | 'activity_state'
   | 'title'
@@ -17,6 +18,8 @@ export type RequirementSort =
   | 'experience_desc'
   | 'first_discovered_asc'
   | 'first_discovered_desc'
+  | 'last_modified_asc'
+  | 'last_modified_desc'
   | 'urgent_asc'
   | 'urgent_desc'
   | 'activity_state_asc'
@@ -74,6 +77,8 @@ const permittedRequirementSorts = new Set<RequirementSort>([
   'experience_desc',
   'first_discovered_asc',
   'first_discovered_desc',
+  'last_modified_asc',
+  'last_modified_desc',
   'urgent_asc',
   'urgent_desc',
   'activity_state_asc',
