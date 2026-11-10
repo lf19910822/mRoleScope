@@ -29,9 +29,26 @@ Validated on 2026-11-09 (Asia/Shanghai) for `add-jd-history-timeline`.
   Lifecycle/data states remain covered by the component/state suite because no
   API proxy is configured for this preview.
 
+## CVM integration checks
+
+- Revision `6c35a19906c1140369d531fc9719a6fd013f7f38` deployed successfully
+  through the autonomous release flow. Migration, API readiness, image digest
+  attestation, and stale-image cleanup all passed.
+- Through a temporary SSH Unix-socket tunnel, CVM `/healthz` and `/readyz`
+  returned HTTP 200.
+- A retained job history summary returned HTTP 200 with `discovered` and
+  `latest` nodes. A separate retained job returned a real `modified` node with
+  `dimension` tag; its detail response was `available` and exposed no internal
+  run/parser/version fields.
+- Thirty requests per endpoint produced the following timings:
+
+  | Endpoint | Samples | Average | P95 | Max |
+  | --- | ---: | ---: | ---: | ---: |
+  | history summary | 30 | 107.35 ms | 112.79 ms | 117.42 ms |
+  | history detail | 30 | 79.22 ms | 84.27 ms | 87.68 ms |
+
 ## Data and performance limitation
 
-`TEST_DATABASE_URL` is not configured and no local PostgreSQL container is
-running. Consequently, one-job summary/detail p95 and a retained-data `EXPLAIN
-ANALYZE` cannot be measured here. The implementation remains read-only and no
-new index or projection is introduced without that evidence.
+The local environment still has no `TEST_DATABASE_URL`, so the local
+PostgreSQL integration fixture remains skipped. Real retained-data latency was
+measured on CVM instead; the result does not justify a new index or projection.

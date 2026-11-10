@@ -163,4 +163,14 @@ describe('JDDetailReadingLayout', () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
     wrapper.unmount()
   })
+
+  it('includes an observation history jump in the contents index', () => {
+    const wrapper = mount(JDDetailReadingLayout, { props: { job } })
+    const historyLink = wrapper
+      .findAll('.detail-reading-layout__margin-index a')
+      .find((link) => link.text() === '观测历史')
+
+    expect(historyLink?.attributes('href')).toBe('#job-detail-reading-history')
+    wrapper.unmount()
+  })
 })

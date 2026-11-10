@@ -56,11 +56,10 @@
       fixture is explicitly skipped when `TEST_DATABASE_URL` is absent.
 - [x] 4.2 Run `openspec validate add-jd-history-timeline --strict` and resolve
       every finding. Strict validation passes.
-- [ ] 4.3 Measure one-job history summary and node detail p95 on retained
-      PostgreSQL data before adding any index or projection. The measurement
-      was attempted, but retained PostgreSQL data is unavailable in this
-      environment (`TEST_DATABASE_URL` is not configured); no p95 value is
-      fabricated and no index is added without a query plan.
+- [x] 4.3 Measure one-job history summary and node detail p95 on retained
+      PostgreSQL data before adding any index or projection. On the deployed
+      CVM revision, 30 real requests measured summary p95 112.79 ms and detail
+      p95 84.27 ms; no index or projection is justified by this result.
 - [x] 4.4 Verify desktop and 390px states through the fixed
       `http://127.0.0.1:5175/` preview, including lifecycle, empty,
       unavailable, retry, cache, keyboard, and context-return behavior. The

@@ -162,7 +162,30 @@ type historyObservationScan struct {
 
 func (repository *Repository) loadHistoryObservations(ctx context.Context, executor queryExecutor, publicID string) ([]historyObservation, error) {
 	rows, err := executor.Query(ctx, `
-WITH candidates AS (
+WITH scope_candidates AS (
+    SELECT membership.observation_scope_id,
+           run.published_at,
+           run.id AS run_id,
+           0 AS priority
+    FROM serving_jd_current_inventory_memberships AS membership
+    JOIN collection_runs AS run ON run.id = membership.published_run_id
+    JOIN serving_jd_public_identifiers AS identifier ON identifier.job_id = membership.job_id
+    WHERE identifier.public_id::text = $1
+    UNION ALL
+    SELECT membership.observation_scope_id,
+           run.published_at,
+           run.id AS run_id,
+           1 AS priority
+    FROM serving_jd_inventory_memberships AS membership
+    JOIN collection_runs AS run ON run.id = membership.published_run_id
+    JOIN serving_jd_public_identifiers AS identifier ON identifier.job_id = membership.job_id
+    WHERE identifier.public_id::text = $1
+), selected_scope AS (
+    SELECT observation_scope_id
+    FROM scope_candidates
+    ORDER BY priority, published_at DESC, run_id DESC
+    LIMIT 1
+), candidates AS (
     SELECT membership.id::text AS membership_id,
            identifier.public_id::text AS public_id,
            membership.title,
@@ -183,6 +206,7 @@ WITH candidates AS (
     JOIN collection_runs AS run ON run.id = membership.published_run_id
     JOIN serving_jd_public_identifiers AS identifier ON identifier.job_id = membership.job_id
     JOIN job_body_content_versions AS body ON body.id = membership.body_content_version_id
+    JOIN selected_scope AS scope ON scope.observation_scope_id = membership.observation_scope_id
     WHERE identifier.public_id::text = $1
       AND run.status = 'published'
       AND run.published_at IS NOT NULL

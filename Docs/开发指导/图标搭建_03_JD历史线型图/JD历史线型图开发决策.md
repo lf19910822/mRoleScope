@@ -769,8 +769,17 @@ OpenSpec change：`openspec/changes/add-jd-history-timeline/`
 运行时，无法完成桌面与 390px 的像素级浏览器检查，已记录为环境限制，
 不视为功能失败。
 
-OpenSpec 变更目录已补充 `validation.md`，其中 21/22 项任务已按实际证据
-记录完成。唯一未完成项是 4.3：当前环境没有 `TEST_DATABASE_URL` 和保留
-的 PostgreSQL 数据，无法诚实测量单岗位 summary/detail p95；具备数据库
-连接后补测并根据 `EXPLAIN ANALYZE` 决定是否需要索引。桌面与 390px 已用
-Chrome 无头截图完成页面级检查，真实数据态仍由组件状态测试覆盖。
+OpenSpec 变更目录已补充 `validation.md`。本地环境虽然没有
+`TEST_DATABASE_URL`，但已连接 CVM 对保留数据完成真实验收：summary p95
+112.79ms、detail p95 84.27ms（各 30 次），并验证了真实维度变动节点和
+安全字段。当前结果不支持新增索引或投影；桌面与 390px 已用 Chrome 无头
+截图完成页面级检查，真实数据态也已在 CVM 验证。
+
+## 第 15 轮：CVM 真实数据验收（已完成）
+
+发布提交 `6c35a199` 已通过自主镜像流程部署到 CVM。健康检查、迁移、四个
+镜像 digest 校验和旧镜像清理均成功。通过临时 SSH Unix-socket 转发访问
+内部 API，岗位历史摘要、最新节点详情和真实“维度变动”节点详情均返回
+HTTP 200；详情响应未包含 run/parser/version 等内部字段。
+
+本轮 4.3 性能任务完成，OpenSpec `add-jd-history-timeline` 达到 22/22。

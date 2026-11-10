@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   clearHistoryCache,
   historyNodeAccessibleLabel,
+  historyNodeChartColors,
+  historyNodeChartLabel,
+  historyNodeChartSymbols,
   historyNodeTagLabel,
   historyTimelineMinWidth,
   readHistoryCache,
@@ -35,5 +38,12 @@ describe('job history timeline state', () => {
     expect(readHistoryCache('jd-1', 100 + 10 * 60 * 1000 - 1)).toBe(response)
     expect(readHistoryCache('jd-1', 100 + 10 * 60 * 1000)).toBeUndefined()
     expect(historyTimelineMinWidth(8, 1)).toBe('1184px')
+  })
+
+  it('keeps lifecycle statuses visually distinct in the history chart', () => {
+    expect(historyNodeChartLabel('modified')).toBe('修改')
+    expect(historyNodeChartSymbols.confirmed_closed).toBe('rect')
+    expect(historyNodeChartColors.latest).toBe('#22C55E')
+    expect(new Set(Object.values(historyNodeChartColors)).size).toBeGreaterThan(1)
   })
 })
