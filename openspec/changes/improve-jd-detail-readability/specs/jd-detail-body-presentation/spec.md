@@ -72,6 +72,19 @@ commas, semicolons, or technology punctuation.
   source text and visible numeral
 - **AND** a decimal/version fragment such as `1 .28` remains ineligible
 
+#### Scenario: The first proven ordinal pair establishes punctuation style
+
+- **WHEN** the first two unambiguous consecutive Arabic or Chinese ordinals
+  use the same normalized punctuation style, such as `1.` and `2.`
+- **THEN** later ordinal candidates in the same section are eligible only when
+  they use that style, treating ASCII/full-width dot variants and optional
+  source whitespace as the same dot style
+- **AND** a candidate with another punctuation style, such as `5）` inside a
+  dot-style sequence, remains source text rather than becoming a list item
+- **AND** a later valid marker remains usable when the ignored candidate fills
+  the otherwise missing serial, while an unbridgeable skip still falls back
+  to the complete source text
+
 #### Scenario: Consecutive source markers contain numeric-leading items
 
 - **WHEN** a numeric-dot candidate whose dot is immediately followed by a
@@ -140,6 +153,26 @@ must not change the JD's wording.
 
 - **WHEN** the viewport is 390px wide
 - **THEN** rows wrap without horizontal scrolling or clipped requirement text
+
+### Requirement: Persistent detail-list navigation
+
+The browser SHALL keep the `返回岗位列表` action available while a visitor
+reads a long job detail page. The control MUST preserve the existing browser
+history return behavior, remain above the detail content without obscuring its
+title or body, and stay reachable on narrow screens.
+
+#### Scenario: A visitor scrolls through a long detail
+
+- **WHEN** the visitor scrolls away from the top of a job detail page
+- **THEN** the `返回岗位列表` action remains visible in the sticky reading
+  rail beside the body
+- **AND** activating it returns to the previous job-list route
+
+#### Scenario: A narrow screen displays the fixed return action
+
+- **WHEN** the detail page is displayed at a narrow viewport
+- **THEN** the sticky action avoids the mobile navigation control and the detail
+  title remains visible below it
 
 ### Requirement: Static source-item reading
 

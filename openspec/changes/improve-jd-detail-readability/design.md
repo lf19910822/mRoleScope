@@ -183,6 +183,18 @@ highlight.
 `JDSectionList` owns marker recognition and semantic `ol`/`ul`/fallback
 markup, including source-proven group headings, compact source sublists, and
 their separate parent lists.
+
+Ordinal recognition first normalizes the supported source marker families:
+Arabic dot (`1.`, `2．`, `2 .`, `2 ．`), Arabic enumeration comma (`1、`),
+Arabic closing parenthesis (`1)`, `1）`), and their Chinese numeral variants.
+After two unambiguous consecutive markers establish one family, candidates from
+other families are treated as ordinary source text. A style-mismatched marker
+may bridge a skipped serial only when it supplies every missing serial between
+two retained markers; a genuine unproven gap still uses the lossless fallback.
+This prevents technology text such as `NVLink 5）` from invalidating an
+otherwise readable dot-style list without weakening the decimal/version
+guards.
+
 `HighlightedText` owns range clipping and safe fragment rendering.
 `JobDetailView` supplies only title, source section key, text, and detail
 ranges. This division makes the conservative grammar independently testable

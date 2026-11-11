@@ -14,6 +14,10 @@ The feature must not introduce a second historical fact store. The service
 owns all business-date and lifecycle decisions; the Vue client renders the
 already-derived event stream.
 
+The timeline uses `岗位历史` as its sole, legible section heading and omits
+derivation and missing-day explanatory copy; these rules remain unchanged on
+the server, and interaction guidance remains visible.
+
 The current trend dashboard already has the relevant comparison categories,
 body-section diff implementation, detail container, loading/error states,
 short-lived cache, and responsive interaction patterns. The new seam should

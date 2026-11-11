@@ -52,3 +52,12 @@ Validated on 2026-11-09 (Asia/Shanghai) for `add-jd-history-timeline`.
 The local environment still has no `TEST_DATABASE_URL`, so the local
 PostgreSQL integration fixture remains skipped. Real retained-data latency was
 measured on CVM instead; the result does not justify a new index or projection.
+# Concise timeline heading follow-up (2026-11-10)
+
+- Heading size follow-up: increased `岗位历史` to `1.12rem` without changing the detail label. The focused component suite (6 tests), build/type-check, Prettier, strict OpenSpec validation, and `git diff --check` pass. Browser screenshots at 1440px and 390px show the larger heading with no page-level horizontal overflow; the preview data source was not independently verified.
+- Follow-up: removed `观察时间线` and retained `岗位历史` as the semantic heading. Focused component tests (6), build/type-check, Prettier, strict OpenSpec validation, and `git diff --check` pass. Headless Chrome screenshots at 1440px and 390px confirm the simplified heading and no page-level horizontal overflow; the preview data source was not independently verified.
+- Browser acceptance used the existing `127.0.0.1:5175` preview and a job selected from its list; the backing data source was not independently verified. Headless Chrome screenshots at 1440px and 390px show the heading and interaction guidance without the removed copy; neither viewport has page-level horizontal overflow.
+- `npm --prefix web run test:unit -- --run src/components/__tests__/JobHistoryTimeline.spec.ts`: 6 tests passed.
+- `npm --prefix web run type-check` and `npm --prefix web run build`: passed.
+- `cd web && npx prettier --check src/components/JobHistoryTimeline.vue src/components/__tests__/JobHistoryTimeline.spec.ts`: passed after formatting the existing test assertion.
+- `openspec validate add-jd-history-timeline --strict` and `git diff --check`: passed.

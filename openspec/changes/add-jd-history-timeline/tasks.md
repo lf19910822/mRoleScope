@@ -69,3 +69,13 @@
       installed in this environment.
 - [x] 4.5 Update this change, validation notes, and the decision record with
       exact test and preview results before any autonomous deployment.
+
+## 5. Concise timeline heading
+
+- [x] 5.1 Remove derivation explanatory copy from the timeline heading while
+      retaining its title and interaction guidance; verify with a component test.
+- [x] 5.2 Run focused validation, formatting checks, and strict OpenSpec validation.
+- [x] 5.3 Keep `岗位历史` as the sole accessible heading, remove the redundant
+      heading, and verify focused tests plus desktop and 390px browser rendering.
+- [x] 5.4 Increase the section heading's visual prominence and verify desktop
+      and 390px browser rendering without altering the history detail label.

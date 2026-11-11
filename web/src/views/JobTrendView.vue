@@ -722,6 +722,7 @@ onBeforeUnmount(() => {
             v-else-if="detail"
             :historical-context="detailMode === 'historical' && historicalDetailStatus ? { currentStatus: historicalDetailStatus } : undefined"
             :job="detail"
+            :show-observation-history="false"
             @retry-comparison="retryComparison"
           />
         </div>

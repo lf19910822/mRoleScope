@@ -83,6 +83,11 @@ describe('JobHistoryTimeline', () => {
     await flushPromises()
 
     expect(wrapper.find('#job-detail-reading-history').exists()).toBe(true)
+    expect(wrapper.find('#job-history-heading').text()).toBe('岗位历史')
+    expect(wrapper.text()).not.toContain('观察时间线')
+    expect(wrapper.text()).not.toContain('按每日最终成功观察还原')
+    expect(wrapper.text()).not.toContain('缺失日期不生成虚假事件')
+    expect(wrapper.text()).toContain('滚轮缩放时间')
     expect(wrapper.find('[aria-label="岗位历史时间线，可缩放和平移"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="mock-history-chart"]').exists()).toBe(true)
 
@@ -93,6 +98,11 @@ describe('JobHistoryTimeline', () => {
     await flushPromises()
     expect(getJobHistoryDetail).toHaveBeenCalledWith('jd-1', '2026-11-03', 'modified')
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('平台工程师')
+    expect(
+      document.body.querySelector('.job-history__detail-header .job-history__eyebrow')?.textContent,
+    ).toContain('2026-11-03')
+    expect(document.body.querySelector('.job-history__detail-header h3')).toBeNull()
+    expect(document.body.querySelector('.job-history__detail-tags')).toBeNull()
     wrapper.unmount()
   })
 
