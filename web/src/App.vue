@@ -10,6 +10,7 @@ import { requestActivity } from '@/lib/request-activity'
 const route = useRoute()
 const osTheme = useOsTheme()
 const navigationOpen = ref(false)
+const lastJobListPath = ref(route.name === 'jobs' ? route.fullPath : '/jobs')
 const releasedDestinations = [
   { label: '岗位筛选', name: 'jobs' as const },
   { label: '趋势看板', name: 'job-trends' as const },
@@ -27,7 +28,10 @@ function closeNavigation(): void {
 
 watch(
   () => route.fullPath,
-  () => closeNavigation(),
+  () => {
+    if (route.name === 'jobs') lastJobListPath.value = route.fullPath
+    closeNavigation()
+  },
 )
 </script>
 
@@ -78,7 +82,7 @@ watch(
           <RouterLink
             v-for="destination in releasedDestinations"
             :key="destination.name"
-            :to="{ name: destination.name }"
+            :to="destination.name === 'jobs' ? lastJobListPath : { name: destination.name }"
             :class="[
               'app-navigation__link',
               {
@@ -96,7 +100,11 @@ watch(
         <p class="app-sidebar__note">最新岗位视图</p>
       </aside>
       <div class="app-shell__content">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <KeepAlive include="JobListView">
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </div>
       <AppRequestLoader :visible="requestActivity.visible.value" />
     </div>

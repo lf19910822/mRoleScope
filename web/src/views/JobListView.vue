@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   getFilterOptions,
   getJobList,
+  jobListPath,
   type FilterOptionsResponse,
   type JobListResponse,
 } from '@/api/jd-api'
@@ -30,6 +31,8 @@ import {
 } from '@/lib/job-display'
 import { presentJobTitle } from '@/lib/job-title-presentation'
 
+defineOptions({ name: 'JobListView' })
+
 const route = useRoute()
 const router = useRouter()
 const response = ref<JobListResponse>()
@@ -38,6 +41,7 @@ const isLoading = ref(false)
 const focusedQueryCardId = ref<string>()
 const mobileFiltersOpen = ref(false)
 let latestListRequest = 0
+let latestListQuery: string | undefined
 const listState = computed(() => listStateFromRoute(route.query))
 const filterOptions = ref<FilterOptionsResponse>({
   activity_states: [],
@@ -457,8 +461,11 @@ async function loadFilterOptions(): Promise<void> {
 }
 
 watch(
-  listState,
-  async (state) => {
+  () => (route.name === 'jobs' ? jobListPath(listState.value) : undefined),
+  async (query) => {
+    if (query === undefined || query === latestListQuery) return
+    latestListQuery = query
+    const state = listState.value
     replaceDraft(state)
     const request = ++latestListRequest
     isLoading.value = true
@@ -473,6 +480,7 @@ watch(
       if (request !== latestListRequest) {
         return
       }
+      latestListQuery = undefined
       error.value = reason instanceof Error ? reason.message : '请求岗位数据失败'
     } finally {
       if (request === latestListRequest) {
