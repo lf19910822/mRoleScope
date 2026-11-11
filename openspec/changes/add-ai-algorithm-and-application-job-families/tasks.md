@@ -18,8 +18,8 @@
 ## 4. Integrated verification and delivery
 
 - [x] 4.1 Run focused parser tests, `make test`, `sqlc generate`, `git diff --exit-code -- internal/database/sqlc`, strict OpenSpec validation, and `git diff --check`; verify all commands succeed.
-- [ ] 4.2 Commit the reviewed change, merge it through the protected GitHub main workflow, and deploy it through the remote-development deployment workflow; verify the deployed image reports V3 without invoking an external model.
-- [ ] 4.3 Run the provider-free pending analysis for eligible historical titles and record read-only V3 quality aggregates; verify processing failures do not block unrelated results and no Qwen/Flash command is invoked.
+- [x] 4.2 Commit the reviewed change, merge it through the protected GitHub main workflow, and deploy it through the remote-development deployment workflow; verify the deployed image reports V3 without invoking an external model.
+- [x] 4.3 Run the provider-free pending analysis for eligible historical titles and record read-only V3 quality aggregates; verify processing failures do not block unrelated results and no Qwen/Flash command is invoked.
 
 ## Workflow follow-up
 
