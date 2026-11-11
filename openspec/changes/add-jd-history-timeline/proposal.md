@@ -14,6 +14,9 @@ historical node versus the latest JD.
 
 - Add a compact `岗位历史` timeline below the three JD body sections on the
   job detail page.
+- Keep the timeline heading concise without a visible explanation of the
+  daily observation derivation or missing-day handling; show only `岗位历史`
+  as its heading.
 - Add a server-owned history summary that selects one final successful
   observation per Asia/Shanghai business day and derives event nodes from
   existing SCD2/Serving facts.

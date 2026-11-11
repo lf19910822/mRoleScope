@@ -173,4 +173,55 @@ describe('JDDetailReadingLayout', () => {
     expect(historyLink?.attributes('href')).toBe('#job-detail-reading-history')
     wrapper.unmount()
   })
+
+  it('can hide the observation history jump for nested detail readers', () => {
+    const wrapper = mount(JDDetailReadingLayout, {
+      props: { job, showObservationHistory: false },
+    })
+
+    expect(
+      wrapper
+        .findAll('.detail-reading-layout__margin-index a')
+        .some((link) => link.text() === '观测历史'),
+    ).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('scrolls the section inside the active reader when IDs are duplicated underneath it', async () => {
+    const firstWrapper = mount(JDDetailReadingLayout, { attachTo: document.body, props: { job } })
+    const secondWrapper = mount(JDDetailReadingLayout, { attachTo: document.body, props: { job } })
+    const firstSection = firstWrapper.get('.margin-dossier__section').element as HTMLElement
+    const secondSection = secondWrapper.get('.margin-dossier__section').element as HTMLElement
+    expect(secondSection.id).toBe('job-detail-reading-responsibilities')
+    expect(secondWrapper.element.querySelector('.margin-dossier__section')).toBe(secondSection)
+    const firstScroll = vi.fn()
+    const secondScroll = vi.fn()
+    firstSection.scrollIntoView = firstScroll
+    secondSection.scrollIntoView = secondScroll
+
+    const sectionLink = secondWrapper.get('a[href="#job-detail-reading-responsibilities"]')
+    sectionLink.element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+    expect(firstScroll).not.toHaveBeenCalled()
+    expect(secondScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    firstWrapper.unmount()
+    secondWrapper.unmount()
+  })
+
+  it('scrolls the sibling observation history from the regular job detail page', () => {
+    const wrapper = mount(JDDetailReadingLayout, { attachTo: document.body, props: { job } })
+    const historySection = document.createElement('section')
+    const historyScroll = vi.fn()
+    historySection.id = 'job-detail-reading-history'
+    historySection.scrollIntoView = historyScroll
+    wrapper.element.parentElement?.appendChild(historySection)
+
+    wrapper.get('a[href="#job-detail-reading-history"]').element.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    )
+
+    expect(historyScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    historySection.remove()
+    wrapper.unmount()
+  })
 })

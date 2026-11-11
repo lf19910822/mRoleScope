@@ -111,6 +111,15 @@ schemas while selecting versions according to node type.
 The job detail page SHALL render the history module independently from the main
 JD sections and reuse the trend dashboard interaction patterns.
 
+#### Scenario: Concise timeline heading
+
+- **WHEN** the history module is displayed
+- **THEN** its only visible heading is `岗位历史`
+- **AND** it does not show the redundant `观察时间线` heading
+- **AND** its heading does not include explanatory copy about daily final
+  observations or missing dates
+- **AND** timeline interaction guidance remains available
+
 #### Scenario: Loading and empty states
 
 - **WHEN** the history summary is loading or has no nodes

@@ -35,10 +35,16 @@ type ReadingSection = {
   text: string
 }
 
-const props = defineProps<{
-  job: JobDetailResponse
-  historicalContext?: { currentStatus: TrendDrilldownStatus }
-}>()
+const props = withDefaults(
+  defineProps<{
+    job: JobDetailResponse
+    historicalContext?: { currentStatus: TrendDrilldownStatus }
+    showObservationHistory?: boolean
+  }>(),
+  {
+    showObservationHistory: true,
+  },
+)
 
 const emit = defineEmits<{
   'retry-comparison': []
@@ -46,6 +52,7 @@ const emit = defineEmits<{
 
 const dimensionComparisonExpanded = ref(false)
 const bodyComparisonExpanded = ref(false)
+const layoutRoot = ref<HTMLElement | null>(null)
 
 function formatCurrentComparisonStatus(status: TrendDrilldownStatus): string {
   if (status === 'current') return '仍有效'
@@ -137,13 +144,25 @@ function itemAriaLabel(item: ListItem): string {
   return item.kind === 'ordered-item' ? `第 ${sourceMarker(item)} 条` : '列表条目'
 }
 
+function findElementByIdWithin(root: ParentNode | null, id: string): HTMLElement | undefined {
+  return Array.from(root?.querySelectorAll<HTMLElement>('[id]') ?? []).find(
+    (element) => element.id === id,
+  )
+}
+
 function scrollToSection(id: string): void {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const target =
+    findElementByIdWithin(layoutRoot.value, id) ??
+    (id === 'job-detail-reading-history'
+      ? (findElementByIdWithin(layoutRoot.value?.parentElement ?? null, id) ??
+        findElementByIdWithin(document, id))
+      : undefined)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 </script>
 
 <template>
-  <div class="detail-reading-layout">
+  <div ref="layoutRoot" class="detail-reading-layout">
     <header class="detail-reading-layout__brief">
       <div>
         <p class="detail-reading-layout__kicker">岗位详情</p>
@@ -305,19 +324,23 @@ function scrollToSection(id: string): void {
 
     <div class="detail-reading-layout__reading-frame">
       <aside class="detail-reading-layout__margin-index" aria-label="正文目录">
-        <p>正文目录</p>
-        <a
-          v-for="section in sections"
-          :key="section.key"
-          :href="`#${section.id}`"
-          @click.prevent="scrollToSection(section.id)"
-          >{{ section.label }}</a
-        >
-        <a
-          href="#job-detail-reading-history"
-          @click.prevent="scrollToSection('job-detail-reading-history')"
-          >观测历史</a
-        >
+        <slot name="back-action" />
+        <div class="detail-reading-layout__margin-links">
+          <p>正文目录</p>
+          <a
+            v-for="section in sections"
+            :key="section.key"
+            :href="`#${section.id}`"
+            @click.prevent="scrollToSection(section.id)"
+            >{{ section.label }}</a
+          >
+          <a
+            v-if="props.showObservationHistory"
+            href="#job-detail-reading-history"
+            @click.prevent="scrollToSection('job-detail-reading-history')"
+            >观测历史</a
+          >
+        </div>
       </aside>
 
       <div class="detail-reading-layout__sections">
@@ -643,12 +666,54 @@ function scrollToSection(id: string): void {
 
 .detail-reading-layout__margin-index {
   align-self: start;
+  background: transparent;
   border-top: 2px solid var(--detail-tide);
-  display: grid;
-  gap: 5px;
+  display: block;
   padding-top: 10px;
   position: sticky;
   top: 26px;
+  z-index: 8;
+}
+
+.detail-reading-layout__margin-links {
+  display: grid;
+  gap: 5px;
+}
+
+.detail-reading-layout__margin-index :slotted(.back-button) {
+  align-items: center;
+  background: var(--detail-paper);
+  border: 1px solid var(--detail-rule);
+  border-radius: 9px;
+  box-shadow: 0 6px 16px rgba(11, 55, 76, 0.1);
+  color: var(--detail-tide);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 720;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 11px;
+  padding: 8px 9px;
+  text-align: left;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+  width: 100%;
+}
+
+.detail-reading-layout__margin-index :slotted(.back-button:hover) {
+  background: var(--detail-tag);
+  border-color: var(--detail-tide);
+  box-shadow: 0 8px 18px rgba(11, 55, 76, 0.14);
+  transform: translateY(-1px);
+}
+
+.detail-reading-layout__margin-index :slotted(.back-button:active) {
+  transform: translateY(0);
 }
 
 .detail-reading-layout__margin-index p {
@@ -1110,14 +1175,29 @@ function scrollToSection(id: string): void {
   }
 
   .detail-reading-layout__margin-index {
+    background: var(--detail-paper);
     border-bottom: 1px solid var(--detail-rule);
     border-top: 0;
+    margin-bottom: 23px;
+    padding: 0 0 10px;
+    position: sticky;
+    top: 62px;
+    z-index: 8;
+  }
+
+  .detail-reading-layout__margin-index :slotted(.back-button) {
+    background: var(--detail-paper);
+    box-shadow: 0 5px 13px rgba(11, 55, 76, 0.1);
+    justify-content: flex-start;
+    margin-bottom: 9px;
+    width: fit-content;
+  }
+
+  .detail-reading-layout__margin-links {
     display: flex;
     gap: 12px;
-    margin-bottom: 23px;
     overflow-x: auto;
-    padding: 0 0 10px;
-    position: static;
+    padding-bottom: 1px;
   }
 
   .detail-reading-layout__margin-index p {

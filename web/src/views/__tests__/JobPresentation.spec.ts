@@ -39,6 +39,38 @@ afterEach(() => {
 })
 
 describe('JD presentation', () => {
+  it('keeps the return-to-list action available while the detail is scrolled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ...job,
+              body: { requirements: '熟悉 Go', responsibilities: '负责服务端开发' },
+            }),
+          ),
+      ),
+    )
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'jobs' })
+    await router.push({ name: 'job-detail', params: { id: job.id } })
+    await router.isReady()
+    const wrapper = mount(JobDetailView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    const backButton = wrapper.get('[data-testid="job-detail-back"]')
+    expect(backButton.text()).toContain('返回岗位列表')
+    expect(backButton.attributes('type')).toBe('button')
+    expect(backButton.element.closest('.detail-reading-layout__margin-index')).not.toBeNull()
+
+    await backButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('jobs')
+
+    wrapper.unmount()
+  })
+
   it('keeps a rendered detail stable while a newer route supersedes a pending detail response', async () => {
     let resolveSecond: (response: Response) => void = () => undefined
     let resolveThird: (response: Response) => void = () => undefined

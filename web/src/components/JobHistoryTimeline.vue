@@ -25,8 +25,6 @@ import {
   historyNodeChartColors,
   historyNodeChartLabel,
   historyNodeChartSymbols,
-  historyNodeTagLabel,
-  historyNodeTypeLabel,
   readHistoryCache,
   writeHistoryCache,
 } from '@/lib/job-history-timeline'
@@ -166,10 +164,6 @@ function resetZoom(): void {
   })
 }
 
-function visibleTags(node: HistoryNode): HistoryNode['tags'] {
-  return node.tags.filter((tag) => tag !== node.type)
-}
-
 const historyChartOption = computed(() => {
   const nodes = history.value?.nodes ?? []
   const dates = nodes.map((node) => [node.date, 0.5] as [string, number])
@@ -296,9 +290,7 @@ onBeforeUnmount(() => {
   >
     <header class="job-history__header">
       <div>
-        <p class="job-history__eyebrow">岗位历史</p>
-        <h2 id="job-history-heading">观察时间线</h2>
-        <p class="job-history__hint">按每日最终成功观察还原，缺失日期不生成虚假事件。</p>
+        <h2 id="job-history-heading" class="job-history__eyebrow">岗位历史</h2>
       </div>
       <div class="job-history__tools">
         <span v-if="history" class="job-history__count">{{ history.nodes.length }} 个观测点</span>
@@ -355,21 +347,11 @@ onBeforeUnmount(() => {
           class="job-history__detail-drawer"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="job-history-detail-heading"
+          aria-label="岗位历史详情"
         >
           <header class="job-history__detail-header">
             <div>
               <p class="job-history__eyebrow">岗位历史 · {{ selectedNode.date }}</p>
-              <h3 id="job-history-detail-heading">{{ historyNodeTypeLabel(selectedNode.type) }}</h3>
-              <div
-                v-if="visibleTags(selectedNode).length"
-                class="job-history__detail-tags"
-                aria-label="本次观察变动"
-              >
-                <span v-for="tag in visibleTags(selectedNode)" :key="tag">{{
-                  historyNodeTagLabel(tag)
-                }}</span>
-              </div>
             </div>
             <button
               class="job-history__detail-close"
@@ -395,6 +377,7 @@ onBeforeUnmount(() => {
             <JDDetailReadingLayout
               v-else-if="selectedDetail"
               :job="selectedDetail"
+              :show-observation-history="false"
               @retry-comparison="retryDetail"
             />
           </div>
@@ -453,16 +436,17 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.job-history h2 {
+.job-history__header .job-history__eyebrow {
+  color: var(--history-blue);
   font-size: 1.12rem;
   letter-spacing: -0.01em;
+  margin: 0 0 3px;
 }
 
 .job-history h3 {
   font-size: 1rem;
 }
 
-.job-history__hint,
 .job-history__gesture,
 .job-history__cached-error {
   color: var(--history-muted);

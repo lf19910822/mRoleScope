@@ -37,9 +37,19 @@ type Marker = {
   endUTF16: number
   kind: 'ordered-item' | 'bullet-item'
   marker: string
+  ordinalStyle?: OrdinalStyle
   serial?: number
   startUTF16: number
+  styleGapAllowed?: boolean
 }
+
+type OrdinalStyle =
+  | 'arabic-comma'
+  | 'arabic-dot'
+  | 'arabic-parenthesis'
+  | 'chinese-comma'
+  | 'chinese-dot'
+  | 'chinese-parenthesis'
 
 type GroupHeading = {
   endUTF16: number
@@ -77,6 +87,7 @@ function buildOrdinalList(
   text: string,
   markers: Marker[],
 ): Extract<JDSectionPresentation, { kind: 'list' }> | undefined {
+  markers = selectEstablishedOrdinalStyle(markers)
   if (
     markers.length === 0 ||
     markers.some((marker) => marker.serial === undefined) ||
@@ -98,7 +109,9 @@ function buildOrdinalList(
     if (marker.serial === previous.serial + 1) continue
 
     if (marker.serial !== 1) {
-      if (explicitGroupAllowsGaps && marker.serial > previous.serial) continue
+      if ((explicitGroupAllowsGaps || marker.styleGapAllowed) && marker.serial > previous.serial) {
+        continue
+      }
       return undefined
     }
 
@@ -123,6 +136,7 @@ function collectOrdinalMarkers(text: string): Marker[] {
         'ordered-item',
         Number.parseInt(marker, 10),
         isAmbiguousNumericDotMarker(text, match, marker),
+        ordinalStyle(marker),
       ),
     )
   }
@@ -131,7 +145,14 @@ function collectOrdinalMarkers(text: string): Marker[] {
   for (const match of text.matchAll(chinese)) {
     const marker = match[1] ?? ''
     markers.push(
-      markerFromMatch(match, marker, 'ordered-item', chineseOrdinalValues[marker[0] ?? '']),
+      markerFromMatch(
+        match,
+        marker,
+        'ordered-item',
+        chineseOrdinalValues[marker[0] ?? ''],
+        false,
+        ordinalStyle(marker),
+      ),
     )
   }
   return markers.sort((left, right) => left.startUTF16 - right.startUTF16)
@@ -153,6 +174,7 @@ function markerFromMatch(
   kind: Marker['kind'],
   serial?: number,
   ambiguous = false,
+  ordinalStyle?: OrdinalStyle,
 ): Marker {
   const fullMatch = match[0] ?? ''
   const startUTF16 = (match.index ?? 0) + fullMatch.lastIndexOf(marker)
@@ -161,9 +183,73 @@ function markerFromMatch(
     endUTF16: startUTF16 + marker.length,
     kind,
     marker,
+    ordinalStyle,
     serial,
     startUTF16,
   }
+}
+
+function ordinalStyle(marker: string): OrdinalStyle {
+  const isChinese = /^[一二三四五六七八九十]/u.test(marker)
+  const punctuation = marker.slice(-1)
+  if (punctuation === '、') return isChinese ? 'chinese-comma' : 'arabic-comma'
+  if (punctuation === ')' || punctuation === '）') {
+    return isChinese ? 'chinese-parenthesis' : 'arabic-parenthesis'
+  }
+  return isChinese ? 'chinese-dot' : 'arabic-dot'
+}
+
+function selectEstablishedOrdinalStyle(markers: Marker[]): Marker[] {
+  const pair = markers.find((marker, index) => {
+    const next = markers[index + 1]
+    return Boolean(
+      next &&
+      !marker.ambiguous &&
+      !next.ambiguous &&
+      marker.serial !== undefined &&
+      next.serial === marker.serial + 1 &&
+      marker.ordinalStyle !== undefined &&
+      marker.ordinalStyle === next.ordinalStyle,
+    )
+  })
+  if (!pair?.ordinalStyle) return markers
+
+  const selected: Marker[] = []
+  const ignoredSerials: number[] = []
+  for (const marker of markers) {
+    if (marker.ordinalStyle !== pair.ordinalStyle) {
+      if (marker.serial !== undefined) ignoredSerials.push(marker.serial)
+      continue
+    }
+
+    const previous = selected[selected.length - 1]
+    if (
+      previous?.serial !== undefined &&
+      marker.serial !== undefined &&
+      marker.serial > previous.serial + 1
+    ) {
+      marker.styleGapAllowed = hasCompleteIgnoredBridge(
+        previous.serial,
+        marker.serial,
+        ignoredSerials,
+      )
+    }
+    selected.push(marker)
+    ignoredSerials.length = 0
+  }
+  return selected
+}
+
+function hasCompleteIgnoredBridge(
+  previousSerial: number,
+  serial: number,
+  ignoredSerials: number[],
+) {
+  const ignored = new Set(ignoredSerials)
+  for (let expected = previousSerial + 1; expected < serial; expected += 1) {
+    if (!ignored.has(expected)) return false
+  }
+  return serial > previousSerial + 1
 }
 
 function isAmbiguousNumericDotMarker(

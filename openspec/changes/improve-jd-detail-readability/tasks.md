@@ -29,6 +29,15 @@
       interior ambiguous candidates without content-form whitelists; retain
       fallback behavior for edge/isolated decimal and version candidates and
       verify parser/component regressions plus the full front-end suite pass.
+- [x] 2.18 Write failing regressions for punctuation-style inference after the
+      first proven ordinal pair; ignore mismatched candidates while preserving
+      their source text, allow only complete style-mismatched bridges, retain
+      unbridgeable-gap fallback behavior, and verify the focused parser and
+      full front-end suites pass.
+- [x] 2.19 Keep the detail-page `返回岗位列表` action in the sticky reading
+      rail, preserve browser-history navigation, avoid desktop/mobile
+      navigation collisions, and verify the detail-view regression plus the
+      full front-end suite pass.
 
 ## 3. Stable application loading feedback
 

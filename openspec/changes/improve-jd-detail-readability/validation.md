@@ -258,3 +258,42 @@ reported requirements render six semantic source-item cards.
   `npm run build` (type check and Vite build).
 - Passed `openspec validate improve-jd-detail-readability --strict` and
   `git diff --check`.
+
+## Ordinal punctuation-style inference regression — 2026-11-10
+
+The reported NVL72 requirements contained a dot-style `1.` to `4.` sequence,
+then the technology text `NVLink 5）`, followed by dot-style `6.` to `9.`
+markers. The prior parser treated the parenthesized technology number as a
+list marker, which broke the numeric sequence and rendered the complete body
+as fallback text.
+
+The parser now normalizes the supported Arabic and Chinese marker families,
+uses the first unambiguous consecutive pair to establish the section's
+punctuation style, and keeps candidates from other styles in source text. A
+style-mismatched candidate can bridge a skipped serial only when it accounts
+for every missing serial; a genuine unbridgeable gap remains lossless fallback
+text. This rule is deterministic and does not inspect or whitelist the
+following prose.
+
+- Passed the focused red-green parser regressions for dot/parenthesis style
+  mismatches and unbridgeable gaps (21 tests).
+- Passed `npm run test:unit -- --run` from `web/` (27 files, 171 tests).
+- Passed `npm run type-check`, `npm run build`, scoped Prettier checks,
+  `openspec validate improve-jd-detail-readability --strict`, and
+  `git diff --check`.
+
+## Persistent detail-list navigation — 2026-11-10
+
+The detail page's return action now uses a compact control in the sticky
+reading rail beside the body. It remains available while the visitor scrolls,
+keeps the existing `router.back()` behavior, stays outside the prose column,
+and moves below the mobile menu toggle at narrow widths. The rail has an opaque
+surface so body text cannot show through it; the control inherits the detail
+layout's dark-mode tokens.
+
+- Passed the focused `JobPresentation` suite (7 tests), including a route
+  return regression.
+- Passed `npm run test:unit -- --run` from `web/` (27 files, 172 tests).
+- Passed `npm run type-check`, `npm run build`, scoped Prettier checks,
+  `openspec validate improve-jd-detail-readability --strict`, and
+  `git diff --check`.

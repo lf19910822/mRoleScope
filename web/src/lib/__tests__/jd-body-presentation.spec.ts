@@ -97,6 +97,45 @@ describe('presentJDSection', () => {
     })
   })
 
+  it('ignores a mismatched parenthesized candidate after a dot-style sequence is established', () => {
+    const presentation = presentJDSection(
+      '1.负责拓扑发现；2.实现调度策略；3.生成配置；4.优化并行策略；NVLink 5）+ 跨柜 RDMA；6.深度调优；7.故障恢复；8.慢卡检测；9.端到端落地。',
+    )
+
+    expect(presentation).toMatchObject({
+      items: [
+        { kind: 'ordered-item', marker: '1.' },
+        { kind: 'ordered-item', marker: '2.' },
+        { kind: 'ordered-item', marker: '3.' },
+        { kind: 'ordered-item', marker: '4.' },
+        { kind: 'ordered-item', marker: '6.' },
+        { kind: 'ordered-item', marker: '7.' },
+        { kind: 'ordered-item', marker: '8.' },
+        { kind: 'ordered-item', marker: '9.' },
+      ],
+      kind: 'list',
+    })
+    expect(presentation.kind === 'list' && presentation.items).not.toContainEqual(
+      expect.objectContaining({ marker: '5）' }),
+    )
+    expect(presentation.kind === 'list' && presentation.items[3]).toMatchObject({
+      text: '优化并行策略；NVLink 5）+ 跨柜 RDMA；',
+    })
+  })
+
+  it('ignores a mismatched dot candidate after a parenthesized sequence is established', () => {
+    expect(
+      presentJDSection('1）负责拓扑发现；2）实现调度策略；NVLink 3. + 跨柜 RDMA；4）完成上线。'),
+    ).toMatchObject({
+      items: [
+        { kind: 'ordered-item', marker: '1）' },
+        { kind: 'ordered-item', marker: '2）', text: '实现调度策略；NVLink 3. + 跨柜 RDMA；' },
+        { kind: 'ordered-item', marker: '4）', text: '完成上线。' },
+      ],
+      kind: 'list',
+    })
+  })
+
   it('recognizes separately bounded numeric-leading items from the same JD supplemental text', () => {
     const presentation = presentJDSection(
       '1.有跨平台开发经验；2.1年以上商业或自研引擎源码开发经验；3.设计并开发过多线程框架，ECS等架构；4.1年以上服务器开发经验；5.良好的英语阅读能力；6.热爱游戏，多年游戏经验（主机，PC，手机）；',
@@ -216,6 +255,17 @@ describe('presentJDSection', () => {
 
   it('keeps an ungrouped skipped ordinal as fallback text', () => {
     const text = '1.负责工具开发；3.熟悉跨平台发布。'
+
+    expect(presentJDSection(text)).toEqual({
+      end: Array.from(text).length,
+      kind: 'fallback',
+      start: 0,
+      text,
+    })
+  })
+
+  it('keeps an unbridgeable skipped ordinal as fallback after style filtering', () => {
+    const text = '1.负责工具开发；2.维护构建流程；NVLink 4）跨柜连接；6.熟悉跨平台发布。'
 
     expect(presentJDSection(text)).toEqual({
       end: Array.from(text).length,
