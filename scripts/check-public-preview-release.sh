@@ -29,6 +29,14 @@ grep -Fq 'limit_req_zone $binary_remote_addr zone=mrolescope_verify' "$nginx_tem
   || die 'Web Edge must rate-limit verification requests'
 grep -Fq 'limit_req_zone $binary_remote_addr zone=mrolescope_api' "$nginx_template" \
   || die 'Web Edge must rate-limit business API requests'
+grep -Fq 'gzip on;' "$nginx_template" \
+  || die 'Web Edge must compress browser assets'
+grep -Fq 'location ^~ /assets/' "$nginx_template" \
+  || die 'Web Edge must isolate hashed browser assets for caching'
+grep -Fq 'Cache-Control "private, max-age=31536000, immutable"' "$nginx_template" \
+  || die 'hashed browser assets must be cached immutably'
+grep -Fq 'Cache-Control "no-store"' "$nginx_template" \
+  || die 'invite and business responses must retain no-store protection'
 if grep -Eiq 'auth_basic|WEB_AUTH_BCRYPT_HASH|\$http_authorization|\$request_body' "$nginx_template" "$entrypoint"; then
   die 'Web Edge assets contain a legacy auth or sensitive request logging contract'
 fi
