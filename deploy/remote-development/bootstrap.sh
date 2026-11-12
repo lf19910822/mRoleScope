@@ -17,6 +17,8 @@ readonly DICTIONARY_HELPER_DESTINATION='/usr/local/sbin/mrolescope-dictionary'
 readonly RELEASE_HELPER_DESTINATION='/usr/local/sbin/mrolescope-release'
 readonly AI_ANALYSIS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-ai-analysis'
 readonly OPERATIONS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-operations'
+readonly CERT_ISSUE_HELPER_DESTINATION='/usr/local/sbin/mrolescope-cert-issue'
+readonly CERT_RENEW_HELPER_DESTINATION='/usr/local/sbin/mrolescope-cert-renew'
 readonly SYNC_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-sync.service'
 readonly SYNC_TIMER_DESTINATION='/etc/systemd/system/mrolescope-sync.timer'
 readonly ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-analysis.service'
@@ -28,11 +30,14 @@ readonly AI_TRIAL_PREPARE_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai
 readonly AI_PLUS_TRIAL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-trial.service'
 readonly AI_PLUS_EXPAND_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-expand.service'
 readonly AI_PLUS_PUBLISH_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-publish.service'
+readonly CERT_RENEW_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-cert-renew.service'
+readonly CERT_RENEW_TIMER_DESTINATION='/etc/systemd/system/mrolescope-cert-renew.timer'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
 readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'
 readonly TLS_DIR='/etc/mrolescope/tls'
 readonly ACME_CHALLENGE_DIR='/var/lib/mrolescope/acme-challenge'
+readonly ACME_STATE_DIR='/var/lib/mrolescope/acme'
 readonly SECRETS_DIR='/etc/mrolescope/secrets'
 readonly SUDOERS_DESTINATION='/etc/sudoers.d/mrolescope-deploy'
 readonly DEPLOY_USER='mrolescope-deploy'
@@ -56,6 +61,7 @@ command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v docker >/dev/null 2>&1 || die "Docker Engine and the Compose plugin must be installed first"
 docker compose version >/dev/null 2>&1 || die "the Docker Compose plugin is required"
 command -v visudo >/dev/null 2>&1 || die "sudo/visudo is required"
+command -v certbot >/dev/null 2>&1 || die "certbot is required; install it through the reviewed Ubuntu package path before bootstrap"
 
 case "$ASSET_MIRROR" in
   github-raw|jsdelivr)
@@ -144,6 +150,10 @@ download_asset 'deploy/remote-development/mrolescope-dictionary' "$staging_dir/m
 download_asset 'deploy/remote-development/mrolescope-release' "$staging_dir/mrolescope-release"
 download_asset 'deploy/remote-development/mrolescope-ai-analysis' "$staging_dir/mrolescope-ai-analysis"
 download_asset 'deploy/remote-development/mrolescope-operations' "$staging_dir/mrolescope-operations"
+download_asset 'deploy/remote-development/mrolescope-cert-issue' "$staging_dir/mrolescope-cert-issue"
+download_asset 'deploy/remote-development/mrolescope-cert-renew' "$staging_dir/mrolescope-cert-renew"
+download_asset 'deploy/remote-development/mrolescope-cert-renew.service' "$staging_dir/mrolescope-cert-renew.service"
+download_asset 'deploy/remote-development/mrolescope-cert-renew.timer' "$staging_dir/mrolescope-cert-renew.timer"
 download_asset 'deploy/remote-development/mrolescope-sync.service' "$staging_dir/mrolescope-sync.service"
 download_asset 'deploy/remote-development/mrolescope-sync.timer' "$staging_dir/mrolescope-sync.timer"
 download_asset 'deploy/remote-development/mrolescope-analysis.service' "$staging_dir/mrolescope-analysis.service"
@@ -163,6 +173,8 @@ bash -n "$staging_dir/mrolescope-dictionary"
 bash -n "$staging_dir/mrolescope-release"
 bash -n "$staging_dir/mrolescope-ai-analysis"
 bash -n "$staging_dir/mrolescope-operations"
+bash -n "$staging_dir/mrolescope-cert-issue"
+bash -n "$staging_dir/mrolescope-cert-renew"
 printf 'DOCKERHUB_NAMESPACE=%s\n' "$DOCKERHUB_NAMESPACE" >"$staging_dir/remote-development.conf"
 
 if ! getent passwd "$DEPLOY_USER" >/dev/null; then
@@ -174,6 +186,10 @@ install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0750 /opt/mrolescope-runner
 
 install -d -o root -g root -m 0755 /opt/mrolescope /etc/mrolescope /var/lib/mrolescope
 install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR" "$TLS_DIR" "$ACME_CHALLENGE_DIR"
+install -d -o root -g root -m 0700 "$ACME_STATE_DIR"
+if [[ -d "$ACME_CHALLENGE_DIR" ]]; then
+  chmod 0755 "$ACME_CHALLENGE_DIR"
+fi
 install -o root -g root -m 0644 "$staging_dir/compose.yaml" "$COMPOSE_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-deploy" "$HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-sync" "$SYNC_HELPER_DESTINATION"
@@ -183,6 +199,8 @@ install -o root -g root -m 0750 "$staging_dir/mrolescope-dictionary" "$DICTIONAR
 install -o root -g root -m 0750 "$staging_dir/mrolescope-release" "$RELEASE_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-ai-analysis" "$AI_ANALYSIS_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-operations" "$OPERATIONS_HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-cert-issue" "$CERT_ISSUE_HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-cert-renew" "$CERT_RENEW_HELPER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.service" "$SYNC_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-sync.timer" "$SYNC_TIMER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-analysis.service" "$ANALYSIS_SERVICE_DESTINATION"
@@ -194,6 +212,8 @@ install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-trial-prepare.servic
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-trial.service" "$AI_PLUS_TRIAL_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-expand.service" "$AI_PLUS_EXPAND_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-publish.service" "$AI_PLUS_PUBLISH_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-cert-renew.service" "$CERT_RENEW_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-cert-renew.timer" "$CERT_RENEW_TIMER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
 
 # Retire only the obsolete future-Flash service definition. This does not
@@ -215,4 +235,4 @@ systemctl daemon-reload
 printf '%s\n' 'mRoleScope remote-development deployment boundary is installed.'
 printf '%s\n' 'No application image was pulled and no runtime secret was created.'
 printf '%s\n' 'The daily sync timer is installed; bootstrap did not change its enabled or active state.'
-printf '%s\n' 'Next: ensure the labeled GitHub Actions runner and root-only runtime env file are ready.'
+printf '%s\n' 'Next: ensure the root-only runtime env file is ready; the web profile remains disabled until its manual gate is complete.'

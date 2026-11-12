@@ -34,6 +34,8 @@ services:
       APP_ENV: remote-development
       HTTP_ADDR: ":8080"
       DATABASE_URL: ${DATABASE_URL}
+      MROLESCOPE_INVITE_BCRYPT_HASH: ${MROLESCOPE_INVITE_BCRYPT_HASH:-}
+      MROLESCOPE_SESSION_SIGNING_SECRET: ${MROLESCOPE_SESSION_SIGNING_SECRET:-}
       COLLECTOR_TIMEOUT: "15m"
       ARCHIVE_LOCAL_DIR: /var/lib/mrolescope/archives
     depends_on:
@@ -52,15 +54,14 @@ services:
 
   # This profile remains deliberately disabled until the separate manual
   # domain/hosting gate is complete. Its configuration comes only from the
-  # root-owned runtime env file; the image itself carries no hostname, TLS key,
-  # or Basic-Auth hash.
+  # root-owned runtime env file; the image itself carries no hostname or TLS
+  # key. Invite/session secrets are supplied only to the private API.
   web-edge:
     image: ${MROLESCOPE_WEB_EDGE_IMAGE:-docker.io/library/mrolescope-web-edge-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}
     profiles: [web]
     restart: unless-stopped
     environment:
       MROLESCOPE_WEB_HOSTNAME: ${MROLESCOPE_WEB_HOSTNAME:-}
-      MROLESCOPE_WEB_AUTH_BCRYPT_HASH: ${MROLESCOPE_WEB_AUTH_BCRYPT_HASH:-}
     depends_on:
       api:
         condition: service_healthy

@@ -10,19 +10,15 @@ events {
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
-    access_log /dev/stdout;
+    log_format mrolescope '$remote_addr [$time_iso8601] "$request" $status $request_time';
+    access_log /dev/stdout mrolescope;
     sendfile on;
     server_tokens off;
 
-    # This small initial limit is deliberately enforced before static and API
-    # delivery. It bounds password guessing and accidental high-rate use while
-    # leaving a later identity-provider replacement at the same edge seam.
-    limit_req_zone $binary_remote_addr zone=mrolescope_viewer:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=mrolescope_verify:10m rate=5r/m;
+    limit_req_zone $binary_remote_addr zone=mrolescope_api:10m rate=10r/s;
     limit_req_status 429;
 
-    # An IP literal or an unrecognised Host must never fall through to the
-    # product application. On TLS, reject during the handshake; on HTTP, close
-    # without redirecting or serving an ACME/static/API resource.
     server {
         listen 80 default_server;
         server_name _;
@@ -60,28 +56,87 @@ http {
         ssl_session_cache shared:TLS:10m;
         ssl_session_timeout 10m;
 
-        # All HTTPS routes, including SPA assets and proxied data, authenticate
-        # before a file lookup or upstream request is attempted.
-        limit_req zone=mrolescope_viewer burst=20 nodelay;
-        auth_basic "mRoleScope private preview";
-        auth_basic_user_file /run/nginx/mrolescope.htpasswd;
-
         add_header Cache-Control "no-store" always;
-        add_header X-Content-Type-Options "nosniff" always;
+        add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+        add_header Permissions-Policy "camera=(), geolocation=(), microphone=()" always;
         add_header Referrer-Policy "same-origin" always;
+        add_header X-Content-Type-Options "nosniff" always;
         add_header X-Frame-Options "DENY" always;
 
-        location ^~ /api/ {
+        location = /access {
+            default_type text/html;
+            alias /usr/share/nginx/html/access/index.html;
+        }
+
+        location = /access/ {
+            return 301 /access;
+        }
+
+        location = /access/access.css {
+            default_type text/css;
+            alias /usr/share/nginx/html/access/access.css;
+        }
+
+        location = /access/access.js {
+            default_type application/javascript;
+            alias /usr/share/nginx/html/access/access.js;
+        }
+
+        location = /api/v1/access/verify {
+            limit_req zone=mrolescope_verify burst=2 nodelay;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto https;
             proxy_pass http://api:8080;
         }
 
+        location = /api/v1/access/check {
+            internal;
+            proxy_pass http://api:8080/api/v1/access/check;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Cookie $http_cookie;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+
+        location = /_mrolescope_auth {
+            internal;
+            proxy_pass http://api:8080/api/v1/access/check;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Cookie $http_cookie;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+
+        location ^~ /api/ {
+            limit_req zone=mrolescope_api burst=20 nodelay;
+            auth_request /_mrolescope_auth;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Cookie $http_cookie;
+            proxy_pass http://api:8080;
+        }
+
         location / {
+            auth_request /_mrolescope_auth;
+            error_page 401 = @mrolescope_access_redirect;
             root /usr/share/nginx/html;
             try_files $uri $uri/ /index.html;
+        }
+
+        location @mrolescope_access_redirect {
+            return 302 /access;
         }
     }
 }

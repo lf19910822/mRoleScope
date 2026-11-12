@@ -14,17 +14,19 @@ import (
 // Config holds settings supplied by the process environment. Secrets are never
 // committed and configuration files are deliberately not loaded implicitly.
 type Config struct {
-	Environment      string
-	HTTPAddress      string
-	DatabaseURL      string
-	CollectorPython  string
-	CollectorScript  string
-	CollectorTimeout time.Duration
-	ArchiveLocalDir  string
-	COS              COSConfig
-	SyncRetryDelays  []time.Duration
-	SyncTempRoot     string
-	SyncTimeout      time.Duration
+	Environment          string
+	HTTPAddress          string
+	DatabaseURL          string
+	InviteBcryptHash     string
+	SessionSigningSecret string
+	CollectorPython      string
+	CollectorScript      string
+	CollectorTimeout     time.Duration
+	ArchiveLocalDir      string
+	COS                  COSConfig
+	SyncRetryDelays      []time.Duration
+	SyncTempRoot         string
+	SyncTimeout          time.Duration
 }
 
 // COSConfig contains only runtime-supplied values. It is deliberately not
@@ -40,6 +42,7 @@ type COSConfig struct {
 }
 
 var bucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+var sessionSecretPattern = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 
 const maxSyncTimeout = 45 * time.Minute
 
@@ -58,13 +61,15 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		Environment:      valueOrDefault("APP_ENV", "development"),
-		HTTPAddress:      valueOrDefault("HTTP_ADDR", ":8080"),
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		CollectorPython:  valueOrDefault("COLLECTOR_PYTHON", "python3"),
-		CollectorScript:  valueOrDefault("COLLECTOR_SCRIPT", "collector/mihoyo_collector.py"),
-		CollectorTimeout: timeout,
-		ArchiveLocalDir:  valueOrDefault("ARCHIVE_LOCAL_DIR", "./var/archives"),
+		Environment:          valueOrDefault("APP_ENV", "development"),
+		HTTPAddress:          valueOrDefault("HTTP_ADDR", ":8080"),
+		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		InviteBcryptHash:     os.Getenv("MROLESCOPE_INVITE_BCRYPT_HASH"),
+		SessionSigningSecret: os.Getenv("MROLESCOPE_SESSION_SIGNING_SECRET"),
+		CollectorPython:      valueOrDefault("COLLECTOR_PYTHON", "python3"),
+		CollectorScript:      valueOrDefault("COLLECTOR_SCRIPT", "collector/mihoyo_collector.py"),
+		CollectorTimeout:     timeout,
+		ArchiveLocalDir:      valueOrDefault("ARCHIVE_LOCAL_DIR", "./var/archives"),
 		COS: COSConfig{
 			Endpoint:        os.Getenv("COS_ENDPOINT"),
 			Region:          os.Getenv("COS_REGION"),
@@ -81,6 +86,22 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+func (cfg Config) ValidateAccess() error {
+	if cfg.InviteBcryptHash == "" {
+		return fmt.Errorf("MROLESCOPE_INVITE_BCRYPT_HASH is required")
+	}
+	if cfg.SessionSigningSecret == "" {
+		return fmt.Errorf("MROLESCOPE_SESSION_SIGNING_SECRET is required")
+	}
+	if len(cfg.SessionSigningSecret) < 64 || !sessionSecretPattern.MatchString(cfg.SessionSigningSecret) {
+		return fmt.Errorf("MROLESCOPE_SESSION_SIGNING_SECRET must contain at least 32 bytes encoded as hexadecimal")
+	}
+	if len(cfg.InviteBcryptHash) < 59 || !strings.HasPrefix(cfg.InviteBcryptHash, "$2") {
+		return fmt.Errorf("MROLESCOPE_INVITE_BCRYPT_HASH must be a bcrypt hash")
+	}
+	return nil
 }
 
 // ValidateSync performs the stricter checks that only the worker needs. The

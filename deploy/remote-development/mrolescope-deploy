@@ -322,7 +322,7 @@ healthy_web_edge() {
     status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
       --max-time 3 --resolve "${MROLESCOPE_WEB_HOSTNAME}:443:127.0.0.1" \
       "https://${MROLESCOPE_WEB_HOSTNAME}/" 2>/dev/null || true)
-    if [[ "$status" == 401 ]]; then
+    if [[ "$status" == 302 ]]; then
       return 0
     fi
     sleep 2
@@ -344,7 +344,7 @@ rollback_web_edge() {
   local previous_web_edge="$1"
   [[ -n "$previous_web_edge" && "$previous_web_edge" != "$web_edge_image" ]] || return 1
 
-  log "new Web Edge did not become authentication-ready; restoring the previous verified Web Edge digest"
+  log "new Web Edge did not become invite-ready; restoring the previous verified Web Edge digest"
   export MROLESCOPE_WEB_EDGE_IMAGE="$previous_web_edge"
   compose --profile web up -d --no-deps web-edge
   healthy_web_edge
@@ -389,7 +389,7 @@ set -a
 # shellcheck disable=SC1090
 . "$SECRETS_FILE"
 set +a
-for required_value in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL; do
+for required_value in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL MROLESCOPE_INVITE_BCRYPT_HASH MROLESCOPE_SESSION_SIGNING_SECRET; do
   [[ -n "${!required_value:-}" ]] || die "required runtime configuration is missing"
 done
 
@@ -398,7 +398,7 @@ case "${MROLESCOPE_WEB_EDGE_ENABLED:-false}" in
     ;;
   true)
     web_edge_enabled=true
-    for required_value in MROLESCOPE_WEB_HOSTNAME MROLESCOPE_WEB_AUTH_BCRYPT_HASH; do
+    for required_value in MROLESCOPE_WEB_HOSTNAME; do
       [[ -n "${!required_value:-}" ]] || die "required Web Edge runtime configuration is missing"
     done
     ;;
@@ -455,7 +455,7 @@ if [[ "$web_edge_enabled" == true ]]; then
   phase="verify-web-edge"
   if ! healthy_web_edge; then
     rollback_web_edge "$previous_web_edge" || true
-    die 'the new Web Edge did not pass its local authentication boundary check'
+    die 'the new Web Edge did not pass its local invite boundary check'
   fi
 else
   # A missing/false manual gate is fail-closed: retain API and scheduled work

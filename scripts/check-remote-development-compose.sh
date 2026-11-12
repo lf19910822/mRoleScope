@@ -105,8 +105,9 @@ check_web_edge() {
     || die 'Web Edge may attach only to the ordinary edge network'
   grep -Fqx '      MROLESCOPE_WEB_HOSTNAME: ${MROLESCOPE_WEB_HOSTNAME:-}' <<<"$block" \
     || die 'Web Edge must receive its hostname only through root-owned runtime configuration'
-  grep -Fqx '      MROLESCOPE_WEB_AUTH_BCRYPT_HASH: ${MROLESCOPE_WEB_AUTH_BCRYPT_HASH:-}' <<<"$block" \
-    || die 'Web Edge must receive only a bcrypt hash through root-owned runtime configuration'
+  if grep -Eq 'MROLESCOPE_(INVITE_BCRYPT_HASH|SESSION_SIGNING_SECRET|WEB_AUTH_BCRYPT_HASH)' <<<"$block"; then
+    die 'Web Edge must not receive invite or session secrets'
+  fi
   grep -Fqx '    read_only: true' <<<"$block" \
     || die 'Web Edge root filesystem must remain read-only'
   grep -Fqx '      - no-new-privileges:true' <<<"$block" \

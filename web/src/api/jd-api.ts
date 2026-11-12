@@ -174,6 +174,13 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   try {
     const response = await fetch(path, { headers: { Accept: 'application/json' }, signal })
     if (!response.ok) {
+      if (
+        response.status === 401 &&
+        typeof window !== 'undefined' &&
+        window.location.pathname !== '/access'
+      ) {
+        window.location.assign('/access')
+      }
       throw new JDAPIError(`请求岗位数据失败（${response.status}）`, response.status)
     }
     return (await response.json()) as T

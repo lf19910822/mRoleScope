@@ -34,7 +34,7 @@ die() {
 
 mkdir -p "$temporary_dir/bin" "$temporary_dir/releases"
 printf '%s\n' 'services: {}' >"$temporary_dir/compose.yaml"
-printf 'POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=test\nDATABASE_URL=postgres://test:test@postgres/test\n' >"$temporary_dir/runtime.env"
+printf 'POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=test\nDATABASE_URL=postgres://test:test@postgres/test\nMROLESCOPE_INVITE_BCRYPT_HASH='"'"'\$2b\$05\$lU6JnhJzxffWpA4E/ips0uEq2FHVSvClisOk.iZC5QrLSaeIYb3BW'"'"'\nMROLESCOPE_SESSION_SIGNING_SECRET='"'"'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"'"'\n' >"$temporary_dir/runtime.env"
 printf 'DOCKERHUB_NAMESPACE=%s\n' "$namespace" >"$temporary_dir/deploy.conf"
 printf 'api_image=%s\nmigrate_image=%s\nworker_image=%s\nweb_edge_image=%s\nrevision=%s\nverified_at=2026-11-06T00:00:00Z\n' \
   "$previous_api" "$previous_migrate" "$previous_worker" "$previous_web_edge" "$revision" \

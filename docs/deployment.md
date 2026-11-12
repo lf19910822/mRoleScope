@@ -6,7 +6,7 @@
 
 在用户个人账号下的一台云主机运行 Go API 和 PostgreSQL；迁移作为一次性容器任务运行。API 和 PostgreSQL 都不发布宿主机端口，后者仅在私有 Docker `backend` 网络中可达。worker 是不发布端口的、按需 profile 服务：它通过普通 Docker `edge` 网络仅作米哈游/COS HTTPS 出站，并通过内部网络访问 PostgreSQL。同步 timer 默认保持禁用，需先完成一次人工初始化验收；具体操作以[同步任务运行指导](../Docs/同步任务/同步任务运行指导.md)为准。
 
-已实现但默认关闭的 `web-edge` profile 是唯一可发布 `80/443` 的服务。它以批准域名终止 TLS、以 HTTP Basic Auth 与限流保护 Vue 页面及同源 `/api/`，并将 API 保持在 Docker 内网。域名、备案／适用托管手续与最终发布批准尚未完成时，运行配置必须保持 `MROLESCOPE_WEB_EDGE_ENABLED=false`；现行详细门槛与回滚步骤见 [JD 浏览器安全发布运行指导](../Docs/开发指导/图表搭建_01/JD浏览器安全发布运行指导.md)。
+已实现但默认关闭的 `web-edge` profile 是唯一可发布 `80/443` 的服务。它以批准域名终止 TLS、以共享邀请码和限流保护 Vue 页面及同源 `/api/`，并将 API 保持在 Docker 内网。域名、备案／适用托管手续与最终发布批准尚未完成时，运行配置必须保持 `MROLESCOPE_WEB_EDGE_ENABLED=false`；现行详细门槛与回滚步骤见 [JD 浏览器安全发布运行指导](../Docs/开发指导/图表搭建_01/JD浏览器安全发布运行指导.md)。
 
 ## 预算与选择门槛
 
@@ -16,7 +16,14 @@
 
 1. 用户确认腾讯云上海地域、实际报价和个人付款方式。
 2. 在受保护 `main` 合入远端部署资产后，以固定 commit SHA bootstrap CVM；不从 IDE 或 SSH 复制业务源码。
-3. 注册非登录的专用 runner；部署仅拉取固定的公开 Docker Hub digest，并通过腾讯云 Docker Hub 镜像加速器获取。Docker Hub 写入 Token 仅保存在 GitHub Actions Secret，禁止提交 `.env` 或向浏览器下发存储/数据库凭据。
+3. 使用本机自主镜像发布链；部署仅拉取固定的公开 Docker Hub digest，并通过腾讯云 Docker Hub 镜像加速器获取。Docker Hub Token 只在操作者本机交互登录，禁止提交 `.env` 或向浏览器下发存储/数据库凭据。
 4. 确认无公网 `5432`、`8080`。在域名、TLS、访问控制和适用托管前置手续全部完成前，`80/443` 也必须保持关闭；随后仅 Web Edge 可发布这两个端口。
 5. 先使用离线 fixture 验收迁移、`/healthz`、`/readyz` 与发布记录；配置私有 COS 后，按照同步任务运行指导执行一次明确的初始化采集。
 6. 仅在 COS、数据库和审计记录都通过人工核验后启用每日 timer；微信告警仍是后续能力。
+
+## 公网开放补充
+
+- 首次开放前，运行配置必须包含 `MROLESCOPE_WEB_HOSTNAME`、邀请码 bcrypt 哈希和会话签名材料，且文件为 root:root `0600`；邀请码明文只在受控终端输入和分发。
+- 使用 `/usr/local/sbin/mrolescope-cert-issue` 完成 Let's Encrypt HTTP-01 首次签发，再由 `/usr/local/sbin/mrolescope-cert-renew.timer` 持续续期；失败不覆盖上一张可用证书。
+- 匿名面仅包含 `/access`、其两个专用静态资源和 `/api/v1/access/verify`；业务页面与 API 未验证时不返回业务数据。
+- 首次体验验证使用 `bash scripts/check-web-edge-smoke.sh mrolescope.com`，脚本交互读取邀请码，不把邀请码作为参数、URL、日志或发布记录。
