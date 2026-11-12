@@ -6,6 +6,7 @@ set -euo pipefail
 
 readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
 readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly CURRENT_RELEASE_FILE='/var/lib/mrolescope/releases/current.env'
 readonly TLS_DIR='/etc/mrolescope/tls'
 readonly ACME_STATE_DIR='/var/lib/mrolescope/acme'
 readonly CERTBOT_CONFIG_DIR="${ACME_STATE_DIR}/certbot"
@@ -25,6 +26,17 @@ require_root_files() {
   [[ -d "$TLS_DIR" && "$(stat -c '%U:%G:%a' "$TLS_DIR")" == 'root:root:700' ]] || fail 'TLS directory must be root:root mode 0700'
   # shellcheck disable=SC1090
   . "$SECRETS_FILE"
+  [[ -f "$CURRENT_RELEASE_FILE" && ! -L "$CURRENT_RELEASE_FILE" ]] || fail 'current release record is missing'
+  [[ "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE_FILE")" == 'root:root:600' ]] || fail 'current release record must be root:root mode 0600'
+  # shellcheck disable=SC1090
+  . "$CURRENT_RELEASE_FILE"
+  export MROLESCOPE_API_IMAGE="${api_image:-}"
+  export MROLESCOPE_MIGRATE_IMAGE="${migrate_image:-}"
+  export MROLESCOPE_WORKER_IMAGE="${worker_image:-}"
+  export MROLESCOPE_WEB_EDGE_IMAGE="${web_edge_image:-}"
+  for image_variable in MROLESCOPE_API_IMAGE MROLESCOPE_MIGRATE_IMAGE MROLESCOPE_WORKER_IMAGE MROLESCOPE_WEB_EDGE_IMAGE; do
+    [[ -n "${!image_variable}" ]] || fail 'current release image references are incomplete'
+  done
   hostname="${MROLESCOPE_WEB_HOSTNAME:-}"
   printf '%s' "$hostname" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' \
     || fail 'MROLESCOPE_WEB_HOSTNAME is invalid'
