@@ -2,15 +2,27 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"mrolescope/internal/access"
 	"mrolescope/internal/jdserving"
+)
+
+const (
+	accessCookieName               = "mrolescope_access"
+	accessVerificationFailureLimit = 5
+	accessVerificationWindow       = time.Minute
 )
 
 // ReadinessChecker is intentionally narrow so route tests do not need a live database.
@@ -71,12 +83,28 @@ type Router struct {
 	jdList             JDListReader
 	jdDrilldown        JDTrendDrilldownReader
 	jdTrend            JDTrendReader
+	access             *access.Service
+	verificationLimits *verificationLimiter
 }
 
 func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
+	return newRouter(readiness, nil, readers...)
+}
+
+func NewWithAccess(readiness ReadinessChecker, accessService *access.Service, readers ...JDListReader) *gin.Engine {
+	return newRouter(readiness, accessService, readers...)
+}
+
+func newRouter(readiness ReadinessChecker, accessService *access.Service, readers ...JDListReader) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
-	server := Router{readiness: readiness}
+	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		return fmt.Sprintf("method=%s path=%s status=%d latency=%s\n", param.Method, param.Path, param.StatusCode, param.Latency)
+	}), gin.Recovery())
+	server := Router{
+		readiness:          readiness,
+		access:             accessService,
+		verificationLimits: newVerificationLimiter(),
+	}
 	if len(readers) > 0 {
 		server.jdList = readers[0]
 		server.jdDetail, _ = readers[0].(JDDetailReader)
@@ -88,15 +116,139 @@ func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
 	}
 	router.GET("/healthz", server.health)
 	router.GET("/readyz", server.ready)
-	router.GET("/api/v1/jobs", server.listJobs)
-	router.GET("/api/v1/jobs/filter-options", server.filterOptions)
-	router.GET("/api/v1/jobs/:id", server.jobDetail)
-	router.GET("/api/v1/jobs/:id/detail", server.jobDetail)
-	router.GET("/api/v1/jobs/:id/history", server.jobHistory)
-	router.GET("/api/v1/jobs/:id/history/detail", server.jobHistoryDetail)
-	router.GET("/api/v1/job-trends", server.jobTrend)
-	router.GET("/api/v1/job-trends/drilldown", server.jobTrendDrilldown)
+	router.POST("/api/v1/access/verify", server.verifyAccess)
+	router.GET("/api/v1/access/check", server.checkAccess)
+	business := router.Group("/api/v1", server.requireAccess)
+	business.GET("/jobs", server.listJobs)
+	business.GET("/jobs/filter-options", server.filterOptions)
+	business.GET("/jobs/:id", server.jobDetail)
+	business.GET("/jobs/:id/detail", server.jobDetail)
+	business.GET("/jobs/:id/history", server.jobHistory)
+	business.GET("/jobs/:id/history/detail", server.jobHistoryDetail)
+	business.GET("/job-trends", server.jobTrend)
+	business.GET("/job-trends/drilldown", server.jobTrendDrilldown)
 	return router
+}
+
+type verificationLimiter struct {
+	mu      sync.Mutex
+	entries map[string]verificationLimitEntry
+}
+
+type verificationLimitEntry struct {
+	started time.Time
+	failed  int
+}
+
+func newVerificationLimiter() *verificationLimiter {
+	return &verificationLimiter{entries: make(map[string]verificationLimitEntry)}
+}
+
+func (limiter *verificationLimiter) allow(address string, now time.Time) bool {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	entry := limiter.entries[address]
+	if entry.started.IsZero() || now.Sub(entry.started) >= accessVerificationWindow {
+		limiter.entries[address] = verificationLimitEntry{started: now}
+		return true
+	}
+	return entry.failed < accessVerificationFailureLimit
+}
+
+func (limiter *verificationLimiter) recordFailure(address string, now time.Time) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	entry := limiter.entries[address]
+	if entry.started.IsZero() || now.Sub(entry.started) >= accessVerificationWindow {
+		entry = verificationLimitEntry{started: now}
+	}
+	entry.failed++
+	limiter.entries[address] = entry
+}
+
+func requestSource(context *gin.Context) string {
+	if realIP := strings.TrimSpace(context.GetHeader("X-Real-IP")); realIP != "" {
+		return realIP
+	}
+	address, _, err := net.SplitHostPort(context.Request.RemoteAddr)
+	if err == nil && address != "" {
+		return address
+	}
+	if context.Request.RemoteAddr == "" {
+		return "unknown"
+	}
+	return context.Request.RemoteAddr
+}
+
+func (r Router) verifyAccess(context *gin.Context) {
+	context.Header("Cache-Control", "no-store")
+	if r.access == nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	source := requestSource(context)
+	now := time.Now()
+	if !r.verificationLimits.allow(source, now) {
+		context.JSON(http.StatusTooManyRequests, gin.H{"error": "rate_limited"})
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 512)
+	var request struct {
+		InviteCode string `json:"invite_code"`
+	}
+	decoder := json.NewDecoder(context.Request.Body)
+	if err := decoder.Decode(&request); err != nil || strings.TrimSpace(request.InviteCode) == "" {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+	token, err := r.access.Issue(request.InviteCode)
+	if err != nil {
+		r.verificationLimits.recordFailure(source, now)
+		context.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_invite"})
+		return
+	}
+	http.SetCookie(context.Writer, &http.Cookie{
+		Name:     accessCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(access.SessionLifetime / time.Second),
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	context.Status(http.StatusNoContent)
+}
+
+func (r Router) checkAccess(context *gin.Context) {
+	context.Header("Cache-Control", "no-store")
+	if r.access == nil {
+		context.Status(http.StatusNoContent)
+		return
+	}
+	cookie, err := context.Request.Cookie(accessCookieName)
+	if err != nil || r.access.Validate(cookie.Value) != nil {
+		context.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	context.Status(http.StatusNoContent)
+}
+
+func (r Router) requireAccess(context *gin.Context) {
+	if r.access == nil {
+		context.Next()
+		return
+	}
+	cookie, err := context.Request.Cookie(accessCookieName)
+	if err != nil || r.access.Validate(cookie.Value) != nil {
+		context.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		context.Abort()
+		return
+	}
+	context.Next()
 }
 
 func (r Router) jobHistory(context *gin.Context) {

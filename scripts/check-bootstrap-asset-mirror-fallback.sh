@@ -67,6 +67,11 @@ set -euo pipefail
 [[ "$#" -eq 2 && "$1" == compose && "$2" == version ]]
 MOCK
 
+cat >"$mock_bin/certbot" <<'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+
 cat >"$mock_bin/getent" <<'MOCK'
 #!/usr/bin/env bash
 exit 0

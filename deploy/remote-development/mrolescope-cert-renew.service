@@ -1,0 +1,16 @@
+[Unit]
+Description=mRoleScope Let's Encrypt certificate renewal
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mrolescope-cert-renew renew
+TimeoutStartSec=15m
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/mrolescope/tls /var/lib/mrolescope/acme /var/lib/mrolescope/acme-challenge

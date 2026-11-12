@@ -28,7 +28,7 @@ die() {
 
 mkdir -p "$temporary_dir/bin" "$temporary_dir/releases"
 printf '%s\n' 'services: {}' >"$temporary_dir/compose.yaml"
-printf 'POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=test\nDATABASE_URL=postgres://test:test@postgres/test\n' >"$temporary_dir/runtime.env"
+printf 'POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=test\nDATABASE_URL=postgres://test:test@postgres/test\nMROLESCOPE_INVITE_BCRYPT_HASH='"'"'\$2b\$05\$lU6JnhJzxffWpA4E/ips0uEq2FHVSvClisOk.iZC5QrLSaeIYb3BW'"'"'\nMROLESCOPE_SESSION_SIGNING_SECRET='"'"'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"'"'\n' >"$temporary_dir/runtime.env"
 printf 'DOCKERHUB_NAMESPACE=%s\n' "$namespace" >"$temporary_dir/deploy.conf"
 chmod 0644 "$temporary_dir/compose.yaml" "$temporary_dir/deploy.conf"
 chmod 0600 "$temporary_dir/runtime.env"
@@ -64,7 +64,7 @@ cat >"$temporary_dir/bin/curl" <<MOCK
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "\${MROLESCOPE_WEB_EDGE_IMAGE:-}" == '$web_edge_image' ]]; then
-  printf '%s' 401
+  printf '%s' 302
 else
   printf '%s' 000
 fi
@@ -115,10 +115,10 @@ grep -Fqx "web_edge_image=${web_edge_image}" "$temporary_dir/releases/current.en
   || die 'successful release did not record its Web Edge digest'
 
 # With the manual gate enabled, a failed new Edge must restore only the prior
-# verified Edge digest. The mocked curl returns 000 for the candidate then 401
+# verified Edge digest. The mocked curl returns 000 for the candidate then 302
 # for the former digest, so this tests the independent rollback path without a
 # real listener or hostname.
-printf 'POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=test\nDATABASE_URL=postgres://test:test@postgres/test\nMROLESCOPE_WEB_EDGE_ENABLED=true\nMROLESCOPE_WEB_HOSTNAME=jobs.example.test\nMROLESCOPE_WEB_AUTH_BCRYPT_HASH='"'"'\$2b\$05\$lU6JnhJzxffWpA4E/ips0uEq2FHVSvClisOk.iZC5QrLSaeIYb3BW'"'"'\n' >"$temporary_dir/runtime.env"
+printf 'POSTGRES_DB=test\nPOSTGRES_USER=test\nPOSTGRES_PASSWORD=test\nDATABASE_URL=postgres://test:test@postgres/test\nMROLESCOPE_WEB_EDGE_ENABLED=true\nMROLESCOPE_WEB_HOSTNAME=jobs.example.test\nMROLESCOPE_INVITE_BCRYPT_HASH='"'"'\$2b\$05\$lU6JnhJzxffWpA4E/ips0uEq2FHVSvClisOk.iZC5QrLSaeIYb3BW'"'"'\nMROLESCOPE_SESSION_SIGNING_SECRET='"'"'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"'"'\n' >"$temporary_dir/runtime.env"
 chmod 0600 "$temporary_dir/runtime.env"
 : >"$MROLESCOPE_TEST_DOCKER_LOG"
 if run_helper "$api_image" "$migrate_image" "$worker_image" "$replacement_web_edge_image" >"$temporary_dir/rollback.log" 2>&1; then

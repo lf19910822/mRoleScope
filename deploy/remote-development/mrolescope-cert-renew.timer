@@ -1,0 +1,11 @@
+[Unit]
+Description=Run mRoleScope certificate renewal checks daily
+
+[Timer]
+OnCalendar=*-*-* 03:17:00 Asia/Shanghai
+RandomizedDelaySec=30m
+Persistent=true
+Unit=mrolescope-cert-renew.service
+
+[Install]
+WantedBy=timers.target

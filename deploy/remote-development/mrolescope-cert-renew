@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Root-controlled certificate renewal and Web Edge reload. The only output is
+# aggregate status; certificate and runtime secret values are never printed.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly TLS_DIR='/etc/mrolescope/tls'
+readonly ACME_STATE_DIR='/var/lib/mrolescope/acme'
+readonly CERTBOT_CONFIG_DIR="${ACME_STATE_DIR}/certbot"
+readonly ACME_CHALLENGE_DIR='/var/lib/mrolescope/acme-challenge'
+readonly PROJECT_NAME='mrolescope-remote-development'
+readonly RENEWAL_WINDOW_SECONDS=$((14 * 24 * 60 * 60))
+
+fail() {
+  printf 'mRoleScope certificate renewal failed: %s\n' "$1" >&2
+  exit 1
+}
+
+require_root_files() {
+  [[ "${EUID}" -eq 0 ]] || fail 'run as root'
+  [[ -f "$SECRETS_FILE" ]] || fail 'runtime configuration is missing'
+  [[ "$(stat -c '%U:%G:%a' "$SECRETS_FILE")" == 'root:root:600' ]] || fail 'runtime configuration must be root:root mode 0600'
+  [[ -d "$TLS_DIR" && "$(stat -c '%U:%G:%a' "$TLS_DIR")" == 'root:root:700' ]] || fail 'TLS directory must be root:root mode 0700'
+  # shellcheck disable=SC1090
+  . "$SECRETS_FILE"
+  hostname="${MROLESCOPE_WEB_HOSTNAME:-}"
+  printf '%s' "$hostname" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' \
+    || fail 'MROLESCOPE_WEB_HOSTNAME is invalid'
+}
+
+install_renewed() {
+  local lineage="${RENEWED_LINEAGE:-}" staging backup_dir
+  [[ -n "$lineage" && -d "$lineage" ]] || fail 'certbot did not provide a renewed lineage'
+  [[ -s "$lineage/fullchain.pem" && -s "$lineage/privkey.pem" ]] || fail 'renewed certificate files are incomplete'
+  openssl x509 -in "$lineage/fullchain.pem" -noout -checkend "$RENEWAL_WINDOW_SECONDS" >/dev/null \
+    || fail 'renewed certificate does not pass the expiry check'
+
+  staging="$TLS_DIR/.renewed.$$"
+  backup_dir="$TLS_DIR/.previous.$$"
+  rm -rf -- "$staging" "$backup_dir"
+  mkdir -p "$staging" "$backup_dir"
+  trap 'rm -rf -- "$staging" "$backup_dir"' RETURN
+  install -o root -g root -m 0644 "$lineage/fullchain.pem" "$staging/fullchain.pem"
+  install -o root -g root -m 0600 "$lineage/privkey.pem" "$staging/privkey.pem"
+  cp -p "$TLS_DIR/fullchain.pem" "$backup_dir/fullchain.pem"
+  cp -p "$TLS_DIR/privkey.pem" "$backup_dir/privkey.pem"
+  mv -f -- "$staging/fullchain.pem" "$TLS_DIR/fullchain.pem"
+  mv -f -- "$staging/privkey.pem" "$TLS_DIR/privkey.pem"
+
+  if ! docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$SECRETS_FILE" --profile web exec -T web-edge nginx -t -c /run/nginx/mrolescope.conf >/dev/null 2>&1 \
+    || ! docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$SECRETS_FILE" --profile web exec -T web-edge nginx -s reload >/dev/null 2>&1; then
+    mv -f -- "$backup_dir/fullchain.pem" "$TLS_DIR/fullchain.pem"
+    mv -f -- "$backup_dir/privkey.pem" "$TLS_DIR/privkey.pem"
+    docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$SECRETS_FILE" --profile web exec -T web-edge nginx -s reload >/dev/null 2>&1 || true
+    fail 'Web Edge rejected the renewed certificate; previous certificate restored'
+  fi
+  rm -rf -- "$staging" "$backup_dir"
+  trap - RETURN
+}
+
+check_expiry() {
+  [[ -s "$TLS_DIR/fullchain.pem" ]] || fail 'installed certificate is missing'
+  openssl x509 -in "$TLS_DIR/fullchain.pem" -noout -checkend "$RENEWAL_WINDOW_SECONDS" >/dev/null \
+    || fail 'installed certificate expires within the renewal window'
+}
+
+require_root_files
+command -v certbot >/dev/null 2>&1 || fail 'certbot is not installed'
+command -v docker >/dev/null 2>&1 || fail 'docker is not installed'
+mkdir -p "$ACME_CHALLENGE_DIR" "$ACME_STATE_DIR"
+chmod 0700 "$ACME_STATE_DIR"
+chmod 0755 "$ACME_CHALLENGE_DIR"
+
+case "${1:-renew}" in
+  renew)
+    certbot renew \
+      --non-interactive \
+      --config-dir "$CERTBOT_CONFIG_DIR" \
+      --work-dir "$ACME_STATE_DIR/work" \
+      --logs-dir "$ACME_STATE_DIR/logs" \
+      --webroot \
+      --webroot-path "$ACME_CHALLENGE_DIR" \
+      --deploy-hook '/usr/local/sbin/mrolescope-cert-renew install'
+    check_expiry
+    ;;
+  install)
+    install_renewed
+    check_expiry
+    ;;
+  check)
+    check_expiry
+    ;;
+  *)
+    fail 'usage: mrolescope-cert-renew [renew|install|check]'
+    ;;
+esac
+printf '%s\n' 'Certificate renewal check passed.'

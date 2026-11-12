@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"mrolescope/internal/access"
 	"mrolescope/internal/config"
 	"mrolescope/internal/httpserver"
 	"mrolescope/internal/jdserving"
@@ -21,6 +22,10 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+	if err := cfg.ValidateAccess(); err != nil {
+		slog.Error("invalid access configuration", "error", err)
 		os.Exit(1)
 	}
 
@@ -38,9 +43,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	accessService, err := access.New(access.Config{
+		InviteBcryptHash:     cfg.InviteBcryptHash,
+		SessionSigningSecret: cfg.SessionSigningSecret,
+	})
+	if err != nil {
+		slog.Error("invalid access configuration", "error", err)
+		os.Exit(1)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpserver.New(pool, jdserving.NewRepositoryFromPool(pool)),
+		Handler:           httpserver.NewWithAccess(pool, accessService, jdserving.NewRepositoryFromPool(pool)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

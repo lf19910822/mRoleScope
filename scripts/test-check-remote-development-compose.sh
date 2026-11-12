@@ -86,10 +86,10 @@ sed -i '/^  web-edge:/,/^  worker:/ s/    profiles: \[web\]/    profiles: [sync]
   "$temporary_dir/web-edge-unprofiled.yaml"
 expect_rejected web-edge-unprofiled "$temporary_dir/web-edge-unprofiled.yaml"
 
-cp "$source_compose" "$temporary_dir/web-edge-without-hash.yaml"
-sed -i '/^  web-edge:/,/^  worker:/ { /^      MROLESCOPE_WEB_AUTH_BCRYPT_HASH:/d; }' \
-  "$temporary_dir/web-edge-without-hash.yaml"
-expect_rejected web-edge-without-hash "$temporary_dir/web-edge-without-hash.yaml"
+cp "$source_compose" "$temporary_dir/web-edge-without-hostname.yaml"
+sed -i '/^  web-edge:/,/^  worker:/ { /^      MROLESCOPE_WEB_HOSTNAME:/d; }' \
+  "$temporary_dir/web-edge-without-hostname.yaml"
+expect_rejected web-edge-without-hostname "$temporary_dir/web-edge-without-hostname.yaml"
 
 cp "$source_compose" "$temporary_dir/api-host-port.yaml"
 sed -i '/^  worker:/i\    ports:\n      - "127.0.0.1:8080:8080"' \

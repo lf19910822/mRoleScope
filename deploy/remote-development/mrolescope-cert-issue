@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Root-only first certificate issuance. Web Edge stays stopped until the
+# certificate is installed and the operator explicitly enables the web gate.
+
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly TLS_DIR='/etc/mrolescope/tls'
+readonly ACME_STATE_DIR='/var/lib/mrolescope/acme'
+readonly CERTBOT_CONFIG_DIR="${ACME_STATE_DIR}/certbot"
+readonly ACME_CHALLENGE_DIR='/var/lib/mrolescope/acme-challenge'
+readonly PROJECT_NAME='mrolescope-remote-development'
+
+fail() {
+  printf 'mRoleScope certificate issuance failed: %s\n' "$1" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail 'run as root'
+[[ "$#" -eq 0 ]] || fail 'the hostname is read from the root-owned runtime configuration'
+[[ -f "$SECRETS_FILE" ]] || fail 'runtime configuration is missing'
+[[ "$(stat -c '%U:%G:%a' "$SECRETS_FILE")" == 'root:root:600' ]] || fail 'runtime configuration must be root:root mode 0600'
+# shellcheck disable=SC1090
+. "$SECRETS_FILE"
+hostname="${MROLESCOPE_WEB_HOSTNAME:-}"
+printf '%s' "$hostname" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' \
+  || fail 'MROLESCOPE_WEB_HOSTNAME is invalid'
+command -v certbot >/dev/null 2>&1 || fail 'certbot is not installed'
+command -v docker >/dev/null 2>&1 || fail 'docker is not installed'
+command -v install >/dev/null 2>&1 || fail 'install is required'
+
+mkdir -p "$TLS_DIR" "$ACME_STATE_DIR" "$ACME_CHALLENGE_DIR"
+chmod 0700 "$ACME_STATE_DIR" "$TLS_DIR"
+chmod 0755 "$ACME_CHALLENGE_DIR"
+
+if docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$SECRETS_FILE" --profile web ps -q web-edge | grep -q .; then
+  docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$SECRETS_FILE" --profile web stop web-edge >/dev/null
+fi
+if ss -H -ltn '( sport = :80 )' 2>/dev/null | grep -q .; then
+  fail 'TCP port 80 is still occupied; Web Edge and other listeners must be stopped before standalone issuance'
+fi
+
+certbot certonly \
+  --standalone \
+  --preferred-challenges http \
+  --http-01-port 80 \
+  --config-dir "$CERTBOT_CONFIG_DIR" \
+  --work-dir "$ACME_STATE_DIR/work" \
+  --logs-dir "$ACME_STATE_DIR/logs" \
+  --non-interactive \
+  --agree-tos \
+  --register-unsafely-without-email \
+  --keep-until-expiring \
+  --domain "$hostname"
+
+lineage="$CERTBOT_CONFIG_DIR/live/$hostname"
+[[ -s "$lineage/fullchain.pem" && -s "$lineage/privkey.pem" ]] || fail 'certbot did not produce a complete certificate'
+openssl x509 -in "$lineage/fullchain.pem" -noout -checkend 604800 >/dev/null \
+  || fail 'the issued certificate expires too soon'
+
+staging="$TLS_DIR/.initial.$$"
+rm -rf -- "$staging"
+mkdir -p "$staging"
+trap 'rm -rf -- "$staging"' EXIT
+install -o root -g root -m 0644 "$lineage/fullchain.pem" "$staging/fullchain.pem"
+install -o root -g root -m 0600 "$lineage/privkey.pem" "$staging/privkey.pem"
+mv -f -- "$staging/fullchain.pem" "$TLS_DIR/fullchain.pem"
+mv -f -- "$staging/privkey.pem" "$TLS_DIR/privkey.pem"
+rmdir "$staging"
+trap - EXIT
+printf '%s\n' 'Initial certificate installed; Web Edge remains stopped until the release gate is enabled.'

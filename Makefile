@@ -42,6 +42,8 @@ api:
 
 deploy-config-check:
 	bash -n deploy/remote-development/bootstrap.sh \
+		deploy/remote-development/mrolescope-cert-issue \
+		deploy/remote-development/mrolescope-cert-renew \
 	deploy/remote-development/mrolescope-deploy \
 		deploy/remote-development/mrolescope-operations \
 		deploy/remote-development/mrolescope-sync \
@@ -54,6 +56,8 @@ deploy-config-check:
 	bash scripts/check-remote-development-analysis-release.sh deploy/remote-development/mrolescope-analysis
 	bash scripts/check-remote-development-backfill-release.sh deploy/remote-development/mrolescope-backfill-versioned-content
 	bash scripts/check-bootstrap-asset-mirror-fallback.sh deploy/remote-development/bootstrap.sh
+	bash scripts/test-mrolescope-cert-operations.sh
+	bash scripts/check-public-preview-release.sh
 	bash scripts/check-remote-development-dictionary-release.sh
 	bash scripts/check-remote-development-release-lifecycle.sh
 	bash scripts/test-check-remote-development-ai-analysis.sh
@@ -74,6 +78,8 @@ deploy-config-check:
 		POSTGRES_USER=mrolescope_verify \
 		POSTGRES_PASSWORD=not-a-real-password \
 		DATABASE_URL='postgres://mrolescope_verify:not-a-real-password@postgres:5432/mrolescope_verify?sslmode=disable' \
+		MROLESCOPE_INVITE_BCRYPT_HASH='\$$2b\$$04\$$C6UzMDM.H6dfI/f/IKcEe.2Jp3P3XwD1d5W3hQ5QJ6GQq8H0nT0mK' \
+		MROLESCOPE_SESSION_SIGNING_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 		COS_ENDPOINT=https://cos.ap-shanghai.myqcloud.com \
 		COS_REGION=ap-shanghai \
 		COS_BUCKET=mrolescope-1234567890 \
