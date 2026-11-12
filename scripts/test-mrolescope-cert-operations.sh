@@ -24,8 +24,10 @@ grep -Fqx '  --standalone \' "$issue" || die 'initial issuance must use Certbot 
 grep -Fqx '  --http-01-port 80 \' "$issue" || die 'initial issuance must reserve TCP 80'
 grep -Fq 'stop web-edge' "$issue" || die 'initial issuance must stop Web Edge first'
 grep -Fq 'MROLESCOPE_WEB_HOSTNAME' "$issue" || die 'initial issuance must use the approved runtime hostname'
+grep -Fq 'CURRENT_RELEASE_FILE' "$issue" || die 'initial issuance must load the current release image record'
 grep -Fq -- '--webroot' "$renew" || die 'renewal must use Certbot webroot mode'
 grep -Fq -- '--webroot-path "$ACME_CHALLENGE_DIR"' "$renew" || die 'renewal must use the fixed challenge directory'
+grep -Fq 'CURRENT_RELEASE_FILE' "$renew" || die 'renewal must load the current release image record'
 grep -Fq 'previous certificate restored' "$renew" || die 'renewal must describe the fallback path'
 grep -Fq 'nginx -s reload' "$renew" || die 'renewal must reload Web Edge after replacement'
 grep -Fq 'ReadWritePaths=/etc/mrolescope/tls /var/lib/mrolescope/acme /var/lib/mrolescope/acme-challenge' "$service" \
