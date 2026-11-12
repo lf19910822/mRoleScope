@@ -16,6 +16,7 @@ The implementation must keep PostgreSQL on the Compose `backend` network and the
 - Replace Basic Auth while preserving existing same-origin browser API paths and private service topology.
 - Provide a root-controlled Let's Encrypt HTTP-01 lifecycle with safe initial issuance, renewal, reload, expiry checks, and rollback.
 - Make real-experience validation observable through latency/status/error/rate-limit signals without recording JD content or viewer behavior.
+- Keep the post-verification browser transition responsive by compressing and privately caching immutable hashed SPA assets, while leaving the invite page, verification endpoint, redirects, and business APIs non-cacheable.
 
 **Non-Goals:**
 

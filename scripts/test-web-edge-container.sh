@@ -113,6 +113,7 @@ access_page="$(curl --insecure --silent --show-error --include --max-time 5 \
   "https://${hostname}:${https_port}/access")"
 grep -Eq '^HTTP/1\.[01] 200 ' <<<"$access_page" || die 'invite page was not served anonymously'
 grep -Fq '输入邀请码' <<<"$access_page" || die 'invite page content was not served'
+grep -Fqi 'Cache-Control: no-store' <<<"$access_page" || die 'invite page was cacheable'
 
 access_css="$(curl --insecure --silent --show-error --include --max-time 5 \
   --resolve "${hostname}:${https_port}:127.0.0.1" \
@@ -123,6 +124,8 @@ business_asset="$(curl --insecure --silent --show-error --include --max-time 5 \
   --resolve "${hostname}:${https_port}:127.0.0.1" \
   "https://${hostname}:${https_port}/assets/business.js")"
 grep -Eq '^HTTP/1\.[01] 302 ' <<<"$business_asset" || die 'anonymous business asset was not redirected'
+grep -Fqi 'Cache-Control: no-store' <<<"$business_asset" \
+  || die 'anonymous business asset redirect was cacheable'
 
 unauthenticated_root="$(curl --insecure --silent --show-error --include --max-time 5 \
   --resolve "${hostname}:${https_port}:127.0.0.1" \
@@ -156,6 +159,18 @@ authorized_root="$(curl --insecure --silent --show-error --include --max-time 5 
   --resolve "${hostname}:${https_port}:127.0.0.1" --cookie "$temporary_dir/cookies.txt" \
   "https://${hostname}:${https_port}/")"
 grep -Eq '^HTTP/1\.[01] 200 ' <<<"$authorized_root" || die 'authorized root was not served'
+business_asset_path="$(sed -nE 's/.*src="([^" ]*\/assets\/[^" ]+\.js)".*/\1/p' <<<"$authorized_root" | head -n 1)"
+[[ -n "$business_asset_path" ]] || die 'authorized root did not reference a business JavaScript asset'
+authorized_asset_headers="$(curl --insecure --silent --show-error --output /dev/null --max-time 5 \
+  --dump-header - \
+  --header 'Accept-Encoding: gzip' \
+  --resolve "${hostname}:${https_port}:127.0.0.1" --cookie "$temporary_dir/cookies.txt" \
+  "https://${hostname}:${https_port}${business_asset_path}")"
+grep -Eq '^HTTP/1\.[01] 200 ' <<<"$authorized_asset_headers" || die 'authorized business asset was not served'
+grep -Eiq '^Content-Encoding: gzip' <<<"$authorized_asset_headers" \
+  || die "business asset was not gzip compressed: ${authorized_asset_headers//$'\n'/; }"
+grep -Fqi 'Cache-Control: private, max-age=31536000, immutable' <<<"$authorized_asset_headers" \
+  || die "business asset did not receive immutable cache headers: ${authorized_asset_headers//$'\n'/; }"
 
 authorized_api="$(curl --insecure --silent --show-error --include --max-time 5 \
   --resolve "${hostname}:${https_port}:127.0.0.1" --cookie "$temporary_dir/cookies.txt" \

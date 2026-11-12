@@ -20,6 +20,7 @@
 - [x] 3.2 Configure secure response headers, cookie forwarding, per-source verification/API rate limits, and non-permissive CORS behavior; verify headers, rate-limit statuses, and absence of invite/session secrets in rendered configuration.
 - [x] 3.3 Update Compose and Web Edge entrypoint validation for the new runtime values while keeping API/database networks private and the `web` profile disabled by default; verify deployment-config checks and container startup tests.
 - [x] 3.4 Update the Web Edge readiness probe and deployment helper rollback path from Basic Auth `401` expectations to invite-gate smoke behavior; verify candidate failure rolls back only the Web Edge digest.
+- [x] 3.5 Compress authorized hashed SPA assets and give them private immutable browser caching without weakening the invite boundary; verify response headers in the Web Edge container test and preserve `no-store` for anonymous routes.
 
 ## 4. Certificate and host operations
 
