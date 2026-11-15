@@ -113,12 +113,15 @@ type TrendReader interface {
 // numeric historical node. ExpectedCount is compared with the unsearched
 // result but never selects or filters memberships.
 type TrendDrilldownQuery struct {
-	Condition     TrendCondition
-	ExpectedCount int
-	NodeDate      time.Time
-	PageNumber    int
-	PageSize      int
-	Title         string
+	Condition      TrendCondition
+	ExpectedCount  int
+	NodeDate       time.Time
+	EventStartDate time.Time
+	EventEndDate   time.Time
+	EventType      TrendEventType
+	PageNumber     int
+	PageSize       int
+	Title          string
 }
 
 // TrendDrilldownReader hides final-run selection, formal predicate evaluation,
@@ -294,7 +297,8 @@ func (repository *Repository) ReadTrend(ctx context.Context, query TrendQuery) (
 	default:
 		return TrendSeries{}, ErrInvalidTrendQuery
 	}
-	freshnessInput, err := readTrendFreshnessInput(ctx, tx, calendarRange)
+	freshnessRange := trendFreshnessCalendarRange(query, calendarRange)
+	freshnessInput, err := readTrendFreshnessInput(ctx, tx, freshnessRange)
 	if err != nil {
 		return TrendSeries{}, err
 	}
@@ -324,6 +328,38 @@ func validateLocationTrendQuery(query TrendQuery) error {
 type trendCalendarRange struct {
 	End   string
 	Start *string
+}
+
+func trendFreshnessCalendarRange(query TrendQuery, calendarRange trendCalendarRange) trendCalendarRange {
+	if query.Range == TrendRangeAll || calendarRange.Start == nil {
+		return calendarRange
+	}
+	start := parseTrendEventDate(*calendarRange.Start)
+	end := parseTrendEventDate(calendarRange.End)
+	if start.IsZero() || end.IsZero() || start.After(end) {
+		return calendarRange
+	}
+
+	length := daysInclusive(trendEventWindow{Start: start, End: end})
+	if length < 1 {
+		return calendarRange
+	}
+	previousStart := start.AddDate(0, 0, -length)
+	switch query.Range {
+	case TrendRangeMonth:
+		previousStart = start.AddDate(0, -1, 0)
+	case TrendRangeQuarter:
+		previousStart = start.AddDate(0, -3, 0)
+	case TrendRangeYear:
+		previousStart = start.AddDate(-1, 0, 0)
+	}
+	yearOverYearStart := start.AddDate(-1, 0, 0)
+	earliest := previousStart
+	if yearOverYearStart.Before(earliest) {
+		earliest = yearOverYearStart
+	}
+	formatted := formatTrendEventDate(earliest)
+	return trendCalendarRange{Start: &formatted, End: calendarRange.End}
 }
 
 func resolveTrendCalendarRange(query TrendQuery) (trendCalendarRange, error) {

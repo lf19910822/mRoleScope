@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  createTrendDrilldownState,
-  type TrendDrilldownClient,
-} from '../job-trend-drilldown-state'
+import { createTrendDrilldownState, type TrendDrilldownClient } from '../job-trend-drilldown-state'
 
 const condition = {
   dimension: 'technology' as const,
@@ -14,7 +11,18 @@ const condition = {
 
 function response(total = 1) {
   return {
-    items: total === 0 ? [] : [{ can_view_historical: false, can_view_latest: true, id: 'jd_opaque', status: 'current' as const, title: 'Go 工程师' }],
+    items:
+      total === 0
+        ? []
+        : [
+            {
+              can_view_historical: false,
+              can_view_latest: true,
+              id: 'jd_opaque',
+              status: 'current' as const,
+              title: 'Go 工程师',
+            },
+          ],
     matched_total: total,
     node_date: '2026-10-15',
     page: { number: 1, page_size: 20, total },
@@ -25,7 +33,9 @@ describe('trend drilldown state', () => {
   beforeEach(() => vi.useRealTimers())
 
   it('ignores an unavailable node, opens a trusted zero, and toggles the same node closed', async () => {
-    const readNode = vi.fn<TrendDrilldownClient['readTrendDrilldown']>().mockResolvedValue(response(0))
+    const readNode = vi
+      .fn<TrendDrilldownClient['readTrendDrilldown']>()
+      .mockResolvedValue(response(0))
     const state = createTrendDrilldownState({ readTrendDrilldown: readNode })
 
     await state.open(condition, '2026-10-15', null)
@@ -46,7 +56,9 @@ describe('trend drilldown state', () => {
 
   it('reuses the container for another node and debounces a title search onto page one', async () => {
     vi.useFakeTimers()
-    const readNode = vi.fn<TrendDrilldownClient['readTrendDrilldown']>().mockResolvedValue(response())
+    const readNode = vi
+      .fn<TrendDrilldownClient['readTrendDrilldown']>()
+      .mockResolvedValue(response())
     const state = createTrendDrilldownState({ readTrendDrilldown: readNode })
 
     await state.open(condition, '2026-10-15', 1)
@@ -111,5 +123,30 @@ describe('trend drilldown state', () => {
     resolveSecond?.({ ...response(1), node_date: '2026-10-16' })
     await secondOpen
     expect(state.response?.node_date).toBe('2026-10-16')
+  })
+
+  it('does not let an older page response overwrite a cached page', async () => {
+    let resolvePending: ((value: ReturnType<typeof response>) => void) | undefined
+    const readNode = vi
+      .fn<TrendDrilldownClient['readTrendDrilldown']>()
+      .mockResolvedValueOnce(response(1))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePending = resolve
+          }),
+      )
+    const state = createTrendDrilldownState({ readTrendDrilldown: readNode })
+
+    await state.open(condition, '2026-10-15', 1)
+    const pending = state.setPage(2)
+    const pendingSignal = readNode.mock.calls[1]![1]!
+    await state.setPage(1)
+    expect(pendingSignal.aborted).toBe(true)
+    resolvePending?.({ ...response(2), page: { number: 2, page_size: 20, total: 2 } })
+    await pending
+
+    expect(state.page).toBe(1)
+    expect(state.response?.page.number).toBe(1)
   })
 })

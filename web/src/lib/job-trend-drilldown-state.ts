@@ -5,28 +5,38 @@ import type { TrendCondition } from './job-trend-dashboard-state'
 export type TrendDrilldownStatus = 'changed' | 'confirmed_closed' | 'current'
 
 export interface TrendDrilldownItem {
-  can_view_historical: boolean
-  can_view_latest: boolean
-  id: string
-  status: TrendDrilldownStatus
+	can_view_historical: boolean
+	can_view_latest: boolean
+	id: string
+	event_date?: string
+	reason?: string
+	status: TrendDrilldownStatus
   title: string
 }
 
 export interface TrendDrilldownResponse {
-	count_matches_expected?: boolean
+  count_matches_expected?: boolean
   items: TrendDrilldownItem[]
   matched_total: number
-  node_date: string
+  node_date?: string
   page: { number: number; page_size: number; total: number }
+  event_type?: 'entered' | 'modified' | 'left' | 'reopened'
+  mode?: 'event'
+  period_end?: string
+  period_start?: string
+  reason_counts?: Record<string, number>
 }
 
 export interface TrendDrilldownRequest {
   condition: TrendCondition
   count: number
-  date: string
+  date?: string
+  event?: 'entered' | 'modified' | 'left' | 'reopened'
+  endDate?: string
   page: number
   pageSize: number
   title: string
+  startDate?: string
 }
 
 export interface TrendDrilldownClient {
@@ -39,7 +49,10 @@ export interface TrendDrilldownClient {
 export interface TrendDrilldownNode {
   condition: TrendCondition
   count: number
-  date: string
+  date?: string
+  event?: TrendDrilldownRequest['event']
+  endDate?: string
+  startDate?: string
 }
 
 export interface TrendDrilldownState {
@@ -49,6 +62,13 @@ export interface TrendDrilldownState {
   isLoading: boolean
   node?: TrendDrilldownNode
   open(condition: TrendCondition, date: string, count: number | null): Promise<void>
+  openEvent(
+    condition: TrendCondition,
+    event: NonNullable<TrendDrilldownRequest['event']>,
+    startDate: string,
+    endDate: string,
+    count: number,
+  ): Promise<void>
   page: number
   response?: TrendDrilldownResponse
   retry(): Promise<void>
@@ -78,7 +98,17 @@ function copyCondition(condition: TrendCondition): TrendCondition {
 
 function nodeKey(node: TrendDrilldownNode): string {
   const condition = node.condition
-  return [node.date, node.count, condition.dimension, condition.includeSecondary, condition.operator, condition.value].join('|')
+  return [
+    node.date ?? '',
+    node.event ?? '',
+    node.startDate ?? '',
+    node.endDate ?? '',
+    node.count,
+    condition.dimension,
+    condition.includeSecondary,
+    condition.operator,
+    condition.value,
+  ].join('|')
 }
 
 function requestKey(node: TrendDrilldownNode, title: string, page: number): string {
@@ -134,6 +164,29 @@ export function createTrendDrilldownState(
       state.title = ''
       await load(false)
     },
+    async openEvent(condition, event, startDate, endDate, count): Promise<void> {
+      const node: TrendDrilldownNode = {
+        condition: copyCondition(condition),
+        count,
+        endDate,
+        event,
+        startDate,
+      }
+      if (state.isOpen && state.node !== undefined && nodeKey(state.node) === nodeKey(node)) {
+        state.close()
+        return
+      }
+      controller?.abort()
+      generation += 1
+      state.error = ''
+      state.isOpen = true
+      state.isLoading = false
+      state.node = node
+      state.page = 1
+      state.response = undefined
+      state.title = ''
+      await load(false)
+    },
     page: 1,
     response: undefined,
     async retry(): Promise<void> {
@@ -163,6 +216,9 @@ export function createTrendDrilldownState(
     const title = state.title.trim()
     const page = state.page
     const key = requestKey(node, title, page)
+    controller?.abort()
+    controller = undefined
+    const requestGeneration = ++generation
     const cached = cache.get(key)
     if (!force && cached !== undefined && now() - cached.cachedAt <= cacheLifetimeMilliseconds) {
       state.error = ''
@@ -173,18 +229,32 @@ export function createTrendDrilldownState(
     // A new request represents a new node/search/page context. Do not leave
     // a previous page actionable underneath its loading or error state.
     state.response = undefined
-    controller?.abort()
     const nextController = new AbortController()
     controller = nextController
-    const requestGeneration = ++generation
     state.error = ''
     state.isLoading = true
     try {
       const response = await client.readTrendDrilldown(
-        { condition: node.condition, count: node.count, date: node.date, page, pageSize, title },
+        {
+          condition: node.condition,
+          count: node.count,
+          date: node.date,
+          endDate: node.endDate,
+          event: node.event,
+          page,
+          pageSize,
+          startDate: node.startDate,
+          title,
+        },
         nextController.signal,
       )
-      if (generation !== requestGeneration || !state.isOpen || state.node === undefined || nodeKey(state.node) !== nodeKey(node)) return
+      if (
+        generation !== requestGeneration ||
+        !state.isOpen ||
+        state.node === undefined ||
+        nodeKey(state.node) !== nodeKey(node)
+      )
+        return
       cache.set(key, { cachedAt: now(), response })
       state.response = response
     } catch {

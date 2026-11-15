@@ -331,7 +331,8 @@ paths:
       parameters:
         - in: query
           name: date
-          required: true
+          required: false
+          description: Required for a daily node request; omit it for a period event request.
           schema: {type: string, format: date}
         - in: query
           name: count
@@ -365,6 +366,18 @@ paths:
           name: include_secondary
           description: Permitted only for job_family.
           schema: {type: boolean}
+        - in: query
+          name: event
+          description: Selects period event mode when combined with start_date and end_date.
+          schema: {type: string, enum: [entered, modified, left, reopened]}
+        - in: query
+          name: start_date
+          description: Inclusive event period start; required with event.
+          schema: {type: string, format: date}
+        - in: query
+          name: end_date
+          description: Inclusive event period end; required with event.
+          schema: {type: string, format: date}
       responses:
         '200':
           description: A compact, paginated historical node list.
@@ -376,6 +389,43 @@ paths:
           description: The submitted node condition is invalid.
         '503':
           description: The selected historical node is unavailable.
+  /api/v1/job-trends/events:
+    get:
+      summary: Read one curve's period event comparisons
+      description: Returns deduplicated entered, modified, left, and reopened job counts for one supported curve. Missing observation days are skipped silently and do not become fabricated events.
+      parameters:
+        - in: query
+          name: range
+          required: true
+          schema: {type: string, enum: [week, month, quarter, year, custom]}
+        - in: query
+          name: start_date
+          schema: {type: string, format: date}
+        - in: query
+          name: end_date
+          schema: {type: string, format: date}
+        - in: query
+          name: dimension
+          required: true
+          schema: {type: string, enum: [technology, job_family, project, location]}
+        - in: query
+          name: value
+          required: true
+          schema: {type: string}
+        - in: query
+          name: include_secondary
+          schema: {type: boolean}
+      responses:
+        '200':
+          description: Four safe event rows and three concrete comparison windows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendEventStatsResponse'
+        '400':
+          description: The range or supported curve condition is invalid.
+        '503':
+          description: Event statistics are temporarily unavailable.
 components:
   schemas:
     Status:
@@ -501,9 +551,16 @@ components:
           type: boolean
         can_view_latest:
           type: boolean
+        event_date:
+          type: string
+          format: date
+          description: Event observation date, present only for period event drill-down.
+        reason:
+          type: string
+          description: Safe event reason, present only for period event drill-down.
     TrendDrilldownResponse:
       type: object
-      required: [node_date, matched_total, items, page]
+      required: [matched_total, items, page]
       properties:
         count_matches_expected:
           description: Present only when no title search is applied. False means the reconstructed node collection changed since the displayed chart point.
@@ -520,6 +577,83 @@ components:
             $ref: '#/components/schemas/TrendDrilldownItem'
         page:
           $ref: '#/components/schemas/PageInfo'
+        mode:
+          type: string
+          enum: [event]
+        event_type:
+          type: string
+          enum: [entered, modified, left, reopened]
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        reason_counts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+    TrendEventPeriod:
+      type: object
+      required: [start, end]
+      properties:
+        start: {type: string, format: date}
+        end: {type: string, format: date}
+    TrendEventComparison:
+      type: object
+      required: [count, rate]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Null only when the formal curve interpretation is genuinely unavailable.
+        rate:
+          type: number
+          nullable: true
+          description: Null is shown as a dash when the comparison denominator is zero.
+    TrendEventRow:
+      type: object
+      required: [type, current, previous, year_over_year]
+      properties:
+        type:
+          type: string
+          enum: [entered, modified, left, reopened]
+        current:
+          type: integer
+          minimum: 0
+        previous:
+          $ref: '#/components/schemas/TrendEventComparison'
+        year_over_year:
+          $ref: '#/components/schemas/TrendEventComparison'
+    TrendEventStatsResponse:
+      type: object
+      required: [curve, freshness, status, current, previous, year_over_year, rows]
+      properties:
+        curve:
+          $ref: '#/components/schemas/TrendCurve'
+        status:
+          type: string
+          enum: [available, unavailable]
+        freshness:
+          type: string
+          description: Opaque safe freshness marker for event cache invalidation.
+        as_of:
+          type: string
+          format: date
+        current:
+          $ref: '#/components/schemas/TrendEventPeriod'
+        previous:
+          $ref: '#/components/schemas/TrendEventPeriod'
+        year_over_year:
+          $ref: '#/components/schemas/TrendEventPeriod'
+        rows:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/TrendEventRow'
     JobListItem:
       type: object
       required:

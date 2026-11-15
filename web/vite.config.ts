@@ -1,14 +1,35 @@
 import { fileURLToPath, URL } from 'node:url'
 
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
+import { localAccessEntryPath } from './src/lib/local-access-entry'
+
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET
+
+function localAccessEntryPlugin(): Plugin {
+  return {
+    name: 'mrolescope-local-access-entry',
+    configureServer(server) {
+      server.middlewares.use((request, _response, next) => {
+        if (request.method === 'GET' || request.method === 'HEAD') {
+          const accessEntryPath = localAccessEntryPath(request.url)
+          if (accessEntryPath) request.url = accessEntryPath
+        }
+        next()
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), ...(process.env.VITE_ENABLE_DEVTOOLS === 'true' ? [vueDevTools()] : [])],
+  plugins: [
+    localAccessEntryPlugin(),
+    vue(),
+    ...(process.env.VITE_ENABLE_DEVTOOLS === 'true' ? [vueDevTools()] : []),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

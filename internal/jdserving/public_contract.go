@@ -257,7 +257,9 @@ const (
 type TrendDrilldownItem struct {
 	CanViewHistorical bool                 `json:"can_view_historical"`
 	CanViewLatest     bool                 `json:"can_view_latest"`
+	EventDate         string               `json:"event_date,omitempty"`
 	ID                string               `json:"id"`
+	Reason            string               `json:"reason,omitempty"`
 	Status            TrendDrilldownStatus `json:"status"`
 	Title             string               `json:"title"`
 }
@@ -271,6 +273,11 @@ type TrendDrilldownResponse struct {
 	CountMatchesExpected *bool                `json:"count_matches_expected,omitempty"`
 	Items                []TrendDrilldownItem `json:"items"`
 	MatchedTotal         int                  `json:"matched_total"`
-	NodeDate             string               `json:"node_date"`
+	Mode                 string               `json:"mode,omitempty"`
+	NodeDate             string               `json:"node_date,omitempty"`
 	Page                 PageInfo             `json:"page"`
+	PeriodEnd            string               `json:"period_end,omitempty"`
+	PeriodStart          string               `json:"period_start,omitempty"`
+	ReasonCounts         map[string]int       `json:"reason_counts,omitempty"`
+	EventType            TrendEventType       `json:"event_type,omitempty"`
 }

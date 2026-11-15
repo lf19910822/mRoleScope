@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +75,10 @@ type JDTrendDrilldownReader interface {
 	ReadTrendDrilldown(context.Context, jdserving.TrendDrilldownQuery) (jdserving.TrendDrilldownResponse, error)
 }
 
+type JDTrendEventReader interface {
+	ReadTrendEventStats(context.Context, jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error)
+}
+
 type Router struct {
 	readiness          ReadinessChecker
 	jdDetail           JDDetailReader
@@ -83,6 +88,7 @@ type Router struct {
 	jdList             JDListReader
 	jdDrilldown        JDTrendDrilldownReader
 	jdTrend            JDTrendReader
+	jdTrendEvents      JDTrendEventReader
 	access             *access.Service
 	verificationLimits *verificationLimiter
 }
@@ -113,6 +119,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 		server.jdFilters, _ = readers[0].(JDFilterOptionsReader)
 		server.jdDrilldown, _ = readers[0].(JDTrendDrilldownReader)
 		server.jdTrend, _ = readers[0].(JDTrendReader)
+		server.jdTrendEvents, _ = readers[0].(JDTrendEventReader)
 	}
 	router.GET("/healthz", server.health)
 	router.GET("/readyz", server.ready)
@@ -126,6 +133,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 	business.GET("/jobs/:id/history", server.jobHistory)
 	business.GET("/jobs/:id/history/detail", server.jobHistoryDetail)
 	business.GET("/job-trends", server.jobTrend)
+	business.GET("/job-trends/events", server.jobTrendEvents)
 	business.GET("/job-trends/drilldown", server.jobTrendDrilldown)
 	return router
 }
@@ -502,6 +510,64 @@ func (r Router) jobTrend(context *gin.Context) {
 	context.JSON(http.StatusOK, response)
 }
 
+func (r Router) jobTrendEvents(context *gin.Context) {
+	if r.jdTrendEvents == nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	query, err := parseTrendEventStatsQuery(context)
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	response, err := r.jdTrendEvents.ReadTrendEventStats(context.Request.Context(), query)
+	if errors.Is(err, jdserving.ErrInvalidTrendQuery) {
+		context.JSON(http.StatusBadRequest, gin.H{"error": "invalid_query"})
+		return
+	}
+	if err != nil {
+		context.JSON(http.StatusServiceUnavailable, gin.H{"error": "service_unavailable"})
+		return
+	}
+	context.JSON(http.StatusOK, response)
+}
+
+func parseTrendEventStatsQuery(context *gin.Context) (jdserving.TrendEventStatsQuery, error) {
+	query, err := parseTrendQuery(context)
+	if err != nil {
+		return jdserving.TrendEventStatsQuery{}, err
+	}
+	supported := map[jdserving.TrendDimension]struct{}{
+		jdserving.TrendDimensionJobFamily:  {},
+		jdserving.TrendDimensionLocation:   {},
+		jdserving.TrendDimensionProject:    {},
+		jdserving.TrendDimensionTechnology: {},
+	}
+	if _, ok := supported[query.Condition.Dimension]; !ok || query.Range == jdserving.TrendRangeAll {
+		return jdserving.TrendEventStatsQuery{}, strconv.ErrSyntax
+	}
+	if query.Range == jdserving.TrendRangeCustom {
+		shanghai, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			return jdserving.TrendEventStatsQuery{}, strconv.ErrSyntax
+		}
+		today := time.Now().In(shanghai)
+		todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+		if query.EndDate.After(todayStart) {
+			return jdserving.TrendEventStatsQuery{}, strconv.ErrSyntax
+		}
+	}
+	if query.Condition.Operator != "" {
+		return jdserving.TrendEventStatsQuery{}, strconv.ErrSyntax
+	}
+	return jdserving.TrendEventStatsQuery{
+		Condition: query.Condition,
+		EndDate:   query.EndDate,
+		Range:     query.Range,
+		StartDate: query.StartDate,
+	}, nil
+}
+
 func parseTrendQuery(context *gin.Context) (jdserving.TrendQuery, error) {
 	values := context.Request.URL.Query()
 	for key := range values {
@@ -617,10 +683,51 @@ func parseTrendDrilldownQuery(context *gin.Context) (jdserving.TrendDrilldownQue
 	values := context.Request.URL.Query()
 	for key := range values {
 		switch key {
-		case "date", "count", "page", "page_size", "title", "dimension", "value", "operator", "include_secondary":
+		case "date", "count", "page", "page_size", "title", "dimension", "value", "operator", "include_secondary", "event", "start_date", "end_date":
 		default:
 			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
 		}
+	}
+	if len(values["event"]) > 0 {
+		if len(values["event"]) != 1 || len(values["date"]) > 0 || len(values["start_date"]) != 1 || len(values["end_date"]) != 1 {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		shanghai, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		start, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(values.Get("start_date")), shanghai)
+		if err != nil {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		end, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(values.Get("end_date")), shanghai)
+		if err != nil || start.After(end) {
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		eventType := jdserving.TrendEventType(strings.TrimSpace(values.Get("event")))
+		switch eventType {
+		case jdserving.TrendEventEntered, jdserving.TrendEventModified, jdserving.TrendEventLeft, jdserving.TrendEventReopened:
+		default:
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		condition, err := parseTrendConditionValues(values)
+		if err != nil {
+			return jdserving.TrendDrilldownQuery{}, err
+		}
+		switch condition.Dimension {
+		case jdserving.TrendDimensionTechnology, jdserving.TrendDimensionJobFamily,
+			jdserving.TrendDimensionProject, jdserving.TrendDimensionLocation:
+		default:
+			return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
+		}
+		pageNumber, pageSize, expectedCount, title, err := parseTrendDrilldownPaging(values)
+		if err != nil {
+			return jdserving.TrendDrilldownQuery{}, err
+		}
+		return jdserving.TrendDrilldownQuery{
+			Condition: condition, EventEndDate: end, EventStartDate: start, EventType: eventType,
+			ExpectedCount: expectedCount, PageNumber: pageNumber, PageSize: pageSize, Title: title,
+		}, nil
 	}
 	one := func(key string, required bool) (string, bool) {
 		items := values[key]
@@ -719,6 +826,95 @@ func parseTrendDrilldownQuery(context *gin.Context) (jdserving.TrendDrilldownQue
 		return jdserving.TrendDrilldownQuery{}, strconv.ErrSyntax
 	}
 	return jdserving.TrendDrilldownQuery{Condition: condition, ExpectedCount: expectedCount, NodeDate: nodeDate, PageNumber: pageNumber, PageSize: pageSize, Title: title}, nil
+}
+
+func parseTrendConditionValues(values url.Values) (jdserving.TrendCondition, error) {
+	one := func(key string, required bool) (string, bool) {
+		items := values[key]
+		if len(items) != 1 {
+			return "", false
+		}
+		value := strings.TrimSpace(items[0])
+		if required && value == "" {
+			return "", false
+		}
+		return value, true
+	}
+	dimension, ok := one("dimension", true)
+	if !ok {
+		return jdserving.TrendCondition{}, strconv.ErrSyntax
+	}
+	value, ok := one("value", true)
+	if !ok {
+		return jdserving.TrendCondition{}, strconv.ErrSyntax
+	}
+	condition := jdserving.TrendCondition{Dimension: jdserving.TrendDimension(dimension), Value: value}
+	switch condition.Dimension {
+	case jdserving.TrendDimensionEducation, jdserving.TrendDimensionExperience:
+		rawOperator, present := one("operator", true)
+		if !present {
+			return jdserving.TrendCondition{}, strconv.ErrSyntax
+		}
+		condition.Operator = jdserving.TrendComparison(rawOperator)
+	case jdserving.TrendDimensionJobFamily:
+		if _, present := values["operator"]; present {
+			return jdserving.TrendCondition{}, strconv.ErrSyntax
+		}
+		if rawSecondary, present := one("include_secondary", false); present {
+			if rawSecondary != "true" && rawSecondary != "false" {
+				return jdserving.TrendCondition{}, strconv.ErrSyntax
+			}
+			condition.IncludeSecondary = rawSecondary == "true"
+		} else if _, supplied := values["include_secondary"]; supplied {
+			return jdserving.TrendCondition{}, strconv.ErrSyntax
+		}
+	case jdserving.TrendDimensionTechnology, jdserving.TrendDimensionProject, jdserving.TrendDimensionLocation:
+		if _, present := values["operator"]; present || len(values["include_secondary"]) > 0 {
+			return jdserving.TrendCondition{}, strconv.ErrSyntax
+		}
+	default:
+		return jdserving.TrendCondition{}, strconv.ErrSyntax
+	}
+	return condition, nil
+}
+
+func parseTrendDrilldownPaging(values url.Values) (int, int, int, string, error) {
+	one := func(key string, required bool) (string, bool) {
+		items := values[key]
+		if len(items) != 1 {
+			return "", false
+		}
+		value := strings.TrimSpace(items[0])
+		if required && value == "" {
+			return "", false
+		}
+		return value, true
+	}
+	count, ok := one("count", true)
+	if !ok {
+		return 0, 0, 0, "", strconv.ErrSyntax
+	}
+	expectedCount, err := strconv.Atoi(count)
+	if err != nil || expectedCount < 0 {
+		return 0, 0, 0, "", strconv.ErrSyntax
+	}
+	pageNumber, pageSize := 1, jdserving.DefaultPageSize()
+	if raw, present := one("page", false); present {
+		pageNumber, err = strconv.Atoi(raw)
+		if err != nil || pageNumber < 1 {
+			return 0, 0, 0, "", strconv.ErrSyntax
+		}
+	}
+	if raw, present := one("page_size", false); present {
+		pageSize, err = strconv.Atoi(raw)
+		if err != nil || pageSize < 1 || pageSize > jdserving.MaximumPageSize {
+			return 0, 0, 0, "", strconv.ErrSyntax
+		}
+	}
+	if len(values["title"]) > 1 {
+		return 0, 0, 0, "", strconv.ErrSyntax
+	}
+	return pageNumber, pageSize, expectedCount, strings.TrimSpace(values.Get("title")), nil
 }
 
 func parseListJobsQuery(context *gin.Context) (jdserving.ListJobsQuery, error) {
