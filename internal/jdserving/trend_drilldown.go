@@ -31,6 +31,16 @@ func (repository *Repository) ReadTrendDrilldown(ctx context.Context, query Tren
 	if err != nil {
 		return TrendDrilldownResponse{}, err
 	}
+	if query.EventType != "" {
+		response, err := repository.readTrendEventDrilldownPage(ctx, tx, query, filter)
+		if err != nil {
+			return TrendDrilldownResponse{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return TrendDrilldownResponse{}, fmt.Errorf("commit trend event drilldown read: %w", err)
+		}
+		return response, nil
+	}
 	complete, err := trendNodeIsComplete(ctx, tx, query.NodeDate, filter)
 	if err != nil {
 		return TrendDrilldownResponse{}, err
@@ -49,8 +59,26 @@ func validateTrendDrilldownQuery(query TrendDrilldownQuery) error {
 	date := query.NodeDate.In(shanghai)
 	today := time.Now().In(shanghai)
 	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, shanghai)
-	if query.NodeDate.IsZero() || date.Hour() != 0 || date.Minute() != 0 || date.Second() != 0 || date.Nanosecond() != 0 ||
-		date.After(todayStart) || query.ExpectedCount < 0 || query.PageNumber < 1 || query.PageSize < 1 || query.PageSize > MaximumPageSize {
+	if query.EventType != "" {
+		if !supportedTrendEventDimension(query.Condition.Dimension) {
+			return ErrInvalidTrendQuery
+		}
+		start := query.EventStartDate.In(shanghai)
+		end := query.EventEndDate.In(shanghai)
+		if query.EventStartDate.IsZero() || query.EventEndDate.IsZero() || start.After(end) || end.After(todayStart) ||
+			start.Hour() != 0 || start.Minute() != 0 || start.Second() != 0 || start.Nanosecond() != 0 ||
+			end.Hour() != 0 || end.Minute() != 0 || end.Second() != 0 || end.Nanosecond() != 0 {
+			return ErrInvalidTrendQuery
+		}
+		switch query.EventType {
+		case TrendEventEntered, TrendEventModified, TrendEventLeft, TrendEventReopened:
+		default:
+			return ErrInvalidTrendQuery
+		}
+	} else if query.NodeDate.IsZero() || date.Hour() != 0 || date.Minute() != 0 || date.Second() != 0 || date.Nanosecond() != 0 || date.After(todayStart) {
+		return ErrInvalidTrendQuery
+	}
+	if query.ExpectedCount < 0 || query.PageNumber < 1 || query.PageSize < 1 || query.PageSize > MaximumPageSize {
 		return ErrInvalidTrendQuery
 	}
 	return nil

@@ -51,3 +51,23 @@ func TestResolveTrendCalendarRangeAcceptsDatesOutsidePublishedHistoryAndFuture(t
 		t.Fatalf("future custom range = %#v", got)
 	}
 }
+
+func TestTrendFreshnessCalendarRangeIncludesComparisonWindows(t *testing.T) {
+	start := "2026-11-01"
+	got := trendFreshnessCalendarRange(
+		TrendQuery{Range: TrendRangeMonth},
+		trendCalendarRange{Start: &start, End: "2026-11-12"},
+	)
+	if got.Start == nil || *got.Start != "2025-11-01" || got.End != "2026-11-12" {
+		t.Fatalf("monthly freshness range = %#v, want 2025-11-01 through 2026-11-12", got)
+	}
+
+	customStart := "2026-10-01"
+	got = trendFreshnessCalendarRange(
+		TrendQuery{Range: TrendRangeCustom},
+		trendCalendarRange{Start: &customStart, End: "2026-10-15"},
+	)
+	if got.Start == nil || *got.Start != "2025-10-01" || got.End != "2026-10-15" {
+		t.Fatalf("custom freshness range = %#v, want 2025-10-01 through 2026-10-15", got)
+	}
+}

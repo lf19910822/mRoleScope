@@ -54,6 +54,36 @@ export interface TrendSeries {
   coverage?: TrendCoverage
 }
 
+export interface TrendEventPeriod {
+  start: string
+  end: string
+}
+
+export interface TrendEventComparison {
+  count: number | null
+  rate: number | null
+}
+
+export type TrendEventType = 'entered' | 'modified' | 'left' | 'reopened'
+
+export interface TrendEventRow {
+  type: TrendEventType
+  current: number
+  previous: TrendEventComparison
+  year_over_year: TrendEventComparison
+}
+
+export interface TrendEventStatsResponse {
+  as_of?: string
+  current: TrendEventPeriod
+  curve: TrendSeries['curve']
+  freshness?: string
+  previous: TrendEventPeriod
+  rows: TrendEventRow[]
+  status: 'available' | 'unavailable'
+  year_over_year: TrendEventPeriod
+}
+
 export interface TrendRequestClient {
   readTrend(query: TrendRequest, signal?: AbortSignal): Promise<TrendSeries>
 }

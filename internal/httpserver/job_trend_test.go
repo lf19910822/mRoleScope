@@ -56,6 +56,85 @@ func (jdTrendDrilldownReaderFunc) ListJobs(context.Context, jdserving.ListJobsQu
 	return jdserving.JobListResponse{}, nil
 }
 
+type jdTrendEventReaderFunc func(context.Context, jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error)
+
+func (function jdTrendEventReaderFunc) ReadTrendEventStats(ctx context.Context, query jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error) {
+	return function(ctx, query)
+}
+
+func (jdTrendEventReaderFunc) ListJobs(context.Context, jdserving.ListJobsQuery) (jdserving.JobListResponse, error) {
+	return jdserving.JobListResponse{}, nil
+}
+
+func TestJobTrendEventsRoutePassesOneBoundedCurveAndReturnsSafeRows(t *testing.T) {
+	reader := jdTrendEventReaderFunc(func(_ context.Context, query jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error) {
+		if query.Range != jdserving.TrendRangeMonth || query.Condition.Dimension != jdserving.TrendDimensionTechnology || query.Condition.Value != "go" {
+			t.Fatalf("event query = %#v", query)
+		}
+		return jdserving.TrendEventStatsResponse{
+			Curve:  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionTechnology, Label: "Go", Value: "go"},
+			Status: "available",
+			Rows:   []jdserving.TrendEventRow{{Type: jdserving.TrendEventEntered, Current: 1}},
+		}, nil
+	})
+	router := New(nil, reader)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends/events?range=month&dimension=technology&value=go", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("event route status = %d body:%s", response.Code, response.Body.String())
+	}
+	for _, forbidden := range []string{
+		"job_id", "source_version", "source_metadata", "body_content", "parser", "dictionary",
+		"lexicon", "audit", "repair", "credential", "password", "token", "internal_error",
+	} {
+		if strings.Contains(response.Body.String(), forbidden) {
+			t.Fatalf("event response leaked %q: %s", forbidden, response.Body.String())
+		}
+	}
+}
+
+func TestJobTrendEventsRouteMapsReaderFailureToSafeResponse(t *testing.T) {
+	reader := jdTrendEventReaderFunc(func(context.Context, jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error) {
+		return jdserving.TrendEventStatsResponse{}, errors.New("database password internal_error")
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends/events?range=month&dimension=technology&value=go", nil)
+	response := httptest.NewRecorder()
+	New(nil, reader).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != `{"error":"service_unavailable"}` {
+		t.Fatalf("event reader failure response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestJobTrendDrilldownRouteAcceptsPeriodEventQuery(t *testing.T) {
+	reader := jdTrendDrilldownReaderFunc(func(_ context.Context, query jdserving.TrendDrilldownQuery) (jdserving.TrendDrilldownResponse, error) {
+		if query.EventType != jdserving.TrendEventEntered || query.EventStartDate.Format("2006-01-02") != "2026-10-01" {
+			t.Fatalf("event drilldown query = %#v", query)
+		}
+		return jdserving.TrendDrilldownResponse{Mode: "event", EventType: query.EventType}, nil
+	})
+	router := New(nil, reader)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends/drilldown?event=entered&start_date=2026-10-01&end_date=2026-10-15&count=0&dimension=technology&value=go", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("event drilldown route status = %d body:%s", response.Code, response.Body.String())
+	}
+}
+
+func TestJobTrendDrilldownRouteRejectsUnsupportedPeriodEventDimension(t *testing.T) {
+	reader := jdTrendDrilldownReaderFunc(func(context.Context, jdserving.TrendDrilldownQuery) (jdserving.TrendDrilldownResponse, error) {
+		t.Fatal("unsupported event dimension must not reach the reader")
+		return jdserving.TrendDrilldownResponse{}, nil
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends/drilldown?event=entered&start_date=2026-10-01&end_date=2026-10-15&count=0&dimension=education&operator=eq&value=bachelor", nil)
+	response := httptest.NewRecorder()
+	New(nil, reader).ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || response.Body.String() != `{"error":"invalid_query"}` {
+		t.Fatalf("unsupported event dimension response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 type jdHistoricalDetailReaderFunc func(context.Context, string, time.Time) (jdserving.JobDetailResponse, error)
 
 func (function jdHistoricalDetailReaderFunc) GetHistoricalJobDetail(ctx context.Context, id string, nodeDate time.Time) (jdserving.JobDetailResponse, error) {
@@ -219,6 +298,46 @@ func TestJobTrendRoutePassesOneValidatedCurveAndReturnsOnlySafeFields(t *testing
 	if payload.Freshness != "opaque-safe-marker" || len(payload.Points) != 2 || payload.Points[0].Count == nil ||
 		*payload.Points[0].Count != 2 || payload.Points[1].Count != nil {
 		t.Fatalf("trend response = %#v", payload)
+	}
+}
+
+func TestJobTrendEventsRouteReturnsUnavailableStatusWithoutInternalDetails(t *testing.T) {
+	reader := jdTrendEventReaderFunc(func(_ context.Context, _ jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error) {
+		return jdserving.TrendEventStatsResponse{
+			Curve:  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionTechnology, Label: "C++", Value: "c++"},
+			Status: "unavailable",
+		}, nil
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends/events?range=month&dimension=technology&value=c%2B%2B", nil)
+	response := httptest.NewRecorder()
+	New(nil, reader).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"unavailable"`) {
+		t.Fatalf("unavailable event response = %d %s", response.Code, response.Body.String())
+	}
+	for _, forbidden := range []string{"job_id", "source_metadata", "parser_version", "dictionary_version", "audit", "repair"} {
+		if strings.Contains(response.Body.String(), forbidden) {
+			t.Fatalf("event response leaked %q: %s", forbidden, response.Body.String())
+		}
+	}
+}
+
+func TestJobTrendEventsRouteRejectsUnsupportedAndFutureQueries(t *testing.T) {
+	reader := jdTrendEventReaderFunc(func(context.Context, jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error) {
+		t.Fatal("event reader must not receive an invalid query")
+		return jdserving.TrendEventStatsResponse{}, nil
+	})
+	for _, rawQuery := range []string{
+		"range=month&dimension=education&operator=eq&value=bachelor",
+		"range=month&dimension=experience&operator=gte&value=3",
+		"range=custom&start_date=2099-01-01&end_date=2099-01-14&dimension=technology&value=go",
+		"range=all&dimension=technology&value=go",
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/job-trends/events?"+rawQuery, nil)
+		response := httptest.NewRecorder()
+		New(nil, reader).ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest || response.Body.String() != "{\"error\":\"invalid_query\"}" {
+			t.Fatalf("invalid event response for %q = status:%d body:%s", rawQuery, response.Code, response.Body.String())
+		}
 	}
 }
 

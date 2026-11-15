@@ -38,7 +38,7 @@ func TestPublicJDDTOsExposeOnlyDisplaySafeFields(t *testing.T) {
 			}},
 		},
 		Comparison: &JobComparison{
-			Status: ComparisonStatusAvailable,
+			Status:           ComparisonStatusAvailable,
 			DimensionChanges: []ComparisonDimensionChange{{Field: "技术关键词", Historical: "Go", Latest: "Go、Rust"}},
 		},
 	}
@@ -99,6 +99,8 @@ func TestPublicOpenAPIDoesNotDeclareInternalResponseProperties(t *testing.T) {
 		"/api/v1/job-trends:", "TrendSeries:", "TrendCurve:", "TrendPoint:",
 		"TrendCoverage:", "freshness:", "nullable: true", "include_secondary:",
 		"JobComparison:", "ComparisonDimensionChange:", "ComparisonBodySection:", "ComparisonFragment:",
+		"/api/v1/job-trends/events:", "TrendEventStatsResponse:", "TrendEventRow:",
+		"name: event", "period_start:", "reason_counts:",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("OpenAPI does not describe bounded trend contract field %q", required)

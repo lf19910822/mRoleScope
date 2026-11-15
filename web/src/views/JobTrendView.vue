@@ -10,11 +10,28 @@ import {
   TooltipComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { NButton, NEmpty, NPagination, NSelect, NSwitch, type SelectOption, useOsTheme } from 'naive-ui'
+import {
+  NButton,
+  NEmpty,
+  NPagination,
+  NSelect,
+  NSwitch,
+  type SelectOption,
+  useOsTheme,
+} from 'naive-ui'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 
-import { getFilterOptions, getJobDetail, getJobTrendDrilldown, type FilterOptionsResponse, type JobDetailResponse, type TrendDrilldownItem, type TrendDrilldownStatus } from '@/api/jd-api'
+import {
+  getFilterOptions,
+  getJobDetail,
+  getJobTrendDrilldown,
+  getJobTrendEvents,
+  type FilterOptionsResponse,
+  type JobDetailResponse,
+  type TrendDrilldownItem,
+  type TrendDrilldownStatus,
+} from '@/api/jd-api'
 import FilterDatePicker from '@/components/FilterDatePicker.vue'
 import JDDetailReadingLayout from '@/components/JDDetailReadingLayout.vue'
 import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
@@ -22,6 +39,13 @@ import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
 import { createTrendChartOption, trendCurveColor, trendCurveLabel } from '@/lib/job-trend-chart'
 import { useJobTrendDashboard } from '@/lib/job-trend-dashboard'
 import { createTrendDrilldownState } from '@/lib/job-trend-drilldown-state'
+import {
+  createTrendEventState,
+  formatTrendEventComparison,
+  formatTrendEventRate,
+  supportsTrendEvents,
+  trendEventTypeLabel,
+} from '@/lib/job-trend-event-state'
 import type {
   TrendComparison,
   TrendCurveRow,
@@ -40,6 +64,7 @@ use([
 
 const dashboard = useJobTrendDashboard()
 const drilldown = createTrendDrilldownState({ readTrendDrilldown: getJobTrendDrilldown })
+const eventStats = createTrendEventState({ readTrendEvents: getJobTrendEvents })
 const trendChart = ref<VChartExposed | null>(null)
 const mobileConfigurationOpen = ref(false)
 const customRangeOpen = ref(false)
@@ -106,11 +131,26 @@ const isRefreshing = computed(() => dashboard.rows.some((row) => row.status === 
 const supportsChartNavigation = computed(
   () => dashboard.range === 'all' || dashboard.range === 'custom',
 )
-const trendCoverage = computed(() => dashboard.rows.find((row) => row.series?.coverage)?.series?.coverage)
+const trendCoverage = computed(
+  () => dashboard.rows.find((row) => row.series?.coverage)?.series?.coverage,
+)
 const chartOption = computed(() => createTrendChartOption(dashboard.rows, dashboard.range))
 const echartsOption = computed(() => chartOption.value as unknown as EChartsOption)
 const chartTheme = computed(() => (osTheme.value === 'dark' ? 'dark' : undefined))
 const curveLimitReached = computed(() => dashboard.rows.length >= 8)
+const eventCurveRows = computed(() =>
+  dashboard.rows.filter((row) => row.appliedCondition !== undefined),
+)
+const hasAppliedCurve = computed(() =>
+  dashboard.rows.some((row) => row.appliedCondition !== undefined),
+)
+const selectedEventRow = computed(() =>
+  eventCurveRows.value.find((row) => row.id === eventStats.selectedCurveId),
+)
+const selectedEventCurveLabel = computed(() =>
+  selectedEventRow.value ? trendCurveLabel(selectedEventRow.value) : '',
+)
+const eventStatsRows = computed(() => eventStats.response?.rows ?? [])
 
 function preferredDrilldownHeight(maximumHeight: number): number {
   const rowCount = drilldown.response?.items.length ?? drilldown.node?.count ?? 1
@@ -142,10 +182,7 @@ const drilldownPlacement = computed(() => {
   const canOpenAbove = drilldownAnchor.value.y - height - arrowReach >= 18
   const opensAbove =
     drilldownAnchor.value.y + height + arrowReach > window.innerHeight - 18 && canOpenAbove
-  const left = Math.max(
-    18,
-    Math.min(drilldownAnchor.value.x - 34, pageRight - width - 18),
-  )
+  const left = Math.max(18, Math.min(drilldownAnchor.value.x - 34, pageRight - width - 18))
   const top = opensAbove
     ? drilldownAnchor.value.y - height - arrowReach
     : Math.max(18, Math.min(drilldownAnchor.value.y + arrowReach, window.innerHeight - height - 18))
@@ -324,8 +361,9 @@ function clearAllCurves(): void {
   curveFeedback.value = ''
 }
 
-function refreshAll(): void {
-  void dashboard.refresh()
+async function refreshAll(): Promise<void> {
+  await dashboard.refresh()
+  await eventStats.load(dashboard.rows, dashboard.range, dashboard.customRange, true)
 }
 
 function selectRange(range: TrendRange): void {
@@ -378,13 +416,19 @@ function chartPointClicked(event: unknown): void {
   if (typeof event !== 'object' || event === null) return
   const candidate = event as {
     data?: unknown
+    dataIndex?: unknown
     event?: { event?: { clientX?: unknown; clientY?: unknown } }
     seriesName?: unknown
   }
-  if (!Array.isArray(candidate.data) || candidate.data.length < 2 || typeof candidate.seriesName !== 'string') return
+  if (typeof candidate.seriesName !== 'string') return
+  const row = dashboard.rows.find((curve) => trendCurveLabel(curve) === candidate.seriesName)
+  if (row !== undefined && !Array.isArray(candidate.data)) {
+    void eventStats.selectCurve(row.id, dashboard.rows)
+    return
+  }
+  if (!Array.isArray(candidate.data) || candidate.data.length < 2) return
   const [date, count] = candidate.data
   if (typeof date !== 'string' || (typeof count !== 'number' && count !== null)) return
-  const row = dashboard.rows.find((curve) => trendCurveLabel(curve) === candidate.seriesName)
   const condition = row?.appliedCondition
   if (condition === undefined) return
   const sourceEvent = candidate.event?.event
@@ -394,13 +438,47 @@ function chartPointClicked(event: unknown): void {
   void drilldown.open(condition, date, count)
 }
 
+function selectEventCurve(row: TrendCurveRow): void {
+  void eventStats.selectCurve(row.id, dashboard.rows)
+}
+
+function eventDrilldown(
+  eventType: 'entered' | 'modified' | 'left' | 'reopened',
+  period: 'current' | 'previous' | 'year_over_year',
+  count: number | null,
+): void {
+  const response = eventStats.response
+  const condition = selectedEventRow.value?.appliedCondition
+  if (
+    response === undefined ||
+    response.status !== 'available' ||
+    condition === undefined ||
+    count === null
+  )
+    return
+  const window = response[period]
+  void drilldown.openEvent(condition, eventType, window.start, window.end, count)
+}
+
+function eventRowLabel(type: 'entered' | 'modified' | 'left' | 'reopened'): string {
+  return trendEventTypeLabel(type)
+}
+
+function eventComparisonText(value: { count: number | null; rate: number | null }): string {
+  return formatTrendEventComparison(value)
+}
+
+function eventPeriodText(period: { start: string; end: string } | undefined): string {
+  return period === undefined ? '' : `${period.start} 至 ${period.end}`
+}
+
 function changeDrilldownTitle(event: Event): void {
   const target = event.target
   if (target instanceof HTMLInputElement) drilldown.setTitle(target.value)
 }
 
 function openDrilldownDetail(item: TrendDrilldownItem, mode: 'historical' | 'latest'): void {
-  const nodeDate = drilldown.node?.date
+  const nodeDate = item.event_date ?? drilldown.node?.date
   if (mode === 'historical' && nodeDate === undefined) return
   const request = ++detailRequest
   detail.value = undefined
@@ -432,10 +510,12 @@ function closeDetail(): void {
 }
 
 function retryComparison(): void {
-  if (detailMode.value !== 'historical' || detail.value === undefined || drilldown.node?.date === undefined) return
+  const historyDate = drilldown.node?.date ?? detail.value?.history_date
+  if (detailMode.value !== 'historical' || detail.value === undefined || historyDate === undefined)
+    return
   const currentDetail = detail.value
   const request = ++comparisonRequest
-  void getJobDetail(currentDetail.id, { date: drilldown.node.date, mode: 'historical' })
+  void getJobDetail(currentDetail.id, { date: historyDate, mode: 'historical' })
     .then((response) => {
       if (request === comparisonRequest && detail.value === currentDetail) detail.value = response
     })
@@ -492,7 +572,7 @@ watch(
 )
 
 onMounted(async () => {
-	window.addEventListener('keydown', handleEscape)
+  window.addEventListener('keydown', handleEscape)
   void dashboard.activate()
   try {
     filterOptions.value = await getFilterOptions()
@@ -501,9 +581,17 @@ onMounted(async () => {
   }
 })
 
+watch(
+  () => [dashboard.rows, dashboard.range, dashboard.customRange] as const,
+  () => {
+    void eventStats.load(dashboard.rows, dashboard.range, dashboard.customRange)
+  },
+  { deep: true, immediate: true },
+)
+
 onBeforeUnmount(() => {
-	window.removeEventListener('keydown', handleEscape)
-	document.body.style.overflow = ''
+  window.removeEventListener('keydown', handleEscape)
+  document.body.style.overflow = ''
 })
 </script>
 
@@ -552,20 +640,41 @@ onBeforeUnmount(() => {
             自定义
           </NButton>
         </nav>
-        <div v-if="customRangeOpen" class="job-trend-view__custom-range" role="group" aria-label="自定义日期范围">
+        <div
+          v-if="customRangeOpen"
+          class="job-trend-view__custom-range"
+          role="group"
+          aria-label="自定义日期范围"
+        >
           <label>
             <span>起始日期</span>
-            <FilterDatePicker v-model="customStartDate" aria-label="选择趋势起始日期" placeholder="起始日期" />
+            <FilterDatePicker
+              v-model="customStartDate"
+              aria-label="选择趋势起始日期"
+              placeholder="起始日期"
+            />
           </label>
           <span class="job-trend-view__custom-range-separator" aria-hidden="true">至</span>
           <label>
             <span>结束日期</span>
-            <FilterDatePicker v-model="customEndDate" aria-label="选择趋势结束日期" placeholder="结束日期" />
+            <FilterDatePicker
+              v-model="customEndDate"
+              aria-label="选择趋势结束日期"
+              placeholder="结束日期"
+            />
           </label>
-          <NButton data-testid="apply-custom-trend-range" size="small" type="primary" @click="applyCustomRange">
+          <NButton
+            data-testid="apply-custom-trend-range"
+            size="small"
+            type="primary"
+            @click="applyCustomRange"
+          >
             应用
           </NButton>
-          <p v-if="trendCoverage?.first_date && trendCoverage?.last_date" class="job-trend-view__coverage">
+          <p
+            v-if="trendCoverage?.first_date && trendCoverage?.last_date"
+            class="job-trend-view__coverage"
+          >
             系统数据覆盖：{{ trendCoverage.first_date }} 至 {{ trendCoverage.last_date }}
           </p>
           <p v-if="customRangeError" role="alert">{{ customRangeError }}</p>
@@ -618,6 +727,146 @@ onBeforeUnmount(() => {
           正在更新曲线…
         </div>
       </div>
+
+      <section
+        v-if="hasAppliedCurve"
+        class="job-trend-view__event-card"
+        aria-labelledby="trend-event-title"
+      >
+        <header class="job-trend-view__event-header">
+          <div>
+            <p class="job-trend-view__event-eyebrow">周期事件</p>
+            <h2 id="trend-event-title">{{ selectedEventCurveLabel || '岗位事件统计' }}</h2>
+            <p v-if="eventStats.response?.as_of">截至 {{ eventStats.response.as_of }}</p>
+          </div>
+          <div class="job-trend-view__event-arrows">
+            <button
+              type="button"
+              aria-label="上一条曲线"
+              :disabled="
+                eventCurveRows.length < 2 ||
+                eventCurveRows.findIndex((row) => row.id === eventStats.selectedCurveId) <= 0
+              "
+              @click="eventStats.selectPrevious(dashboard.rows)"
+            >
+              ‹
+            </button>
+            <span
+              >{{
+                Math.max(
+                  0,
+                  eventCurveRows.findIndex((row) => row.id === eventStats.selectedCurveId) + 1,
+                )
+              }}/{{ eventCurveRows.length }}</span
+            >
+            <button
+              type="button"
+              aria-label="下一条曲线"
+              :disabled="
+                eventCurveRows.length < 2 ||
+                eventCurveRows.findIndex((row) => row.id === eventStats.selectedCurveId) ===
+                  eventCurveRows.length - 1
+              "
+              @click="eventStats.selectNext(dashboard.rows)"
+            >
+              ›
+            </button>
+          </div>
+        </header>
+        <p v-if="dashboard.range === 'all'" class="job-trend-view__event-empty">
+          请选择具体时间范围。
+        </p>
+        <p
+          v-else-if="selectedEventRow && !supportsTrendEvents(selectedEventRow)"
+          class="job-trend-view__event-development"
+        >
+          开发中
+        </p>
+        <template v-else-if="eventStats.status === 'loading'">
+          <div class="job-trend-view__event-skeleton" aria-label="正在计算事件统计">
+            <span v-for="index in 4" :key="index" />
+          </div>
+        </template>
+        <p
+          v-else-if="eventStats.status === 'error'"
+          class="job-trend-view__event-error"
+          role="alert"
+        >
+          {{ eventStats.error }} <button type="button" @click="eventStats.retry">重试</button>
+        </p>
+        <p
+          v-else-if="eventStats.status === 'idle' || eventStats.response === undefined"
+          class="job-trend-view__event-empty"
+        >
+          请选择已应用曲线。
+        </p>
+        <p
+          v-else-if="eventStats.response.status === 'unavailable'"
+          class="job-trend-view__event-empty"
+        >
+          暂无可比数据
+        </p>
+        <div v-else class="job-trend-view__event-table-wrap">
+          <p class="job-trend-view__event-periods">
+            当前：{{ eventPeriodText(eventStats.response.current) }} · 环比：{{
+              eventPeriodText(eventStats.response.previous)
+            }}
+            · 同比：{{ eventPeriodText(eventStats.response.year_over_year) }}
+          </p>
+          <table class="job-trend-view__event-table">
+            <thead>
+              <tr>
+                <th>事件</th>
+                <th>当前周期</th>
+                <th>环比</th>
+                <th>同比</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in eventStatsRows" :key="row.type">
+                <th>{{ eventRowLabel(row.type) }}</th>
+                <td>
+                  <button
+                    type="button"
+                    :disabled="eventStats.response?.status !== 'available'"
+                    @click="eventDrilldown(row.type, 'current', row.current)"
+                  >
+                    {{ row.current }}
+                  </button>
+                </td>
+                <td>
+                  <template v-if="row.previous.count === null">
+                    {{ eventComparisonText(row.previous) }}
+                  </template>
+                  <template v-else>
+                    <button
+                      type="button"
+                      @click="eventDrilldown(row.type, 'previous', row.previous.count)"
+                    >
+                      {{ row.previous.count }}
+                    </button>
+                    <span>（{{ formatTrendEventRate(row.previous.rate) }}）</span>
+                  </template>
+                </td>
+                <td>
+                  <template v-if="row.year_over_year.count === null">
+                    {{ eventComparisonText(row.year_over_year) }}
+                  </template>
+                  <template v-else>
+                    <button
+                      type="button"
+                      @click="eventDrilldown(row.type, 'year_over_year', row.year_over_year.count)"
+                    >
+                      {{ row.year_over_year.count }}
+                    </button>
+                    <span>（{{ formatTrendEventRate(row.year_over_year.rate) }}）</span>
+                  </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
     <div
@@ -648,8 +897,20 @@ onBeforeUnmount(() => {
         @pointercancel="finishSheetDrag"
       >
         <div>
-          <p>节点日期 {{ drilldown.node?.date }}</p>
-          <strong>匹配 {{ drilldown.response?.matched_total ?? drilldown.node?.count ?? 0 }} 个岗位</strong>
+          <p>
+            {{
+              drilldown.node?.event
+                ? `${eventRowLabel(drilldown.node.event)} · ${selectedEventCurveLabel}`
+                : `节点日期 ${drilldown.node?.date ?? ''}`
+            }}
+          </p>
+          <strong>
+            {{
+              drilldown.node?.event
+                ? `周期：${drilldown.node?.startDate} 至 ${drilldown.node?.endDate} · 共 ${drilldown.response?.matched_total ?? drilldown.node?.count ?? 0} 个岗位`
+                : `匹配 ${drilldown.response?.matched_total ?? drilldown.node?.count ?? 0} 个岗位`
+            }}
+          </strong>
         </div>
         <button type="button" aria-label="关闭节点岗位" @click="closeDrilldown">×</button>
       </header>
@@ -669,6 +930,16 @@ onBeforeUnmount(() => {
         数据已更新，请重新打开节点
         <NButton size="tiny" tertiary @click="drilldown.retry">重试</NButton>
       </p>
+      <p
+        v-if="drilldown.response?.mode === 'event' && drilldown.response.reason_counts"
+        class="job-trend-view__drilldown-mismatch"
+      >
+        原因细分：{{
+          Object.entries(drilldown.response.reason_counts)
+            .map(([reason, count]) => `${reason} ${count}`)
+            .join(' · ')
+        }}
+      </p>
       <div v-if="drilldown.isLoading" class="job-trend-view__drilldown-skeleton" aria-live="polite">
         <span v-for="index in 4" :key="index" />
       </div>
@@ -677,21 +948,54 @@ onBeforeUnmount(() => {
         <NButton size="tiny" tertiary @click="drilldown.retry">重试</NButton>
       </p>
       <p v-else-if="drilldown.response?.items.length === 0" class="job-trend-view__drilldown-empty">
-        {{ drilldown.node?.count === 0 && !drilldown.title ? '该日没有匹配岗位' : '没有匹配的岗位' }}
+        {{
+          drilldown.node?.event
+            ? '该周期没有符合条件的岗位'
+            : drilldown.node?.count === 0 && !drilldown.title
+              ? '该日没有匹配岗位'
+              : '没有匹配的岗位'
+        }}
       </p>
       <ol v-else class="job-trend-view__drilldown-list">
         <li v-for="item in drilldown.response?.items" :key="item.id">
           <strong>{{ item.title }}</strong>
-          <span :class="`job-trend-view__drilldown-status job-trend-view__drilldown-status--${item.status}`">
-            {{ item.status === 'current' ? '仍有效' : item.status === 'changed' ? '有改动' : '确认下线' }}
+          <span
+            :class="`job-trend-view__drilldown-status job-trend-view__drilldown-status--${item.status}`"
+          >
+            {{
+              item.status === 'current'
+                ? '仍有效'
+              : item.status === 'changed'
+                  ? '有改动'
+                  : '确认下线'
+            }}
           </span>
+          <small v-if="drilldown.response?.mode === 'event'" class="job-trend-view__drilldown-event-meta">
+            {{ item.event_date }}<template v-if="item.reason"> · {{ item.reason }}</template>
+          </small>
           <div>
-            <NButton v-if="item.can_view_historical" size="tiny" @click="openDrilldownDetail(item, 'historical')">查看历史 JD</NButton>
-            <NButton v-if="item.can_view_latest" size="tiny" tertiary @click="openDrilldownDetail(item, 'latest')">查看最新{{ item.can_view_historical ? ' JD' : '' }}</NButton>
+            <NButton
+              v-if="item.can_view_historical"
+              size="tiny"
+              @click="openDrilldownDetail(item, 'historical')"
+              >查看历史 JD</NButton
+            >
+            <NButton
+              v-if="item.can_view_latest"
+              size="tiny"
+              tertiary
+              @click="openDrilldownDetail(item, 'latest')"
+              >查看最新{{ item.can_view_historical ? ' JD' : '' }}</NButton
+            >
           </div>
         </li>
       </ol>
-      <footer v-if="drilldown.response && drilldown.response.page.total > drilldown.response.page.page_size" class="job-trend-view__drilldown-pagination">
+      <footer
+        v-if="
+          drilldown.response && drilldown.response.page.total > drilldown.response.page.page_size
+        "
+        class="job-trend-view__drilldown-pagination"
+      >
         <NPagination
           :item-count="drilldown.response.page.total"
           :page="drilldown.page"
@@ -712,15 +1016,27 @@ onBeforeUnmount(() => {
         role="dialog"
       >
         <header>
-          <p>{{ detailMode === 'historical' ? `历史 JD · ${drilldown.node?.date ?? ''}` : '最新 JD' }}</p>
+          <p>
+            {{
+              detailMode === 'historical'
+                ? `历史 JD · ${drilldown.node?.date ?? drilldown.node?.startDate ?? ''}`
+                : '最新 JD'
+            }}
+          </p>
           <button type="button" aria-label="关闭岗位详情" @click="closeDetail">×</button>
         </header>
         <div class="job-trend-view__detail-content">
           <JobDetailSkeleton v-if="detailLoading" />
-          <p v-else-if="detailError" class="job-trend-view__detail-error" role="alert">{{ detailError }}</p>
+          <p v-else-if="detailError" class="job-trend-view__detail-error" role="alert">
+            {{ detailError }}
+          </p>
           <JDDetailReadingLayout
             v-else-if="detail"
-            :historical-context="detailMode === 'historical' && historicalDetailStatus ? { currentStatus: historicalDetailStatus } : undefined"
+            :historical-context="
+              detailMode === 'historical' && historicalDetailStatus
+                ? { currentStatus: historicalDetailStatus }
+                : undefined
+            "
             :job="detail"
             :show-observation-history="false"
             @retry-comparison="retryComparison"
@@ -784,6 +1100,7 @@ onBeforeUnmount(() => {
           :data-testid="`curve-card-${row.id}`"
           :style="{ '--curve-color': trendCurveColor(row) }"
           tabindex="-1"
+          @click="selectEventCurve(row)"
         >
           <header>
             <span class="job-trend-view__curve-index">{{
@@ -798,7 +1115,7 @@ onBeforeUnmount(() => {
             >
               待配置
             </span>
-            <button type="button" aria-label="删除曲线" @click="removeCurve(row)">×</button>
+            <button type="button" aria-label="删除曲线" @click.stop="removeCurve(row)">×</button>
           </header>
 
           <label class="job-trend-view__curve-field">
@@ -1055,6 +1372,127 @@ onBeforeUnmount(() => {
   padding: 10px 16px 20px;
   position: relative;
 }
+.job-trend-view__event-card {
+  border-top: 1px solid var(--trend-rule-soft);
+  padding: 24px 34px 30px;
+}
+.job-trend-view__event-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+.job-trend-view__event-eyebrow {
+  color: #008287;
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  margin: 0 0 4px;
+}
+.job-trend-view__event-header h2 {
+  color: var(--trend-ink);
+  font-size: 1.18rem;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.job-trend-view__event-header p:last-child {
+  color: var(--trend-muted);
+  font-size: 0.75rem;
+  margin: 6px 0 0;
+}
+.job-trend-view__event-arrows {
+  align-items: center;
+  color: var(--trend-muted);
+  display: flex;
+  gap: 8px;
+}
+.job-trend-view__event-arrows button {
+  align-items: center;
+  background: var(--trend-rail-surface);
+  border: 1px solid var(--trend-rule);
+  border-radius: 8px;
+  color: var(--trend-strong);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 1.2rem;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+.job-trend-view__event-arrows button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.job-trend-view__event-periods,
+.job-trend-view__event-empty,
+.job-trend-view__event-development,
+.job-trend-view__event-error {
+  color: var(--trend-muted);
+  font-size: 0.78rem;
+  margin: 16px 0 0;
+}
+.job-trend-view__event-development {
+  font-weight: 700;
+}
+.job-trend-view__event-error button {
+  background: none;
+  border: 0;
+  color: #007cab;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0 0 0 8px;
+}
+.job-trend-view__event-table-wrap {
+  overflow-x: auto;
+}
+.job-trend-view__event-table {
+  border-collapse: collapse;
+  min-width: 600px;
+  width: 100%;
+}
+.job-trend-view__event-table th,
+.job-trend-view__event-table td {
+  border-bottom: 1px solid var(--trend-rule-soft);
+  color: var(--trend-strong);
+  font-size: 0.8rem;
+  padding: 12px 10px;
+  text-align: left;
+}
+.job-trend-view__event-table thead th {
+  color: var(--trend-subtle);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+.job-trend-view__event-table tbody th {
+  font-weight: 700;
+}
+.job-trend-view__event-table button {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor, transparent 66%);
+  text-underline-offset: 3px;
+}
+.job-trend-view__event-table button:disabled {
+  color: var(--trend-subtle);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+.job-trend-view__event-skeleton {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.job-trend-view__event-skeleton span {
+  background: linear-gradient(90deg, #edf4f6 25%, #f8fbfc 50%, #edf4f6 75%);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  height: 34px;
+}
 .job-trend-view__chart {
   height: 540px;
   width: 100%;
@@ -1164,14 +1602,29 @@ onBeforeUnmount(() => {
 }
 .job-trend-view__drilldown-skeleton span {
   animation: job-trend-drilldown-pulse 1.15s ease-in-out infinite alternate;
-  background: linear-gradient(100deg, var(--trend-rule-soft), color-mix(in srgb, var(--trend-rule-soft), #fff 48%), var(--trend-rule-soft));
+  background: linear-gradient(
+    100deg,
+    var(--trend-rule-soft),
+    color-mix(in srgb, var(--trend-rule-soft), #fff 48%),
+    var(--trend-rule-soft)
+  );
   border-radius: 8px;
   height: 56px;
 }
-.job-trend-view__drilldown-skeleton span:nth-child(2) { animation-delay: 100ms; }
-.job-trend-view__drilldown-skeleton span:nth-child(3) { animation-delay: 200ms; }
-.job-trend-view__drilldown-skeleton span:nth-child(4) { animation-delay: 300ms; }
-@keyframes job-trend-drilldown-pulse { to { opacity: 0.54; } }
+.job-trend-view__drilldown-skeleton span:nth-child(2) {
+  animation-delay: 100ms;
+}
+.job-trend-view__drilldown-skeleton span:nth-child(3) {
+  animation-delay: 200ms;
+}
+.job-trend-view__drilldown-skeleton span:nth-child(4) {
+  animation-delay: 300ms;
+}
+@keyframes job-trend-drilldown-pulse {
+  to {
+    opacity: 0.54;
+  }
+}
 .job-trend-view__drilldown-list {
   display: grid;
   flex: 1 1 auto;
@@ -1202,6 +1655,7 @@ onBeforeUnmount(() => {
   gap: 3px 7px;
   grid-template-areas:
     'title status'
+    'meta meta'
     'actions actions';
   grid-template-columns: minmax(0, 1fr) auto;
   padding: 7px 0;
@@ -1212,6 +1666,11 @@ onBeforeUnmount(() => {
   grid-area: title;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+.job-trend-view__drilldown-event-meta {
+  color: var(--trend-subtle);
+  font-size: 0.68rem;
+  grid-area: meta;
 }
 .job-trend-view__drilldown-list li > div {
   display: flex;
@@ -1231,9 +1690,18 @@ onBeforeUnmount(() => {
   padding: 3px 6px;
   white-space: nowrap;
 }
-.job-trend-view__drilldown-status--current { background: #d8f1e7; color: #126b54; }
-.job-trend-view__drilldown-status--changed { background: #fff0c8; color: #8a5a00; }
-.job-trend-view__drilldown-status--confirmed_closed { background: #f6dfe1; color: #993d4c; }
+.job-trend-view__drilldown-status--current {
+  background: #d8f1e7;
+  color: #126b54;
+}
+.job-trend-view__drilldown-status--changed {
+  background: #fff0c8;
+  color: #8a5a00;
+}
+.job-trend-view__drilldown-status--confirmed_closed {
+  background: #f6dfe1;
+  color: #993d4c;
+}
 .job-trend-view__drilldown-empty,
 .job-trend-view__drilldown-error {
   align-self: center;
@@ -1242,7 +1710,9 @@ onBeforeUnmount(() => {
   margin: 0;
   text-align: center;
 }
-.job-trend-view__drilldown-error { color: #a8424d; }
+.job-trend-view__drilldown-error {
+  color: #a8424d;
+}
 .job-trend-view__drilldown-mismatch {
   background: color-mix(in srgb, #e69f00, transparent 87%);
   border-radius: 8px;
@@ -1296,7 +1766,9 @@ onBeforeUnmount(() => {
 }
 .job-trend-detail-enter-active,
 .job-trend-detail-leave-active {
-  transition: opacity 180ms ease, transform 320ms cubic-bezier(0.22, 0.9, 0.25, 1);
+  transition:
+    opacity 180ms ease,
+    transform 320ms cubic-bezier(0.22, 0.9, 0.25, 1);
 }
 .job-trend-detail-enter-from,
 .job-trend-detail-leave-to {
@@ -1317,7 +1789,9 @@ onBeforeUnmount(() => {
   font-weight: 760;
   margin: 0;
 }
-.job-trend-view__detail-error { color: #a8424d; }
+.job-trend-view__detail-error {
+  color: #a8424d;
+}
 .job-trend-view__curve-feedback {
   color: #00716f;
   font-size: 0.78rem;
@@ -1606,6 +2080,18 @@ onBeforeUnmount(() => {
   .job-trend-view__empty {
     height: 430px;
   }
+  .job-trend-view__event-card {
+    padding: 20px 16px 24px;
+  }
+  .job-trend-view__event-header {
+    align-items: flex-start;
+  }
+  .job-trend-view__event-header h2 {
+    font-size: 1rem;
+  }
+  .job-trend-view__event-periods {
+    line-height: 1.55;
+  }
   .job-trend-view__mobile-panel {
     bottom: calc(18px + env(safe-area-inset-bottom));
     display: block;
@@ -1657,10 +2143,14 @@ onBeforeUnmount(() => {
     padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
     top: auto !important;
     transform: translateY(var(--sheet-offset));
-    transition: height 180ms ease, transform 150ms ease;
+    transition:
+      height 180ms ease,
+      transform 150ms ease;
     width: 100%;
   }
-  .job-trend-view__drilldown--expanded { height: min(84dvh, 720px); }
+  .job-trend-view__drilldown--expanded {
+    height: min(84dvh, 720px);
+  }
   .job-trend-view__drilldown::before {
     background: var(--trend-rule);
     border: 0;
@@ -1670,7 +2160,9 @@ onBeforeUnmount(() => {
     top: 8px;
     width: 42px;
   }
-  .job-trend-view__drilldown-header { padding-top: 6px; }
+  .job-trend-view__drilldown-header {
+    padding-top: 6px;
+  }
   .job-trend-view__detail-drawer {
     border-radius: 0;
     padding: 18px 14px calc(20px + env(safe-area-inset-bottom));

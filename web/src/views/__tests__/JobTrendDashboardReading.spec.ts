@@ -69,6 +69,7 @@ describe('JobTrendView observation ledger', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.job-trend-view__curve-row')).toHaveLength(1)
+    expect(wrapper.find('[aria-labelledby="trend-event-title"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="trend-configuration-rail"]').classes()).toContain(
       'job-trend-view__rail--mobile-open',
     )
@@ -258,12 +259,741 @@ describe('JobTrendView observation ledger', () => {
     wrapper.unmount()
   })
 
+  it('renders event counts as drill-down actions while keeping comparison rates non-clickable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: [
+                {
+                  current: 9,
+                  previous: { count: 7, rate: 28.6 },
+                  type: 'entered',
+                  year_over_year: { count: 10, rate: -10 },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'modified',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'left',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'reopened',
+                  year_over_year: { count: 0, rate: null },
+                },
+              ],
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })
+    expect(row).not.toBeNull()
+    row!.appliedCondition = { ...row!.condition }
+    row!.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row!.status = 'ready'
+
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    const firstRow = wrapper.get('.job-trend-view__event-table tbody tr')
+    expect(wrapper.findAll('.job-trend-view__event-table tbody tr')).toHaveLength(4)
+    expect(wrapper.get('.job-trend-view__event-periods').text()).toContain(
+      '2026-11-01 至 2026-11-05',
+    )
+    expect(wrapper.get('.job-trend-view__event-periods').text()).toContain(
+      '2026-10-01 至 2026-10-05',
+    )
+    expect(wrapper.get('.job-trend-view__event-periods').text()).toContain(
+      '2025-11-01 至 2025-11-05',
+    )
+    const comparisonCell = firstRow.findAll('td')[1]!
+    expect(comparisonCell.text()).toContain('7')
+    expect(comparisonCell.text()).toContain('+28.6%')
+    expect(comparisonCell.findAll('button')).toHaveLength(1)
+    expect(comparisonCell.get('button').text()).toBe('7')
+
+    wrapper.unmount()
+  })
+
+  it('opens an empty event drill-down for a legal zero count', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: ['entered', 'modified', 'left', 'reopened'].map((type) => ({
+                current: 0,
+                previous: { count: 0, rate: null },
+                type,
+                year_over_year: { count: 0, rate: null },
+              })),
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Response(
+            JSON.stringify({
+              event_type: 'modified',
+              items: [],
+              matched_total: 0,
+              mode: 'event',
+              page: { number: 1, page_size: 20, total: 0 },
+              period_end: '2026-11-05',
+              period_start: '2026-11-01',
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const wrapper = await mountTrendView()
+    await flushPromises()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    row.appliedCondition = { ...row.condition }
+    row.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row.status = 'ready'
+    await flushPromises()
+
+    const modifiedRow = wrapper.findAll('.job-trend-view__event-table tbody tr')[1]!
+    await modifiedRow.get('button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').text()).toContain('该周期没有符合条件的岗位')
+    expect(wrapper.text()).not.toContain('统计暂不可用')
+    wrapper.unmount()
+  })
+
+  it('shows unavailable comparison state without exposing an empty drill-down', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: ['entered', 'modified', 'left', 'reopened'].map((type) => ({
+                current: 0,
+                previous: { count: null, rate: null },
+                type,
+                year_over_year: { count: null, rate: null },
+              })),
+              status: 'unavailable',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    row.appliedCondition = { ...row.condition }
+    row.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    expect(wrapper.get('.job-trend-view__event-empty').text()).toBe('暂无可比数据')
+    expect(wrapper.find('.job-trend-view__event-table').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="趋势节点岗位"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps event failure local and retries only the event request', async () => {
+    let eventReads = 0
+    let trendReads = 0
+    let allowEventRetry = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          trendReads += 1
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          eventReads += 1
+          if (!allowEventRetry) return new Response('{}', { status: 503 })
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: ['entered', 'modified', 'left', 'reopened'].map((type) => ({
+                current: 0,
+                previous: { count: 0, rate: null },
+                type,
+                year_over_year: { count: 0, rate: null },
+              })),
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const wrapper = await mountTrendView()
+    await flushPromises()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    row.appliedCondition = { ...row.condition }
+    row.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row.status = 'ready'
+    await flushPromises()
+
+    expect(wrapper.get('.job-trend-view__event-error').text()).toContain('统计暂不可用')
+    expect(wrapper.find('[data-testid="trend-chart-region"]').exists()).toBe(true)
+    const trendReadsBeforeRetry = trendReads
+    allowEventRetry = true
+    await wrapper.get('.job-trend-view__event-error button').trigger('click')
+    await flushPromises()
+    expect(eventReads).toBeGreaterThanOrEqual(2)
+    expect(trendReads).toBe(trendReadsBeforeRetry)
+    expect(wrapper.find('.job-trend-view__event-table').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('switches the event table with arrows without changing curve configuration', async () => {
+    let eventReads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          const query = new URL(path, 'http://localhost').searchParams
+          const dimension = query.get('dimension') ?? 'technology'
+          const value = query.get('value') ?? 'go'
+          return new Response(
+            JSON.stringify({
+              curve: {
+                dimension,
+                label: dimension === 'education' ? '本科' : 'Go',
+                ...(dimension === 'education' ? { operator: 'eq' } : {}),
+                value,
+              },
+              freshness: 'line-freshness',
+              points: [],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          eventReads += 1
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: [
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'entered',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'modified',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'left',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'reopened',
+                  year_over_year: { count: 0, rate: null },
+                },
+              ],
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const education = dashboard.addCurve({
+      dimension: 'education',
+      includeSecondary: false,
+      operator: 'eq',
+      value: 'bachelor',
+    })!
+    education.appliedCondition = { ...education.condition }
+    education.series = {
+      curve: { dimension: 'education', label: '本科', operator: 'eq', value: 'bachelor' },
+      freshness: 'education-freshness',
+      points: [],
+    }
+    education.status = 'ready'
+    const technology = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    technology.appliedCondition = { ...technology.condition }
+    technology.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'technology-freshness',
+      points: [],
+    }
+    technology.status = 'ready'
+    const configurationBefore = dashboard.rows.map((row) => ({ ...row.condition }))
+
+    const wrapper = await mountTrendView()
+    await flushPromises()
+    expect(wrapper.get('#trend-event-title').text()).toContain('学历 = 本科')
+    expect(wrapper.get('.job-trend-view__event-development').text()).toBe('开发中')
+    expect(eventReads).toBe(0)
+
+    expect(wrapper.get('[aria-label="上一条曲线"]').attributes('disabled')).toBeDefined()
+    const next = wrapper.get('[aria-label="下一条曲线"]')
+    expect(next.attributes('disabled')).toBeUndefined()
+    await next.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#trend-event-title').text()).toContain('技术关键词 · Go')
+    expect(wrapper.find('.job-trend-view__event-table').exists()).toBe(true)
+    expect(eventReads).toBe(1)
+    expect(wrapper.get('[aria-label="上一条曲线"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.get('[aria-label="上一条曲线"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#trend-event-title').text()).toContain('学历 = 本科')
+    expect(eventReads).toBe(1)
+    expect(dashboard.rows.map((row) => row.condition)).toEqual(configurationBefore)
+    wrapper.unmount()
+  })
+
+  it('keeps curve selection separate from point drill-down selection', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          const query = new URL(path, 'http://localhost').searchParams
+          const value = query.get('value') ?? 'go'
+          return new Response(
+            JSON.stringify({
+              curve: {
+                dimension: 'technology',
+                label: value === 'python' ? 'Python' : 'Go',
+                value,
+              },
+              freshness: 'line-freshness',
+              points: [{ count: 1, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: [
+                {
+                  current: 1,
+                  previous: { count: 0, rate: null },
+                  type: 'entered',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'modified',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'left',
+                  year_over_year: { count: 0, rate: null },
+                },
+                {
+                  current: 0,
+                  previous: { count: 0, rate: null },
+                  type: 'reopened',
+                  year_over_year: { count: 0, rate: null },
+                },
+              ],
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?'))
+          return new Response(
+            JSON.stringify({
+              items: [],
+              matched_total: 0,
+              node_date: '2026-11-05',
+              page: { number: 1, page_size: 20, total: 0 },
+            }),
+          )
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    for (const [value, label] of [
+      ['go', 'Go'],
+      ['python', 'Python'],
+    ] as const) {
+      const row = dashboard.addCurve({
+        dimension: 'technology',
+        includeSecondary: false,
+        operator: '',
+        value,
+      })!
+      row.appliedCondition = { ...row.condition }
+      row.series = {
+        curve: { dimension: 'technology', label, value },
+        freshness: `${value}-freshness`,
+        points: [{ count: 1, date: '2026-11-05' }],
+      }
+      row.status = 'ready'
+    }
+    const wrapper = await mountTrendView()
+    await flushPromises()
+    expect(wrapper.get('#trend-event-title').text()).toContain('技术关键词 · Go')
+
+    await wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      seriesName: '技术关键词 · Python',
+    })
+    await flushPromises()
+    expect(wrapper.get('#trend-event-title').text()).toContain('技术关键词 · Python')
+
+    await wrapper.findComponent({ name: 'VChart' }).vm.$emit('click', {
+      data: ['2026-11-05', 1],
+      seriesName: '技术关键词 · Go',
+    })
+    await flushPromises()
+    expect(wrapper.get('#trend-event-title').text()).toContain('技术关键词 · Python')
+    expect(wrapper.get('[aria-label="趋势节点岗位"]').text()).toContain('节点日期 2026-11-05')
+    wrapper.unmount()
+  })
+
+  it('shows development status for education without issuing an event request', async () => {
+    let eventReads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends/events?')) eventReads += 1
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'education',
+      includeSecondary: false,
+      operator: 'eq',
+      value: 'bachelor',
+    })!
+    row.appliedCondition = { ...row.condition }
+    row.series = {
+      curve: { dimension: 'education', label: '本科', operator: 'eq', value: 'bachelor' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    expect(wrapper.get('.job-trend-view__event-development').text()).toBe('开发中')
+    expect(eventReads).toBe(0)
+    expect(wrapper.find('.job-trend-view__event-table').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders safe event dates and reasons inside the reused drill-down', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: [
+                {
+                  current: 1,
+                  previous: { count: 0, rate: null },
+                  type: 'entered',
+                  year_over_year: { count: 0, rate: null },
+                },
+              ],
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Response(
+            JSON.stringify({
+              event_type: 'entered',
+              items: [
+                {
+                  can_view_historical: true,
+                  can_view_latest: false,
+                  event_date: '2026-11-05',
+                  id: 'opaque-event-job',
+                  reason: '历史基线进入',
+                  status: 'confirmed_closed',
+                  title: 'Go 平台工程师',
+                },
+              ],
+              matched_total: 1,
+              mode: 'event',
+              page: { number: 1, page_size: 20, total: 1 },
+              period_end: '2026-11-05',
+              period_start: '2026-11-01',
+              reason_counts: { 历史基线进入: 1 },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    row.appliedCondition = { ...row.condition }
+    row.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 3, date: '2026-11-05' }],
+    }
+    row.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper.get('.job-trend-view__event-table tbody button').trigger('click')
+    await flushPromises()
+    const drilldown = wrapper.get('[aria-label="趋势节点岗位"]')
+    expect(drilldown.text()).toContain('2026-11-05')
+    expect(drilldown.text()).toContain('历史基线进入')
+    wrapper.unmount()
+  })
+
+  it('loads events for an already activated dashboard and refreshes them on demand', async () => {
+    let eventReads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'unchanged-line',
+              points: [{ count: 3, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          eventReads += 1
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: [
+                {
+                  type: 'entered',
+                  current: eventReads,
+                  previous: { count: 0, rate: null },
+                  year_over_year: { count: 0, rate: null },
+                },
+              ],
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const curve = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    await dashboard.applyCurve(curve.id)
+    await dashboard.activate()
+
+    const wrapper = await mountTrendView()
+    await flushPromises()
+    expect(eventReads).toBe(1)
+    expect(wrapper.get('.job-trend-view__event-table tbody tr').text()).toContain('1')
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('刷新数据'))!
+      .trigger('click')
+    await flushPromises()
+    expect(eventReads).toBe(2)
+    expect(wrapper.get('.job-trend-view__event-table tbody tr').text()).toContain('2')
+    wrapper.unmount()
+  })
+
   it('opens one anchored node list without exposing transport identities and preserves it after detail close', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input)
-        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
         if (path.startsWith('/api/v1/job-trends?')) {
           return new Response(
             JSON.stringify({
@@ -367,7 +1097,8 @@ describe('JobTrendView observation ledger', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input)
-        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
         if (path.startsWith('/api/v1/job-trends/drilldown?')) {
           return new Promise<Response>((resolve) => {
             resolveDrilldown = resolve
@@ -410,9 +1141,27 @@ describe('JobTrendView observation ledger', () => {
       new Response(
         JSON.stringify({
           items: [
-            { can_view_historical: false, can_view_latest: true, id: 'one', status: 'current', title: '岗位一' },
-            { can_view_historical: false, can_view_latest: true, id: 'two', status: 'current', title: '岗位二' },
-            { can_view_historical: false, can_view_latest: true, id: 'three', status: 'current', title: '岗位三' },
+            {
+              can_view_historical: false,
+              can_view_latest: true,
+              id: 'one',
+              status: 'current',
+              title: '岗位一',
+            },
+            {
+              can_view_historical: false,
+              can_view_latest: true,
+              id: 'two',
+              status: 'current',
+              title: '岗位二',
+            },
+            {
+              can_view_historical: false,
+              can_view_latest: true,
+              id: 'three',
+              status: 'current',
+              title: '岗位三',
+            },
           ],
           matched_total: 3,
           node_date: '2026-11-05',
@@ -433,7 +1182,8 @@ describe('JobTrendView observation ledger', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input)
-        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
         if (path.startsWith('/api/v1/job-trends?')) {
           return new Response(
             JSON.stringify({
@@ -556,7 +1306,8 @@ describe('JobTrendView observation ledger', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input)
-        if (path === '/api/v1/jobs/filter-options') return new Response(JSON.stringify(filterOptions))
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
         if (path.startsWith('/api/v1/job-trends?')) {
           return new Response(
             JSON.stringify({
