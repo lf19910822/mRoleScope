@@ -14,6 +14,7 @@ readonly sha_pattern='^[a-f0-9]{40}$'
 readonly digest_pattern='^docker\.io/daud1991/mrolescope-(api|migrate|worker|web-edge)@sha256:[a-f0-9]{64}$'
 
 revision=''
+pinned_postgres_image=''
 
 die() {
   printf 'remote release failed: %s\n' "$1" >&2
@@ -26,14 +27,27 @@ Usage: scripts/release-remote-development.sh --dry-run|--deploy
 
   --dry-run  Verify that the local checkout is the clean, current main revision
               and print the planned release without building or changing state.
-  --deploy   Run release verification, build and push four immutable images,
-              refresh reviewed CVM deployment assets, and deploy their digests.
+  --deploy   Preflight the CVM Docker pull path, run release verification,
+              build and push four immutable images, refresh reviewed CVM
+              deployment assets, and deploy their digests.
 USAGE
   exit 2
 }
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command is unavailable: $1"
+}
+
+resolve_pinned_postgres_image() {
+  local -a candidates=()
+
+  mapfile -t candidates < <(
+    sed -nE 's/^    image: (postgres:[^[:space:]]+@sha256:[a-f0-9]{64})$/\1/p' \
+      "$repository_root/deploy/remote-development/compose.yaml"
+  )
+  [[ "${#candidates[@]}" -eq 1 ]] \
+    || die 'the reviewed Compose definition must contain exactly one pinned PostgreSQL image'
+  pinned_postgres_image="${candidates[0]}"
 }
 
 preflight() {
@@ -43,6 +57,7 @@ preflight() {
     require_command "$command"
   done
 
+  resolve_pinned_postgres_image
   git -C "$repository_root" fetch --quiet origin main
   status=$(git -C "$repository_root" status --porcelain)
   [[ -z "$status" ]] || die 'the worktree is not clean; commit or stash release-unrelated changes first'
@@ -52,6 +67,34 @@ preflight() {
   remote_revision=$(git -C "$repository_root" rev-parse refs/remotes/origin/main)
   [[ "$revision" =~ $sha_pattern ]] || die 'HEAD is not a full lowercase Git revision'
   [[ "$revision" == "$remote_revision" ]] || die 'local main does not exactly match origin/main; run git pull --ff-only'
+}
+
+remote_registry_preflight() {
+  local remote_command
+
+  remote_command=$(cat <<REMOTE
+set -euo pipefail
+printf '%s\n' 'CVM Docker daemon pull preflight: ${pinned_postgres_image}'
+mirrors=\$(docker info --format '{{range .RegistryConfig.Mirrors}}{{println .}}{{end}}' 2>/dev/null || true)
+if [[ -n "\$mirrors" ]]; then
+  printf '%s\n' 'CVM Docker daemon registry mirrors:'
+  printf '%s\n' "\$mirrors"
+else
+  printf '%s\n' 'CVM Docker daemon registry mirrors: none configured'
+fi
+command -v timeout >/dev/null 2>&1 || {
+  printf '%s\n' 'CVM Docker daemon pull preflight failed: timeout is unavailable' >&2
+  exit 1
+}
+if ! timeout 120 docker pull '${pinned_postgres_image}'; then
+  printf '%s\n' 'CVM Docker daemon pull preflight failed for the pinned PostgreSQL image' >&2
+  printf '%s\n' 'This release gate uses the Docker daemon pull path; direct Registry probes are not used as evidence.' >&2
+  exit 1
+fi
+printf '%s\n' 'CVM Docker daemon pull preflight passed'
+REMOTE
+)
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote_host" "$remote_command"
 }
 
 resolve_pushed_digest() {
@@ -121,6 +164,7 @@ case "$1" in
     ;;
   --deploy)
     preflight
+    remote_registry_preflight
     make -C "$repository_root" remote-release-verify
     api_image=$(build_and_push 'mrolescope-api' "$repository_root/docker/Dockerfile.api")
     migrate_image=$(build_and_push 'mrolescope-migrate' "$repository_root/docker/Dockerfile.migrate")

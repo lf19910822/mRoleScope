@@ -39,12 +39,21 @@ cat >"$temporary_dir/bin/docker" <<MOCK
 set -euo pipefail
 case "\$1" in
   compose)
+    printf 'compose %s\n' "\$*" >>"\${MROLESCOPE_TEST_DOCKER_LOG}"
+    if [[ "\${MROLESCOPE_TEST_PULL_FAIL:-false}" == true && " \$* " == *' pull '* ]]; then
+      printf '%s\n' 'simulated Compose image pull failure' >&2
+      exit 17
+    fi
     if [[ " \$* " == *' web-edge '* ]]; then
       printf '%s\\n' "\${MROLESCOPE_WEB_EDGE_IMAGE:-}" >>"\${MROLESCOPE_TEST_DOCKER_LOG}"
     fi
     if [[ " \$* " == *' ps -q api '* ]]; then
       printf '%s\\n' api-test-container
     fi
+    ;;
+  info)
+    printf '%s\\n' 'Registry Mirrors:'
+    printf '%s\\n' ' https://mirror.example.test/'
     ;;
   image)
     [[ "\$2" == inspect ]] || exit 1
@@ -113,6 +122,22 @@ export MROLESCOPE_TEST_DOCKER_LOG="$temporary_dir/docker.log"
 run_helper "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" >/dev/null
 grep -Fqx "web_edge_image=${web_edge_image}" "$temporary_dir/releases/current.env" \
   || die 'successful release did not record its Web Edge digest'
+
+export MROLESCOPE_TEST_PULL_FAIL=true
+: >"$MROLESCOPE_TEST_DOCKER_LOG"
+if run_helper "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" >"$temporary_dir/pull-failure.log" 2>&1; then
+  die 'a Compose image pull failure was accepted as a successful release'
+fi
+grep -Fq 'Docker daemon registry mirrors' "$temporary_dir/pull-failure.log" \
+  || die 'pull failure did not report the Docker daemon registry mirror context'
+grep -Fq 'compose --profile web pull postgres migrate api worker web-edge' "$temporary_dir/pull-failure.log" \
+  || die 'pull failure did not identify the fixed Compose pull boundary'
+[[ "$(grep -c '^compose .* pull postgres migrate api worker web-edge$' "$MROLESCOPE_TEST_DOCKER_LOG")" -eq 1 ]] \
+  || die 'pull failure retried the Compose image pull'
+if grep -Eq '^compose .* (run|up) ' "$MROLESCOPE_TEST_DOCKER_LOG"; then
+  die 'pull failure started migration or a service before stopping'
+fi
+unset MROLESCOPE_TEST_PULL_FAIL
 
 # With the manual gate enabled, a failed new Edge must restore only the prior
 # verified Edge digest. The mocked curl returns 000 for the candidate then 302
