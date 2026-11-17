@@ -41,8 +41,17 @@ The production Web Edge keeps the Vue application and `/api/` same-origin.
 For a non-public local preview, point Vite at a loopback API. Vite proxies only
 `/api/`; it does not make the API public.
 
+The development server defaults to the current loopback tunnel at
+`http://127.0.0.1:20080`, so the usual command is enough:
+
 ```sh
-VITE_API_PROXY_TARGET=http://127.0.0.1:18080 npm run dev
+npm run dev
+```
+
+To override the API target explicitly:
+
+```sh
+VITE_API_PROXY_TARGET=http://127.0.0.1:20080 npm run dev
 ```
 
 Open `http://127.0.0.1:5175/` on the same machine. The API target must be a

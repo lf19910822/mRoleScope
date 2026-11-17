@@ -10,7 +10,7 @@ import { createJDRouter } from '@/router'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('application navigation shell', () => {
-  it('keeps the desktop function rail fixed while the browser owns page scrolling', () => {
+  it('keeps the desktop navigation in the shell layout with an animated narrow rail', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/App.vue'), 'utf8')
     const shellRule = source.match(/\.app-shell \{(?<declarations>[\s\S]*?)\n\}/u)?.groups
       ?.declarations
@@ -20,11 +20,57 @@ describe('application navigation shell', () => {
       ?.groups?.declarations
 
     expect(shellRule).toMatch(/min-height:\s*100vh;/u)
+    expect(shellRule).toMatch(/display:\s*grid;/u)
+    expect(shellRule).toMatch(/grid-template-columns:\s*224px/u)
     expect(shellRule).not.toMatch(/height:\s*100dvh;/u)
     expect(shellRule).not.toMatch(/overflow:\s*hidden;/u)
     expect(railRule).toMatch(/height:\s*100dvh;/u)
-    expect(railRule).toMatch(/position:\s*fixed;/u)
+    expect(railRule).toMatch(/position:\s*sticky;/u)
+    expect(railRule).toMatch(/transition:/u)
     expect(contentRule).toMatch(/overflow:\s*visible;/u)
+    expect(source).toContain('app-shell--navigation-collapsed')
+    expect(source).toContain('data-testid="toggle-desktop-navigation"')
+    expect(source).toContain('data-testid="navigation-icon"')
+    expect(source).not.toMatch(/sessionStorage|localStorage/u)
+  })
+
+  it('starts expanded on a wide desktop and collapses without losing the active route', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
+    const router = createJDRouter(createMemoryHistory())
+    await router.push({ name: 'jobs' })
+    await router.isReady()
+    const wrapper = mount(App, {
+      global: { plugins: [router], stubs: { RouterView: true } },
+    })
+
+    expect(wrapper.get('.app-sidebar').classes()).toContain('app-sidebar--expanded')
+    await wrapper.get('[data-testid="toggle-desktop-navigation"]').trigger('click')
+    expect(wrapper.get('.app-sidebar').classes()).toContain('app-sidebar--collapsed')
+    expect(wrapper.get('.app-shell').classes()).toContain('app-shell--navigation-collapsed')
+    expect(wrapper.get('[data-testid="application-navigation"] a').classes()).toContain(
+      'app-navigation__link--active',
+    )
+
+    await wrapper.get('[data-testid="navigation-brand"]').trigger('click')
+    expect(wrapper.get('.app-sidebar').classes()).toContain('app-sidebar--expanded')
+
+    wrapper.unmount()
+  })
+
+  it('keeps the collapsed navigation rail quiet and lets its brand reopen the rail', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/App.vue'), 'utf8')
+
+    expect(source).toContain('data-testid="navigation-brand"')
+    expect(source).toContain('@click="expandCollapsedNavigation"')
+    expect(source).toMatch(
+      /v-if="navigationExpanded"\s*\n\s*class="app-sidebar__desktop-toggle"/u,
+    )
+    expect(source).toContain('<span aria-hidden="true">‹</span>')
+    expect(source).not.toContain('<span aria-hidden="true">›</span>')
+    const collapsedHeader = source.match(
+      /\.app-sidebar--collapsed \.app-sidebar__header \{([\s\S]*?)\n\s*\}/u,
+    )?.[1]
+    expect(collapsedHeader).not.toContain('flex-direction')
   })
 
   it('returns the application shell to ordinary document flow at narrow widths', () => {

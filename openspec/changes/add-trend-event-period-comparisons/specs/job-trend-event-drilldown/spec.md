@@ -58,6 +58,11 @@ The drill-down SHALL identify the event, curve, period, and result total using u
 - **THEN** the list MAY show the user-facing reason `历史基线进入`
 - **AND THEN** it SHALL not show why the baseline exists internally or expose collection metadata
 
+#### Scenario: Event summary omits aggregate reason breakdown
+- **WHEN** the user opens any event list
+- **THEN** the existing drill-down container SHALL show the event, curve, period, and total without a separate aggregate “原因细分” summary block
+- **AND THEN** individual job rows MAY continue to show their user-facing event reason
+
 ### Requirement: Enter and leave reasons are recoverable
 
 The event list SHALL preserve the public reason distinction required by the metric without changing the four-row summary table. Enter events SHALL distinguish baseline entry from modification entry; leave events SHALL distinguish modification removal from confirmed closure.
@@ -109,3 +114,14 @@ The drill-down SHALL use the event observation context when opening historical d
 - **WHEN** a job from an event period is currently confirmed closed
 - **THEN** the list SHALL retain the event item
 - **AND THEN** it SHALL offer the permitted historical detail action without removing the historical event
+
+#### Scenario: A curve-internal modification is opened
+- **WHEN** a user opens a `曲线内修改` event result whose current JD is still effective
+- **THEN** the list SHALL reuse the existing `有改动` status and offer both historical and latest JD actions
+- **AND THEN** the historical action SHALL request the existing `modified` history node for the event date
+- **AND THEN** the detail view SHALL reuse the existing `变更摘要` comparison rather than showing only an unannotated historical snapshot
+
+#### Scenario: The modification event date differs from the period start
+- **WHEN** a modification occurred on `2026-11-03` within a period starting on `2026-11-01`
+- **THEN** the historical detail title and comparison context SHALL use `2026-11-03`
+- **AND THEN** they SHALL not fall back to `2026-11-01` merely because the event drill-down covers a period

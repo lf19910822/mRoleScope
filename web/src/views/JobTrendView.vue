@@ -14,6 +14,7 @@ import {
   NButton,
   NEmpty,
   NPagination,
+  NPopover,
   NSelect,
   NSwitch,
   type SelectOption,
@@ -25,6 +26,7 @@ import VChart, { type Exposed as VChartExposed } from 'vue-echarts'
 import {
   getFilterOptions,
   getJobDetail,
+  getJobHistoryDetail,
   getJobTrendDrilldown,
   getJobTrendEvents,
   type FilterOptionsResponse,
@@ -50,6 +52,7 @@ import type {
   TrendComparison,
   TrendCurveRow,
   TrendDimension,
+  TrendEventType,
   TrendRange,
 } from '@/lib/job-trend-dashboard-state'
 
@@ -65,8 +68,11 @@ use([
 const dashboard = useJobTrendDashboard()
 const drilldown = createTrendDrilldownState({ readTrendDrilldown: getJobTrendDrilldown })
 const eventStats = createTrendEventState({ readTrendEvents: getJobTrendEvents })
+const eventPopoverThemeOverrides = { boxShadow: 'none' }
 const trendChart = ref<VChartExposed | null>(null)
 const mobileConfigurationOpen = ref(false)
+const configurationExpanded = ref(defaultConfigurationExpanded())
+const configurationManuallyToggled = ref(false)
 const customRangeOpen = ref(false)
 const customRangeError = ref('')
 const customStartDate = ref(dashboard.customRange?.startDate ?? '')
@@ -94,6 +100,7 @@ const detailError = ref('')
 const detailLoading = ref(false)
 const detailMode = ref<'historical' | 'latest'>('latest')
 const historicalDetailStatus = ref<TrendDrilldownStatus>()
+const historicalDetailDate = ref('')
 const mobileSheetExpanded = ref(false)
 const mobileSheetOffset = ref(0)
 let detailRequest = 0
@@ -134,12 +141,25 @@ const supportsChartNavigation = computed(
 const trendCoverage = computed(
   () => dashboard.rows.find((row) => row.series?.coverage)?.series?.coverage,
 )
+const chartPeriodText = computed(() => {
+  const dates = dashboard.rows.flatMap((row) => row.series?.points.map((point) => point.date) ?? [])
+  if (dates.length === 0) return ''
+  const firstDate = dates.reduce((earliest, date) => (date < earliest ? date : earliest))
+  const lastDate = dates.reduce((latest, date) => (date > latest ? date : latest))
+  return `${firstDate.replace(/-/g, '.')} 至 ${lastDate.replace(/-/g, '.')}`
+})
 const chartOption = computed(() => createTrendChartOption(dashboard.rows, dashboard.range))
 const echartsOption = computed(() => chartOption.value as unknown as EChartsOption)
 const chartTheme = computed(() => (osTheme.value === 'dark' ? 'dark' : undefined))
 const curveLimitReached = computed(() => dashboard.rows.length >= 8)
 const eventCurveRows = computed(() =>
   dashboard.rows.filter((row) => row.appliedCondition !== undefined),
+)
+const eventCurveOptions = computed<SelectOption[]>(() =>
+  eventCurveRows.value.slice(0, 8).map((row) => ({
+    label: trendCurveLabel(row),
+    value: row.id,
+  })),
 )
 const hasAppliedCurve = computed(() =>
   dashboard.rows.some((row) => row.appliedCondition !== undefined),
@@ -158,24 +178,59 @@ function preferredDrilldownHeight(maximumHeight: number): number {
   const hasPagination =
     drilldown.response !== undefined &&
     drilldown.response.page.total > drilldown.response.page.page_size
-  const compactContentHeight = 128 + visibleRowCount * 80 + (hasPagination ? 36 : 0)
-  return Math.min(maximumHeight, Math.max(208, compactContentHeight))
+  const baseContentHeight = drilldown.node?.event !== undefined ? 176 : 128
+  const compactContentHeight = baseContentHeight + visibleRowCount * 80 + (hasPagination ? 36 : 0)
+  const minimumHeight = drilldown.node?.event !== undefined ? 256 : 208
+  return Math.min(maximumHeight, Math.max(minimumHeight, compactContentHeight))
 }
 
 const drilldownPlacement = computed(() => {
   if (window.innerWidth <= 600) {
     const maximumHeight = Math.min(620, Math.max(280, Math.round(window.innerHeight * 0.72)))
+    const height = preferredDrilldownHeight(maximumHeight)
     return {
       opensAbove: false,
       style: {
-        '--drilldown-height': `${preferredDrilldownHeight(maximumHeight)}px`,
+        '--drilldown-height': `${height}px`,
         '--sheet-offset': `${mobileSheetOffset.value}px`,
       },
     }
   }
 
-  const pageRight = window.innerWidth - 392
+  const expandedWorkspaceRight =
+    window.innerWidth >= 1440 ? 420 : window.innerWidth >= 1180 ? 368 : 0
+  const workspaceRight = configurationExpanded.value ? expandedWorkspaceRight : 0
+  const pageRight = window.innerWidth - workspaceRight
   const width = Math.min(380, Math.max(160, pageRight - 36))
+  if (drilldown.node?.event !== undefined) {
+    const left = Math.max(18, Math.min(drilldownAnchor.value.x - width, pageRight - width - 18))
+    const maximumHeight = Math.min(580, Math.max(340, Math.round(window.innerHeight * 0.6)))
+    const height = preferredDrilldownHeight(maximumHeight)
+    const arrowReach = 9
+    const canOpenAbove = drilldownAnchor.value.y - height - arrowReach >= 18
+    const canOpenBelow = drilldownAnchor.value.y + height + arrowReach <= window.innerHeight - 18
+    const opensAbove = canOpenAbove || !canOpenBelow
+    const top = opensAbove
+      ? Math.max(18, drilldownAnchor.value.y - height - arrowReach)
+      : Math.min(
+          drilldownAnchor.value.y + arrowReach,
+          window.innerHeight - height - 18,
+        )
+    const arrowOffset = Math.max(18, Math.min(drilldownAnchor.value.x - left - 8, width - 34))
+
+    return {
+      opensAbove,
+      style: {
+        '--drilldown-arrow-offset': `${arrowOffset}px`,
+        '--drilldown-height': `${height}px`,
+        '--drilldown-width': `${width}px`,
+        '--sheet-offset': `${mobileSheetOffset.value}px`,
+        left: `${left}px`,
+        top: `${top}px`,
+      },
+    }
+  }
+
   const maximumHeight = Math.min(580, Math.max(340, Math.round(window.innerHeight * 0.6)))
   const height = preferredDrilldownHeight(maximumHeight)
   const arrowReach = 9
@@ -201,6 +256,10 @@ const drilldownPlacement = computed(() => {
   }
 })
 const drilldownStyle = computed(() => drilldownPlacement.value.style)
+
+function defaultConfigurationExpanded(): boolean {
+  return typeof window === 'undefined' || window.innerWidth >= 1440
+}
 
 function isComparableDimension(dimension: TrendDimension): boolean {
   return dimension === 'education' || dimension === 'experience'
@@ -270,7 +329,52 @@ function addCurve(): void {
 
 function startFirstCurve(): void {
   addCurve()
-  if (dashboard.rows.length > 0) mobileConfigurationOpen.value = true
+  if (dashboard.rows.length > 0) openConfiguration()
+}
+
+function focusCurveCard(row: TrendCurveRow | undefined): void {
+  if (row === undefined) return
+  focusedCurveId.value = row.id
+  void nextTick().then(() => {
+    const target = document.querySelector<HTMLElement>(`[data-testid="curve-card-${row.id}"]`)
+    if (target === null) return
+    target.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    target.focus({ preventScroll: true })
+  })
+}
+
+function openConfiguration(): void {
+  if (window.innerWidth > 760) {
+    configurationManuallyToggled.value = true
+    configurationExpanded.value = true
+    focusCurveCard(dashboard.rows[0])
+    return
+  }
+  mobileConfigurationOpen.value = true
+  void nextTick(() => {
+    document.querySelector<HTMLElement>('[data-testid="close-trend-configuration"]')?.focus()
+  })
+}
+
+function closeConfiguration(): void {
+  if (window.innerWidth > 760) {
+    configurationManuallyToggled.value = true
+    configurationExpanded.value = false
+    void nextTick(() => {
+      const marker = focusedCurveId.value
+        ? document.querySelector<HTMLElement>(
+            `[data-testid="curve-marker-${focusedCurveId.value}"]`,
+          )
+        : document.querySelector<HTMLElement>('[data-testid="curve-marker-rail"] button')
+      marker?.focus()
+    })
+    return
+  }
+  mobileConfigurationOpen.value = false
+  void nextTick(async () => {
+    await nextTick()
+    document.querySelector<HTMLElement>('[data-testid="open-trend-configuration"]')?.focus()
+  })
 }
 
 function changeCurveDimension(row: TrendCurveRow, value: string | number | null): void {
@@ -323,13 +427,7 @@ function applyCurve(row: TrendCurveRow): void {
 }
 
 function focusFirstIncompleteCurve(row: TrendCurveRow): void {
-  focusedCurveId.value = row.id
-  void nextTick().then(() => {
-    const target = document.querySelector<HTMLElement>(`[data-testid="curve-card-${row.id}"]`)
-    if (target === null) return
-    target.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
-    target.focus({ preventScroll: true })
-  })
+  focusCurveCard(row)
 }
 
 function applyAllCurves(): void {
@@ -399,7 +497,7 @@ function resetTrendView(): void {
 function removeCurve(row: TrendCurveRow): void {
   dashboard.removeCurve(row.id)
   if (focusedCurveId.value === row.id) focusedCurveId.value = ''
-  if (dashboard.rows.length === 0) mobileConfigurationOpen.value = false
+  if (dashboard.rows.length === 0) closeConfiguration()
 }
 
 function chartLegendChanged(event: unknown): void {
@@ -442,10 +540,23 @@ function selectEventCurve(row: TrendCurveRow): void {
   void eventStats.selectCurve(row.id, dashboard.rows)
 }
 
+function openCurveMarker(row: TrendCurveRow): void {
+  void eventStats.selectCurve(row.id, dashboard.rows)
+  configurationManuallyToggled.value = true
+  configurationExpanded.value = true
+  focusCurveCard(row)
+}
+
+function selectEventCurveById(value: string | number | null): void {
+  if (typeof value !== 'string') return
+  void eventStats.selectCurve(value, dashboard.rows)
+}
+
 function eventDrilldown(
   eventType: 'entered' | 'modified' | 'left' | 'reopened',
   period: 'current' | 'previous' | 'year_over_year',
   count: number | null,
+  sourceEvent?: MouseEvent,
 ): void {
   const response = eventStats.response
   const condition = selectedEventRow.value?.appliedCondition
@@ -456,12 +567,28 @@ function eventDrilldown(
     count === null
   )
     return
+  if (typeof sourceEvent?.clientX === 'number' && typeof sourceEvent.clientY === 'number') {
+    drilldownAnchor.value = { x: sourceEvent.clientX, y: sourceEvent.clientY }
+  }
   const window = response[period]
   void drilldown.openEvent(condition, eventType, window.start, window.end, count)
 }
 
 function eventRowLabel(type: 'entered' | 'modified' | 'left' | 'reopened'): string {
   return trendEventTypeLabel(type)
+}
+
+function eventDefinition(type: TrendEventType): string {
+  switch (type) {
+    case 'entered':
+      return '首次被观察到进入该曲线，或修改后从不匹配变为匹配。'
+    case 'modified':
+      return '修改前后都匹配该曲线，且来源元数据或正文版本发生变化。'
+    case 'left':
+      return '修改后移出该曲线，或岗位被确认下线。'
+    case 'reopened':
+      return '岗位确认下线后恢复有效，并重新匹配该曲线。'
+  }
 }
 
 function eventComparisonText(value: { count: number | null; rate: number | null }): string {
@@ -486,7 +613,12 @@ function openDrilldownDetail(item: TrendDrilldownItem, mode: 'historical' | 'lat
   detailLoading.value = true
   detailMode.value = mode
   historicalDetailStatus.value = mode === 'historical' ? item.status : undefined
-  void getJobDetail(item.id, mode === 'historical' ? { date: nodeDate!, mode } : { mode })
+  historicalDetailDate.value = mode === 'historical' ? nodeDate! : ''
+  const requestDetail =
+    mode === 'historical' && drilldown.node?.event === 'modified'
+      ? getJobHistoryDetail(item.id, nodeDate!, 'modified')
+      : getJobDetail(item.id, mode === 'historical' ? { date: nodeDate!, mode } : { mode })
+  void requestDetail
     .then((response) => {
       if (request !== detailRequest) return
       detail.value = response
@@ -507,15 +639,21 @@ function closeDetail(): void {
   detailError.value = ''
   detailLoading.value = false
   historicalDetailStatus.value = undefined
+  historicalDetailDate.value = ''
 }
 
 function retryComparison(): void {
-  const historyDate = drilldown.node?.date ?? detail.value?.history_date
+  const historyDate =
+    detail.value?.history_date || historicalDetailDate.value || drilldown.node?.date
   if (detailMode.value !== 'historical' || detail.value === undefined || historyDate === undefined)
     return
   const currentDetail = detail.value
   const request = ++comparisonRequest
-  void getJobDetail(currentDetail.id, { date: historyDate, mode: 'historical' })
+  const requestDetail =
+    drilldown.node?.event === 'modified'
+      ? getJobHistoryDetail(currentDetail.id, historyDate, 'modified')
+      : getJobDetail(currentDetail.id, { date: historyDate, mode: 'historical' })
+  void requestDetail
     .then((response) => {
       if (request === comparisonRequest && detail.value === currentDetail) detail.value = response
     })
@@ -560,7 +698,14 @@ function finishSheetDrag(event: PointerEvent): void {
 function handleEscape(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   if (detail.value !== undefined || detailLoading.value || detailError.value) closeDetail()
-  else closeDrilldown()
+  else if (drilldown.isOpen) closeDrilldown()
+  else if (mobileConfigurationOpen.value || configurationExpanded.value) closeConfiguration()
+}
+
+function handleViewportResize(): void {
+  if (!configurationManuallyToggled.value) {
+    configurationExpanded.value = defaultConfigurationExpanded()
+  }
 }
 
 watch(
@@ -573,6 +718,7 @@ watch(
 
 onMounted(async () => {
   window.addEventListener('keydown', handleEscape)
+  window.addEventListener('resize', handleViewportResize)
   void dashboard.activate()
   try {
     filterOptions.value = await getFilterOptions()
@@ -591,18 +737,24 @@ watch(
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEscape)
+  window.removeEventListener('resize', handleViewportResize)
   document.body.style.overflow = ''
 })
 </script>
 
 <template>
-  <main class="job-trend-view">
+  <main
+    :class="[
+      'job-trend-view',
+      { 'job-trend-view--configuration-expanded': configurationExpanded },
+    ]"
+  >
     <section class="job-trend-view__chart-card" aria-labelledby="trend-dashboard-title">
       <header class="job-trend-view__header">
         <div>
           <p class="job-trend-view__eyebrow">岗位趋势</p>
           <h1 id="trend-dashboard-title">岗位需求变化趋势</h1>
-          <p>每点为当日匹配岗位数。</p>
+          <p v-if="chartPeriodText">当前周期：{{ chartPeriodText }}</p>
         </div>
         <div class="job-trend-view__header-actions">
           <NButton
@@ -739,38 +891,18 @@ onBeforeUnmount(() => {
             <h2 id="trend-event-title">{{ selectedEventCurveLabel || '岗位事件统计' }}</h2>
             <p v-if="eventStats.response?.as_of">截至 {{ eventStats.response.as_of }}</p>
           </div>
-          <div class="job-trend-view__event-arrows">
-            <button
-              type="button"
-              aria-label="上一条曲线"
-              :disabled="
-                eventCurveRows.length < 2 ||
-                eventCurveRows.findIndex((row) => row.id === eventStats.selectedCurveId) <= 0
-              "
-              @click="eventStats.selectPrevious(dashboard.rows)"
-            >
-              ‹
-            </button>
-            <span
-              >{{
-                Math.max(
-                  0,
-                  eventCurveRows.findIndex((row) => row.id === eventStats.selectedCurveId) + 1,
-                )
-              }}/{{ eventCurveRows.length }}</span
-            >
-            <button
-              type="button"
-              aria-label="下一条曲线"
-              :disabled="
-                eventCurveRows.length < 2 ||
-                eventCurveRows.findIndex((row) => row.id === eventStats.selectedCurveId) ===
-                  eventCurveRows.length - 1
-              "
-              @click="eventStats.selectNext(dashboard.rows)"
-            >
-              ›
-            </button>
+          <div
+            class="job-trend-view__event-selector"
+            data-testid="event-curve-selector"
+            aria-label="事件统计曲线选择器"
+          >
+            <span>统计曲线</span>
+            <NSelect
+              :value="eventStats.selectedCurveId || null"
+              :options="eventCurveOptions"
+              size="small"
+              @update:value="selectEventCurveById"
+            />
           </div>
         </header>
         <p v-if="dashboard.range === 'all'" class="job-trend-view__event-empty">
@@ -807,64 +939,208 @@ onBeforeUnmount(() => {
           暂无可比数据
         </p>
         <div v-else class="job-trend-view__event-table-wrap">
-          <p class="job-trend-view__event-periods">
-            当前：{{ eventPeriodText(eventStats.response.current) }} · 环比：{{
-              eventPeriodText(eventStats.response.previous)
-            }}
-            · 同比：{{ eventPeriodText(eventStats.response.year_over_year) }}
-          </p>
-          <table class="job-trend-view__event-table">
-            <thead>
-              <tr>
-                <th>事件</th>
-                <th>当前周期</th>
-                <th>环比</th>
-                <th>同比</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in eventStatsRows" :key="row.type">
-                <th>{{ eventRowLabel(row.type) }}</th>
-                <td>
-                  <button
-                    type="button"
-                    :disabled="eventStats.response?.status !== 'available'"
-                    @click="eventDrilldown(row.type, 'current', row.current)"
-                  >
-                    {{ row.current }}
-                  </button>
-                </td>
-                <td>
-                  <template v-if="row.previous.count === null">
-                    {{ eventComparisonText(row.previous) }}
-                  </template>
-                  <template v-else>
-                    <button
-                      type="button"
-                      @click="eventDrilldown(row.type, 'previous', row.previous.count)"
+          <div class="job-trend-view__event-table-shell">
+            <table class="job-trend-view__event-table">
+              <thead>
+                <tr>
+                  <th scope="col">事件</th>
+                  <th scope="col">
+                    当前周期
+                    <NPopover
+                      content-class="job-trend-view__event-popover"
+                      placement="top"
+                      raw
+                      :show-arrow="true"
+                      :theme-overrides="eventPopoverThemeOverrides"
+                      trigger="hover"
                     >
-                      {{ row.previous.count }}
-                    </button>
-                    <span>（{{ formatTrendEventRate(row.previous.rate) }}）</span>
-                  </template>
-                </td>
-                <td>
-                  <template v-if="row.year_over_year.count === null">
-                    {{ eventComparisonText(row.year_over_year) }}
-                  </template>
-                  <template v-else>
-                    <button
-                      type="button"
-                      @click="eventDrilldown(row.type, 'year_over_year', row.year_over_year.count)"
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="job-trend-view__event-help"
+                          aria-label="当前周期日期范围"
+                          data-testid="event-period-current-help"
+                          :data-tooltip="`当前周期：${eventPeriodText(eventStats.response.current)}`"
+                        >
+                          i
+                        </button>
+                      </template>
+                      <div class="job-trend-view__event-popover-content">
+                        <strong>当前周期</strong>
+                        <span>{{ eventPeriodText(eventStats.response.current) }}</span>
+                      </div>
+                    </NPopover>
+                  </th>
+                  <th scope="col">
+                    同比
+                    <NPopover
+                      content-class="job-trend-view__event-popover"
+                      placement="top"
+                      raw
+                      :show-arrow="true"
+                      :theme-overrides="eventPopoverThemeOverrides"
+                      trigger="hover"
                     >
-                      {{ row.year_over_year.count }}
-                    </button>
-                    <span>（{{ formatTrendEventRate(row.year_over_year.rate) }}）</span>
-                  </template>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="job-trend-view__event-help"
+                          aria-label="同比周期日期范围"
+                          data-testid="event-period-year-over-year-help"
+                          :data-tooltip="`同比周期：${eventPeriodText(eventStats.response.year_over_year)}`"
+                        >
+                          i
+                        </button>
+                      </template>
+                      <div class="job-trend-view__event-popover-content">
+                        <strong>同比周期</strong>
+                        <span>{{ eventPeriodText(eventStats.response.year_over_year) }}</span>
+                      </div>
+                    </NPopover>
+                  </th>
+                  <th scope="col">
+                    环比
+                    <NPopover
+                      content-class="job-trend-view__event-popover"
+                      placement="top"
+                      raw
+                      :show-arrow="true"
+                      :theme-overrides="eventPopoverThemeOverrides"
+                      trigger="hover"
+                    >
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="job-trend-view__event-help"
+                          aria-label="环比周期日期范围"
+                          data-testid="event-period-previous-help"
+                          :data-tooltip="`环比周期：${eventPeriodText(eventStats.response.previous)}`"
+                        >
+                          i
+                        </button>
+                      </template>
+                      <div class="job-trend-view__event-popover-content">
+                        <strong>环比周期</strong>
+                        <span>{{ eventPeriodText(eventStats.response.previous) }}</span>
+                      </div>
+                    </NPopover>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in eventStatsRows"
+                  :key="row.type"
+                  :class="`job-trend-view__event-row--${row.type}`"
+                >
+                  <th scope="row">
+                    {{ eventRowLabel(row.type) }}
+                    <NPopover
+                      content-class="job-trend-view__event-popover"
+                      placement="top-start"
+                      raw
+                      :show-arrow="true"
+                      :theme-overrides="eventPopoverThemeOverrides"
+                      trigger="hover"
+                    >
+                      <template #trigger>
+                        <span
+                          class="job-trend-view__event-help"
+                          :aria-label="`${eventRowLabel(row.type)}统计口径`"
+                          :data-testid="`event-definition-${row.type}`"
+                          :data-tooltip="eventDefinition(row.type)"
+                          role="img"
+                          tabindex="0"
+                        >
+                          i
+                        </span>
+                      </template>
+                      <div class="job-trend-view__event-popover-content">
+                        <strong>{{ eventRowLabel(row.type) }}</strong>
+                        <span>{{ eventDefinition(row.type) }}</span>
+                      </div>
+                    </NPopover>
+                  </th>
+                  <td data-label="当前周期">
+                    <div class="job-trend-view__event-metric">
+                      <button
+                        class="job-trend-view__event-count job-trend-view__event-count--current"
+                        data-testid="event-count-current"
+                        type="button"
+                        :disabled="eventStats.response?.status !== 'available'"
+                        @click="eventDrilldown(row.type, 'current', row.current, $event)"
+                      >
+                        {{ row.current }}
+                      </button>
+                    </div>
+                  </td>
+                  <td data-label="同比">
+                    <template v-if="row.year_over_year.count === null">
+                      <span class="job-trend-view__event-unavailable">
+                        {{ eventComparisonText(row.year_over_year) }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <div class="job-trend-view__event-metric">
+                        <button
+                          class="job-trend-view__event-count job-trend-view__event-count--comparison"
+                          data-testid="event-count-year-over-year"
+                          type="button"
+                          @click="
+                            eventDrilldown(
+                              row.type,
+                              'year_over_year',
+                              row.year_over_year.count,
+                              $event,
+                            )
+                          "
+                        >
+                          {{ row.year_over_year.count }}
+                        </button>
+                        <span
+                          class="job-trend-view__event-rate"
+                          data-testid="event-rate-year-over-year"
+                          :class="{
+                            'job-trend-view__event-rate--empty': row.year_over_year.rate === null,
+                          }"
+                        >
+                          {{ formatTrendEventRate(row.year_over_year.rate) }}
+                        </span>
+                      </div>
+                    </template>
+                  </td>
+                  <td data-label="环比">
+                    <template v-if="row.previous.count === null">
+                      <span class="job-trend-view__event-unavailable">
+                        {{ eventComparisonText(row.previous) }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <div class="job-trend-view__event-metric">
+                        <button
+                          class="job-trend-view__event-count job-trend-view__event-count--comparison"
+                          data-testid="event-count-previous"
+                          type="button"
+                          @click="eventDrilldown(row.type, 'previous', row.previous.count, $event)"
+                        >
+                          {{ row.previous.count }}
+                        </button>
+                        <span
+                          class="job-trend-view__event-rate"
+                          data-testid="event-rate-previous"
+                          :class="{
+                            'job-trend-view__event-rate--empty': row.previous.rate === null,
+                          }"
+                        >
+                          {{ formatTrendEventRate(row.previous.rate) }}
+                        </span>
+                      </div>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </section>
@@ -882,6 +1158,7 @@ onBeforeUnmount(() => {
         {
           'job-trend-view__drilldown--above': drilldownPlacement.opensAbove,
           'job-trend-view__drilldown--expanded': mobileSheetExpanded,
+          'job-trend-view__drilldown--event': drilldown.node?.event !== undefined,
         },
       ]"
       :style="drilldownStyle"
@@ -897,19 +1174,24 @@ onBeforeUnmount(() => {
         @pointercancel="finishSheetDrag"
       >
         <div>
-          <p>
+          <p data-testid="event-drilldown-title">
             {{
               drilldown.node?.event
                 ? `${eventRowLabel(drilldown.node.event)} · ${selectedEventCurveLabel}`
                 : `节点日期 ${drilldown.node?.date ?? ''}`
             }}
           </p>
-          <strong>
-            {{
-              drilldown.node?.event
-                ? `周期：${drilldown.node?.startDate} 至 ${drilldown.node?.endDate} · 共 ${drilldown.response?.matched_total ?? drilldown.node?.count ?? 0} 个岗位`
-                : `匹配 ${drilldown.response?.matched_total ?? drilldown.node?.count ?? 0} 个岗位`
-            }}
+          <strong v-if="drilldown.node?.event" class="job-trend-view__drilldown-event-summary">
+            <span data-testid="event-drilldown-period"
+              >{{ drilldown.node?.startDate }} 至 {{ drilldown.node?.endDate }}</span
+            >
+            <span data-testid="event-drilldown-count"
+              >周期内去重
+              {{ drilldown.response?.matched_total ?? drilldown.node?.count ?? 0 }} 个岗位</span
+            >
+          </strong>
+          <strong v-else>
+            匹配 {{ drilldown.response?.matched_total ?? drilldown.node?.count ?? 0 }} 个岗位
           </strong>
         </div>
         <button type="button" aria-label="关闭节点岗位" @click="closeDrilldown">×</button>
@@ -930,16 +1212,6 @@ onBeforeUnmount(() => {
         数据已更新，请重新打开节点
         <NButton size="tiny" tertiary @click="drilldown.retry">重试</NButton>
       </p>
-      <p
-        v-if="drilldown.response?.mode === 'event' && drilldown.response.reason_counts"
-        class="job-trend-view__drilldown-mismatch"
-      >
-        原因细分：{{
-          Object.entries(drilldown.response.reason_counts)
-            .map(([reason, count]) => `${reason} ${count}`)
-            .join(' · ')
-        }}
-      </p>
       <div v-if="drilldown.isLoading" class="job-trend-view__drilldown-skeleton" aria-live="polite">
         <span v-for="index in 4" :key="index" />
       </div>
@@ -956,7 +1228,14 @@ onBeforeUnmount(() => {
               : '没有匹配的岗位'
         }}
       </p>
-      <ol v-else class="job-trend-view__drilldown-list">
+      <ol
+        v-else
+        :class="[
+          'job-trend-view__drilldown-list',
+          { 'job-trend-view__drilldown-list--event': drilldown.node?.event !== undefined },
+        ]"
+        :data-testid="drilldown.node?.event ? 'event-drilldown-list' : undefined"
+      >
         <li v-for="item in drilldown.response?.items" :key="item.id">
           <strong>{{ item.title }}</strong>
           <span
@@ -965,12 +1244,15 @@ onBeforeUnmount(() => {
             {{
               item.status === 'current'
                 ? '仍有效'
-              : item.status === 'changed'
+                : item.status === 'changed'
                   ? '有改动'
                   : '确认下线'
             }}
           </span>
-          <small v-if="drilldown.response?.mode === 'event'" class="job-trend-view__drilldown-event-meta">
+          <small
+            v-if="drilldown.response?.mode === 'event'"
+            class="job-trend-view__drilldown-event-meta"
+          >
             {{ item.event_date }}<template v-if="item.reason"> · {{ item.reason }}</template>
           </small>
           <div>
@@ -981,7 +1263,7 @@ onBeforeUnmount(() => {
               >查看历史 JD</NButton
             >
             <NButton
-              v-if="item.can_view_latest"
+              v-if="item.can_view_latest && item.status !== 'confirmed_closed'"
               size="tiny"
               tertiary
               @click="openDrilldownDetail(item, 'latest')"
@@ -1019,7 +1301,7 @@ onBeforeUnmount(() => {
           <p>
             {{
               detailMode === 'historical'
-                ? `历史 JD · ${drilldown.node?.date ?? drilldown.node?.startDate ?? ''}`
+                ? `历史 JD · ${detail?.history_date || historicalDetailDate || drilldown.node?.date || drilldown.node?.startDate || ''}`
                 : '最新 JD'
             }}
           </p>
@@ -1045,47 +1327,120 @@ onBeforeUnmount(() => {
       </section>
     </Transition>
 
-    <div v-if="dashboard.rows.length" class="job-trend-view__mobile-panel">
+    <div
+      v-if="!mobileConfigurationOpen"
+      class="job-trend-view__mobile-panel job-trend-view__configuration-trigger"
+    >
       <NButton
         data-testid="open-trend-configuration"
+        :aria-expanded="mobileConfigurationOpen"
+        aria-controls="trend-configuration-rail"
         type="primary"
-        @click="mobileConfigurationOpen = true"
+        @click="openConfiguration"
       >
         配置曲线<span v-if="dashboard.rows.length">（{{ dashboard.rows.length }}）</span>
       </NButton>
     </div>
 
+    <div
+      v-if="mobileConfigurationOpen"
+      class="job-trend-view__configuration-backdrop"
+      aria-hidden="true"
+      data-testid="trend-configuration-backdrop"
+      @click="closeConfiguration"
+    />
+
     <aside
       :class="[
-        'job-trend-view__rail',
+        'job-trend-view__rail job-trend-view__rail--drawer',
+        {
+          'job-trend-view__rail--desktop-expanded': configurationExpanded,
+          'job-trend-view__rail--desktop-collapsed': !configurationExpanded,
+        },
+        { 'job-trend-view__rail--open': mobileConfigurationOpen },
         { 'job-trend-view__rail--mobile-open': mobileConfigurationOpen },
+        { 'job-trend-view__rail--drawer-open': mobileConfigurationOpen },
       ]"
       data-testid="trend-configuration-rail"
       aria-label="曲线配置"
     >
-      <header class="job-trend-view__rail-header">
-        <div>
-          <p>曲线配置</p>
-          <small>每条曲线只统计一个条件</small>
-        </div>
-        <button
-          class="job-trend-view__rail-close"
-          type="button"
-          aria-label="关闭曲线配置"
-          @click="mobileConfigurationOpen = false"
+      <div
+        class="job-trend-view__curve-marker-rail"
+        :class="{
+          'job-trend-view__curve-marker-rail--hidden':
+            configurationExpanded || mobileConfigurationOpen,
+        }"
+        aria-label="已配置曲线"
+        data-testid="curve-marker-rail"
+      >
+        <div
+          v-for="(row, index) in dashboard.rows"
+          :key="row.id"
+          class="job-trend-view__curve-marker-slot"
+          :data-testid="`curve-marker-slot-${row.id}`"
         >
-          ×
-        </button>
-      </header>
+          <span
+            v-if="index > 0"
+            class="job-trend-view__curve-marker-divider"
+            aria-hidden="true"
+          ></span>
+          <button
+            :aria-label="`展开曲线：${trendCurveLabel(row) || '未设置曲线'}`"
+            :data-testid="`curve-marker-${row.id}`"
+            class="job-trend-view__curve-marker"
+            :style="{ '--curve-color': trendCurveColor(row) }"
+            type="button"
+            @click="openCurveMarker(row)"
+          >
+            <span class="job-trend-view__curve-marker-core" aria-hidden="true"></span>
+            <span class="job-trend-view__curve-marker-note" aria-hidden="true">
+              {{ trendCurveLabel(row) || '未设置曲线' }}
+            </span>
+          </button>
+        </div>
+        <div v-if="dashboard.rows.length === 0" class="job-trend-view__curve-marker-slot">
+          <button
+            class="job-trend-view__curve-marker job-trend-view__curve-marker--empty"
+            type="button"
+            aria-label="打开曲线配置"
+            @click="openConfiguration"
+          >
+            <span aria-hidden="true">+</span>
+          </button>
+        </div>
+      </div>
 
-      <p v-if="filterOptionsError" class="job-trend-view__options-error" role="alert">
-        {{ filterOptionsError }}
-      </p>
-      <p v-if="curveFeedback" class="job-trend-view__curve-feedback" role="status">
-        {{ curveFeedback }}
-      </p>
+      <div
+        class="job-trend-view__rail-content"
+        :class="{
+          'job-trend-view__rail-content--hidden':
+            !configurationExpanded && !mobileConfigurationOpen,
+        }"
+      >
+        <header class="job-trend-view__rail-header">
+          <div>
+            <p>曲线配置</p>
+            <small>每条曲线只统计一个条件</small>
+          </div>
+          <button
+            class="job-trend-view__rail-close"
+            data-testid="close-trend-configuration"
+            type="button"
+            aria-label="关闭曲线配置"
+            @click="closeConfiguration"
+          >
+            ×
+          </button>
+        </header>
 
-      <ol v-if="dashboard.rows.length" class="job-trend-view__curve-list">
+        <p v-if="filterOptionsError" class="job-trend-view__options-error" role="alert">
+          {{ filterOptionsError }}
+        </p>
+        <p v-if="curveFeedback" class="job-trend-view__curve-feedback" role="status">
+          {{ curveFeedback }}
+        </p>
+
+        <ol v-if="dashboard.rows.length" class="job-trend-view__curve-list">
         <li
           v-for="(row, index) in dashboard.rows"
           :key="row.id"
@@ -1218,32 +1573,33 @@ onBeforeUnmount(() => {
           </div>
           <p v-if="row.error" class="job-trend-view__curve-error" role="alert">{{ row.error }}</p>
         </li>
-      </ol>
+        </ol>
 
-      <div class="job-trend-view__rail-footer" data-testid="curve-rail-footer">
-        <span>{{ dashboard.rows.length }}/8 条</span>
-        <div class="job-trend-view__rail-footer-actions">
-          <NButton
-            data-testid="clear-all-curves"
-            class="job-trend-view__clear-all"
-            size="tiny"
-            quaternary
-            @click="clearAllCurves"
-          >
-            清除全部
-          </NButton>
-          <NButton
-            data-testid="apply-all-curves"
-            size="small"
-            type="primary"
-            :disabled="isRefreshing"
-            @click="applyAllCurves"
-          >
-            应用全部
-          </NButton>
-          <NButton size="small" :disabled="curveLimitReached" @click="addCurve">
-            + 添加曲线
-          </NButton>
+        <div class="job-trend-view__rail-footer" data-testid="curve-rail-footer">
+          <span>{{ dashboard.rows.length }}/8 条</span>
+          <div class="job-trend-view__rail-footer-actions">
+            <NButton
+              data-testid="clear-all-curves"
+              class="job-trend-view__clear-all"
+              size="tiny"
+              quaternary
+              @click="clearAllCurves"
+            >
+              清除全部
+            </NButton>
+            <NButton
+              data-testid="apply-all-curves"
+              size="small"
+              type="primary"
+              :disabled="isRefreshing"
+              @click="applyAllCurves"
+            >
+              应用全部
+            </NButton>
+            <NButton size="small" :disabled="curveLimitReached" @click="addCurve">
+              + 添加曲线
+            </NButton>
+          </div>
         </div>
       </div>
     </aside>
@@ -1264,10 +1620,18 @@ onBeforeUnmount(() => {
   --trend-subtle: #71828a;
   --trend-surface-shadow: 0 20px 44px -38px rgba(17, 73, 96, 0.56);
   --trend-rail-shadow: -18px 0 42px -38px rgba(11, 61, 82, 0.54);
-  --trend-workspace-left: 268px;
-  --trend-workspace-right: 420px;
+  --trend-workspace-left: 32px;
+  --trend-workspace-right: 0px;
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 48px;
   min-height: 100vh;
-  padding: 28px var(--trend-workspace-right) 32px 32px;
+  padding: 28px 32px 32px;
+  transition: grid-template-columns 260ms cubic-bezier(0.22, 0.9, 0.25, 1);
+}
+.job-trend-view--configuration-expanded {
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 .job-trend-view__chart-card {
   background: var(--trend-card-surface);
@@ -1374,7 +1738,7 @@ onBeforeUnmount(() => {
 }
 .job-trend-view__event-card {
   border-top: 1px solid var(--trend-rule-soft);
-  padding: 24px 34px 30px;
+  padding: 28px 34px 34px;
 }
 .job-trend-view__event-header {
   align-items: center;
@@ -1400,30 +1764,62 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   margin: 6px 0 0;
 }
-.job-trend-view__event-arrows {
+.job-trend-view__event-selector {
   align-items: center;
   color: var(--trend-muted);
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.68rem;
+  font-weight: 720;
+  gap: 6px 8px;
+  justify-content: flex-end;
 }
-.job-trend-view__event-arrows button {
+.job-trend-view__event-selector :deep(.n-base-selection) {
+  min-width: min(280px, 42vw);
+}
+.job-trend-view__event-selector :deep(.n-base-selection-label) {
+  font-size: 0.78rem;
+}
+.job-trend-view__event-table th:has(.job-trend-view__event-help) {
+  white-space: nowrap;
+}
+.job-trend-view__event-help {
   align-items: center;
-  background: var(--trend-rail-surface);
-  border: 1px solid var(--trend-rule);
-  border-radius: 8px;
-  color: var(--trend-strong);
-  cursor: pointer;
+  background: color-mix(in srgb, #007f88, transparent 90%);
+  border: 1px solid color-mix(in srgb, #007f88, transparent 68%);
+  border-radius: 50%;
+  color: #00737b;
+  cursor: help;
   display: inline-flex;
-  font-size: 1.2rem;
-  height: 30px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.61rem;
+  font-style: normal;
+  font-weight: 850;
+  height: 17px;
   justify-content: center;
-  width: 30px;
+  line-height: 1;
+  margin-left: 4px;
+  padding: 0;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+  vertical-align: 1px;
+  width: 17px;
 }
-.job-trend-view__event-arrows button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.job-trend-view__event-help:hover,
+.job-trend-view__event-help:focus-visible {
+  background: #007f88;
+  border-color: #007f88;
+  color: #fff;
+  transform: translateY(-1px);
 }
-.job-trend-view__event-periods,
+.job-trend-view__event-help:focus-visible,
+.job-trend-view__event-table td button:focus-visible {
+  outline: 3px solid rgba(0, 124, 171, 0.24);
+  outline-offset: 2px;
+}
 .job-trend-view__event-empty,
 .job-trend-view__event-development,
 .job-trend-view__event-error {
@@ -1445,9 +1841,19 @@ onBeforeUnmount(() => {
 .job-trend-view__event-table-wrap {
   overflow-x: auto;
 }
+.job-trend-view__event-table-shell {
+  background: linear-gradient(135deg, #fbfeff 0%, #f6fbfc 100%);
+  border: 1px solid var(--trend-rule);
+  border-radius: 16px;
+  box-shadow: 0 14px 32px -30px rgba(17, 73, 96, 0.52);
+  overflow: hidden;
+  width: min(100%, 640px);
+}
 .job-trend-view__event-table {
-  border-collapse: collapse;
-  min-width: 600px;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 560px;
+  table-layout: fixed;
   width: 100%;
 }
 .job-trend-view__event-table th,
@@ -1455,18 +1861,102 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--trend-rule-soft);
   color: var(--trend-strong);
   font-size: 0.8rem;
-  padding: 12px 10px;
-  text-align: left;
+  padding: 15px 18px;
+  text-align: right;
+}
+.job-trend-view__event-table th:first-child,
+.job-trend-view__event-table td:first-child {
+  width: 24%;
+}
+.job-trend-view__event-table th:not(:first-child),
+.job-trend-view__event-table td:not(:first-child) {
+  text-align: center;
+  width: 25.333%;
 }
 .job-trend-view__event-table thead th {
-  color: var(--trend-subtle);
-  font-size: 0.7rem;
-  font-weight: 750;
+  background: rgba(232, 243, 246, 0.64);
+  color: #60757d;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding-bottom: 12px;
+  padding-top: 12px;
+  text-transform: uppercase;
+}
+.job-trend-view__event-table thead th:first-child {
+  text-align: left;
+}
+.job-trend-view__event-table thead th:not(:first-child) {
+  border-left: 1px solid rgba(220, 232, 237, 0.7);
 }
 .job-trend-view__event-table tbody th {
+  background: rgba(255, 255, 255, 0.38);
+  position: relative;
   font-weight: 700;
+  padding-left: 28px;
+  text-align: left;
 }
-.job-trend-view__event-table button {
+.job-trend-view__event-table tbody th::before {
+  background: var(--trend-subtle);
+  border-radius: 999px;
+  content: '';
+  height: 7px;
+  left: 17px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+}
+.job-trend-view__event-row--entered th::before,
+.job-trend-view__event-row--reopened th::before {
+  background: #008a5a;
+}
+.job-trend-view__event-row--modified th::before {
+  background: #d19a00;
+}
+.job-trend-view__event-row--left th::before {
+  background: #b44953;
+}
+.job-trend-view__event-table tbody tr:nth-child(even) th,
+.job-trend-view__event-table tbody tr:nth-child(even) td {
+  background: rgba(244, 250, 251, 0.62);
+}
+.job-trend-view__event-table tbody tr:last-child th,
+.job-trend-view__event-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.job-trend-view__event-metric {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  min-width: 74px;
+}
+.job-trend-view__event-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 760;
+}
+.job-trend-view__event-count--current {
+  color: var(--trend-ink) !important;
+  font-size: 1rem !important;
+}
+.job-trend-view__event-count--comparison {
+  color: #007cab !important;
+}
+.job-trend-view__event-rate {
+  color: var(--trend-subtle);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.job-trend-view__event-rate--empty {
+  color: var(--trend-muted);
+}
+.job-trend-view__event-unavailable {
+  color: var(--trend-subtle);
+  font-size: 0.74rem;
+}
+.job-trend-view__event-table td button {
   background: none;
   border: 0;
   color: inherit;
@@ -1477,10 +1967,38 @@ onBeforeUnmount(() => {
   text-decoration-color: color-mix(in srgb, currentColor, transparent 66%);
   text-underline-offset: 3px;
 }
-.job-trend-view__event-table button:disabled {
+.job-trend-view__event-table td button:disabled {
   color: var(--trend-subtle);
   cursor: not-allowed;
   text-decoration: none;
+}
+
+:global(.job-trend-view__event-popover) {
+  background: #edf7f9 !important;
+  border: 1px solid #c6dfe5 !important;
+  border-radius: 11px !important;
+  box-shadow: 0 14px 30px -20px rgba(17, 73, 96, 0.5) !important;
+  color: #244853 !important;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 11px 13px !important;
+}
+:global(.job-trend-view__event-popover .n-popover-arrow) {
+  background: #edf7f9 !important;
+  border-color: #c6dfe5 !important;
+}
+.job-trend-view__event-popover-content {
+  display: grid;
+  gap: 3px;
+  line-height: 1.45;
+}
+.job-trend-view__event-popover-content strong {
+  color: #163943;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+.job-trend-view__event-popover-content span {
+  color: #52717a;
+  font-size: 0.72rem;
 }
 .job-trend-view__event-skeleton {
   display: grid;
@@ -1553,6 +2071,14 @@ onBeforeUnmount(() => {
   bottom: -9px;
   top: auto;
 }
+.job-trend-view__drilldown--event {
+  --drilldown-event-success-bg: color-mix(in srgb, #008a5a, transparent 86%);
+  --drilldown-event-success-ink: #126b54;
+  --drilldown-event-warning-bg: color-mix(in srgb, #d19a00, transparent 84%);
+  --drilldown-event-warning-ink: #805500;
+  --drilldown-event-closed-bg: color-mix(in srgb, #b44953, transparent 85%);
+  --drilldown-event-closed-ink: #993d4c;
+}
 .job-trend-view__drilldown-header {
   align-items: center;
   display: flex;
@@ -1567,6 +2093,21 @@ onBeforeUnmount(() => {
 .job-trend-view__drilldown-header strong {
   color: var(--trend-ink);
   font-size: 0.92rem;
+}
+.job-trend-view__drilldown--event .job-trend-view__drilldown-header > div {
+  min-width: 0;
+}
+.job-trend-view__drilldown-event-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  line-height: 1.4;
+}
+.job-trend-view__drilldown-event-summary span {
+  min-width: 0;
+}
+.job-trend-view__drilldown-event-summary span:first-child {
+  overflow-wrap: anywhere;
 }
 .job-trend-view__drilldown-header button,
 .job-trend-view__detail-drawer > header button {
@@ -1681,6 +2222,35 @@ onBeforeUnmount(() => {
   min-height: 23px;
   padding-left: 7px;
   padding-right: 7px;
+}
+.job-trend-view__drilldown-list--event li {
+  padding: 10px 0;
+}
+.job-trend-view__drilldown-list--event li > strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.job-trend-view__drilldown-list--event li > div {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+.job-trend-view__drilldown--event .job-trend-view__drilldown-status--current {
+  background: var(--drilldown-event-success-bg);
+  color: var(--drilldown-event-success-ink);
+}
+.job-trend-view__drilldown--event .job-trend-view__drilldown-status--changed {
+  background: var(--drilldown-event-warning-bg);
+  color: var(--drilldown-event-warning-ink);
+}
+.job-trend-view__drilldown--event .job-trend-view__drilldown-status--confirmed_closed {
+  background: var(--drilldown-event-closed-bg);
+  color: var(--drilldown-event-closed-ink);
+}
+.job-trend-view__drilldown-list--event li > div :deep(.n-button) {
+  min-height: 30px;
 }
 .job-trend-view__drilldown-status {
   border-radius: 99px;
@@ -1800,18 +2370,174 @@ onBeforeUnmount(() => {
 }
 .job-trend-view__rail {
   background: var(--trend-rail-surface);
-  border-left: 1px solid var(--trend-rule);
-  bottom: 0;
+  border: 1px solid var(--trend-rule);
+  border-radius: 18px;
   box-shadow: var(--trend-rail-shadow);
-  display: flex;
-  flex-direction: column;
+  box-sizing: border-box;
+  display: grid;
+  grid-column: 2;
+  height: calc(100dvh - 28px);
+  min-width: 0;
   overflow: hidden;
   padding: 20px 16px 14px;
-  position: fixed;
-  right: 0;
+  position: sticky;
   top: 0;
-  width: 368px;
-  z-index: 8;
+  transition:
+    background-color 180ms ease,
+    padding 260ms cubic-bezier(0.22, 0.9, 0.25, 1),
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.22, 0.9, 0.25, 1),
+    visibility 0s linear;
+  transform: translateX(0);
+  visibility: visible;
+  width: 100%;
+}
+.job-trend-view__rail--open {
+  display: grid;
+  transform: translateX(0);
+}
+.job-trend-view__rail--desktop-collapsed {
+  padding: 10px 6px;
+}
+.job-trend-view__rail-content,
+.job-trend-view__curve-marker-rail {
+  grid-area: 1 / 1;
+  min-height: 0;
+  min-width: 0;
+  transition:
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.22, 0.9, 0.25, 1),
+    visibility 0s linear;
+}
+.job-trend-view__rail-content {
+  display: flex;
+  flex-direction: column;
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+}
+.job-trend-view__rail-content--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(12px);
+  visibility: hidden;
+  transition-delay: 0s, 0s, 260ms;
+}
+.job-trend-view__curve-marker-rail {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  grid-auto-rows: 32px;
+  justify-items: center;
+  opacity: 1;
+  overflow: visible;
+  transform: translateX(0);
+  visibility: visible;
+}
+.job-trend-view__curve-marker-rail--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-12px);
+  visibility: hidden;
+  transition-delay: 0s, 0s, 260ms;
+}
+.job-trend-view__curve-marker-slot {
+  align-items: center;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  min-width: 32px;
+  position: relative;
+  width: 100%;
+}
+.job-trend-view__curve-marker-divider {
+  background: color-mix(in srgb, var(--trend-rule), transparent 16%);
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: -5px;
+}
+.job-trend-view__curve-marker {
+  align-items: center;
+  background: color-mix(in srgb, var(--curve-color), var(--trend-rail-surface) 82%);
+  border: 1px solid color-mix(in srgb, var(--curve-color), var(--trend-rule) 48%);
+  border-radius: 9px;
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+  width: 32px;
+}
+.job-trend-view__curve-marker-note {
+  background: color-mix(in srgb, var(--curve-color), #ffffff 86%);
+  border: 1px solid color-mix(in srgb, var(--curve-color), #ffffff 58%);
+  border-right: 2px solid var(--curve-color);
+  border-radius: 8px 3px 3px 8px;
+  box-shadow: 0 8px 18px -14px rgba(18, 54, 68, 0.78);
+  color: color-mix(in srgb, var(--curve-color), var(--trend-ink) 34%);
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 760;
+  height: 28px;
+  line-height: 28px;
+  max-width: 180px;
+  min-width: 112px;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 9px;
+  pointer-events: auto;
+  position: absolute;
+  right: calc(100% + 8px);
+  text-align: left;
+  text-overflow: ellipsis;
+  top: 50%;
+  transform: translateX(8px) translateY(-50%);
+  transition:
+    opacity 120ms ease,
+    transform 160ms ease,
+    visibility 0s linear 160ms;
+  transition-delay: 0ms, 0ms, 160ms;
+  visibility: hidden;
+  white-space: nowrap;
+  z-index: 2;
+}
+.job-trend-view__curve-marker-slot:hover {
+  z-index: 3;
+}
+.job-trend-view__curve-marker-slot:hover .job-trend-view__curve-marker-note {
+  opacity: 1;
+  transform: translateX(0) translateY(-50%);
+  transition-delay: 200ms, 200ms, 0s;
+  visibility: visible;
+}
+.job-trend-view__curve-marker-core {
+  background: var(--curve-color, #008287);
+  border-radius: 999px;
+  display: block;
+  height: 16px;
+  width: 5px;
+}
+.job-trend-view__curve-marker:hover,
+.job-trend-view__curve-marker:focus-visible {
+  border-color: var(--curve-color);
+  box-shadow: 0 6px 16px -10px var(--curve-color);
+  outline: none;
+  transform: translateY(-1px);
+}
+.job-trend-view__curve-marker--empty span {
+  background: transparent;
+  color: var(--trend-subtle);
+  font-size: 1.15rem;
+  height: auto;
+  line-height: 1;
+  width: auto;
 }
 .job-trend-view__rail-header {
   align-items: flex-start;
@@ -1833,13 +2559,29 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 .job-trend-view__rail-close {
+  align-items: center;
   background: transparent;
-  border: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
   color: var(--trend-muted);
   cursor: pointer;
-  display: none;
+  display: inline-flex;
   font-size: 1.55rem;
+  justify-content: center;
   line-height: 1;
+  min-height: 32px;
+  padding: 0 6px;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+.job-trend-view__rail-close:hover,
+.job-trend-view__rail-close:focus-visible {
+  background: color-mix(in srgb, var(--trend-rule), transparent 42%);
+  border-color: var(--trend-rule);
+  color: var(--trend-ink);
+  outline: none;
 }
 .job-trend-view__options-error,
 .job-trend-view__curve-error {
@@ -2018,6 +2760,38 @@ onBeforeUnmount(() => {
 .job-trend-view__mobile-panel {
   display: none;
 }
+.job-trend-view__configuration-trigger,
+.job-trend-view__configuration-backdrop {
+  display: none;
+}
+
+@media (min-width: 761px) {
+  .job-trend-view {
+    grid-template-columns: minmax(0, 1fr) 48px;
+  }
+  .job-trend-view--configuration-expanded {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+  .job-trend-view__rail--drawer {
+    max-width: min(368px, 92vw);
+    overflow: hidden;
+    position: sticky;
+    width: 100%;
+  }
+  .job-trend-view__rail--desktop-collapsed {
+    overflow: visible;
+  }
+  .job-trend-view__rail--drawer .job-trend-view__curve-list {
+    overflow-y: auto;
+  }
+  .job-trend-view__rail--drawer .job-trend-view__rail-footer {
+    flex: 0 0 auto;
+  }
+  .job-trend-view__configuration-backdrop,
+  .job-trend-view__configuration-trigger {
+    display: none;
+  }
+}
 :global(.app-shell[data-color-scheme='dark'] .job-trend-view) {
   --trend-card-surface: rgba(22, 47, 58, 0.96);
   --trend-curve-border: #294752;
@@ -2032,16 +2806,81 @@ onBeforeUnmount(() => {
   --trend-surface-shadow: 0 20px 44px -38px rgba(0, 0, 0, 0.86);
   --trend-rail-shadow: -18px 0 42px -38px rgba(0, 0, 0, 0.86);
 }
-@media (max-width: 1120px) {
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__drilldown--event) {
+  --drilldown-event-success-bg: color-mix(in srgb, #56c596, transparent 78%);
+  --drilldown-event-success-ink: #b5efd6;
+  --drilldown-event-warning-bg: color-mix(in srgb, #e3ae37, transparent 76%);
+  --drilldown-event-warning-ink: #ffe6a5;
+  --drilldown-event-closed-bg: color-mix(in srgb, #c65e66, transparent 76%);
+  --drilldown-event-closed-ink: #ffc1c6;
+}
+@media (min-width: 1440px) {
   .job-trend-view {
-    --trend-workspace-right: 392px;
-    padding-right: var(--trend-workspace-right);
+    --trend-workspace-right: 0px;
+    padding: 28px 32px 32px;
   }
-  .job-trend-view__rail {
-    width: 340px;
+}
+@media (min-width: 1180px) and (max-width: 1439px) {
+  .job-trend-view {
+    --trend-workspace-right: 0px;
+    padding: 24px 28px 28px;
+  }
+  .job-trend-view__rail--desktop-expanded {
+    padding: 18px 14px 12px;
+  }
+  .job-trend-view__header {
+    padding: 26px 28px 16px;
+  }
+  .job-trend-view__ranges {
+    gap: 7px;
+    padding: 0 28px 16px;
+  }
+  .job-trend-view__chart-region {
+    min-height: 500px;
+    padding: 8px 12px 16px;
+  }
+  .job-trend-view__chart,
+  .job-trend-view__empty {
+    height: 500px;
+  }
+  .job-trend-view__event-card {
+    padding: 24px 28px 28px;
+  }
+}
+@media (min-width: 761px) and (max-width: 1179px) {
+  .job-trend-view {
+    --trend-workspace-right: 0px;
+    padding: 20px 32px 28px 32px;
+    padding-right: 32px;
+  }
+  .job-trend-view__chart-card {
+    min-height: calc(100dvh - 48px);
+  }
+  .job-trend-view__header {
+    padding: 24px 26px 14px;
+  }
+  .job-trend-view__ranges {
+    gap: 6px;
+    padding: 0 26px 14px;
+  }
+  .job-trend-view__chart-region {
+    min-height: 460px;
+    padding: 8px 10px 14px;
+  }
+  .job-trend-view__chart,
+  .job-trend-view__empty {
+    height: 460px;
+  }
+  .job-trend-view__event-card {
+    padding: 22px 26px 26px;
   }
 }
 @media (max-width: 760px) {
+  .job-trend-view {
+    --trend-workspace-right: 0px;
+    display: block;
+    grid-template-columns: none;
+  }
   .job-trend-view {
     min-height: auto;
     padding: 64px 16px 24px;
@@ -2058,7 +2897,12 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__ranges {
     gap: 6px;
+    overflow-x: auto;
     padding: 0 22px 14px;
+    scrollbar-width: none;
+  }
+  .job-trend-view__ranges::-webkit-scrollbar {
+    display: none;
   }
   .job-trend-view__custom-range {
     gap: 6px;
@@ -2085,12 +2929,13 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__event-header {
     align-items: flex-start;
+    flex-wrap: wrap;
   }
   .job-trend-view__event-header h2 {
     font-size: 1rem;
   }
-  .job-trend-view__event-periods {
-    line-height: 1.55;
+  .job-trend-view__event-selector {
+    margin-left: auto;
   }
   .job-trend-view__mobile-panel {
     bottom: calc(18px + env(safe-area-inset-bottom));
@@ -2100,21 +2945,48 @@ onBeforeUnmount(() => {
     transform: translateX(-50%);
     z-index: 11;
   }
+  .job-trend-view__configuration-trigger {
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    display: block;
+    left: 50%;
+    position: fixed;
+    transform: translateX(-50%);
+    z-index: 11;
+  }
+  .job-trend-view__configuration-backdrop {
+    background: rgba(17, 42, 52, 0.16);
+    display: block;
+    inset: 0;
+    position: fixed;
+    z-index: 19;
+  }
   .job-trend-view__rail {
     border: 1px solid var(--trend-rule);
     border-radius: 18px 18px 0 0;
     bottom: 0;
-    display: none;
+    display: grid;
     left: 0;
     max-height: min(82dvh, 720px);
+    opacity: 0;
     padding: 18px 14px 12px;
+    pointer-events: none;
+    position: fixed;
     right: 0;
     top: auto;
+    transform: translateY(18px);
+    visibility: hidden;
     width: auto;
     z-index: 20;
   }
+  .job-trend-view__curve-marker-rail {
+    display: none;
+  }
   .job-trend-view__rail--mobile-open {
-    display: flex;
+    display: grid;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+    visibility: visible;
   }
   .job-trend-view__rail-close {
     display: block;
@@ -2126,6 +2998,51 @@ onBeforeUnmount(() => {
     height: auto;
     inset: 0;
     width: 100%;
+  }
+  .job-trend-detail-enter-from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-trend-view {
+    transition-duration: 140ms !important;
+  }
+
+  .job-trend-view__rail {
+    transition:
+      background-color 140ms ease,
+      padding 140ms ease,
+      opacity 140ms ease,
+      visibility 0s linear 140ms !important;
+    transform: none !important;
+  }
+
+  .job-trend-view__rail--mobile-open {
+    transition-delay: 0s, 0s, 0s, 0s !important;
+  }
+
+  .job-trend-view__rail-content,
+  .job-trend-view__curve-marker-rail,
+  .job-trend-view__rail-content--hidden,
+  .job-trend-view__curve-marker-rail--hidden {
+    transition: opacity 140ms ease, visibility 0s linear 0s !important;
+    transform: none !important;
+  }
+
+  .job-trend-view__rail-content--hidden,
+  .job-trend-view__curve-marker-rail--hidden {
+    transition-delay: 0s, 140ms !important;
+  }
+
+  .job-trend-view__curve-marker,
+  .job-trend-view__curve-marker-note,
+  .job-trend-view__rail-close {
+    transition-duration: 140ms !important;
+  }
+  .job-trend-view__curve-marker-note {
+    transform: translateY(-50%) !important;
   }
 }
 @media (max-width: 600px) {
@@ -2162,6 +3079,83 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__drilldown-header {
     padding-top: 6px;
+  }
+  .job-trend-view__drilldown--event .job-trend-view__drilldown-header {
+    align-items: flex-start;
+  }
+  .job-trend-view__drilldown--event .job-trend-view__drilldown-event-summary {
+    display: grid;
+    gap: 2px;
+  }
+  .job-trend-view__event-table-wrap {
+    overflow: visible;
+  }
+  .job-trend-view__event-table-shell {
+    border-radius: 14px;
+  }
+  .job-trend-view__event-table {
+    border-collapse: separate;
+    border-spacing: 0 8px;
+    min-width: 0;
+  }
+  .job-trend-view__event-table thead {
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    width: 1px;
+    clip: rect(1px, 1px, 1px, 1px);
+  }
+  .job-trend-view__event-table tbody tr {
+    background: var(--trend-rail-surface);
+    border: 1px solid var(--trend-rule-soft);
+    border-radius: 12px;
+    display: grid;
+    gap: 0;
+    padding: 8px 10px;
+  }
+  .job-trend-view__event-table tbody tr:first-child th,
+  .job-trend-view__event-table tbody tr:first-child td {
+    padding-top: 8px;
+  }
+  .job-trend-view__event-table tbody tr:last-child th,
+  .job-trend-view__event-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .job-trend-view__event-table tbody th,
+  .job-trend-view__event-table tbody td {
+    align-items: center;
+    border-bottom: 1px solid var(--trend-rule-soft);
+    display: flex;
+    justify-content: space-between;
+    min-height: 34px;
+    padding: 7px 0;
+    text-align: right;
+  }
+  .job-trend-view__event-table tbody th {
+    justify-content: flex-start;
+    padding-left: 12px;
+  }
+  .job-trend-view__event-table tbody th::before {
+    left: 0;
+  }
+  .job-trend-view__event-table tbody td {
+    background: transparent !important;
+  }
+  .job-trend-view__event-table tbody td::before {
+    color: var(--trend-subtle);
+    content: attr(data-label);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-align: left;
+  }
+  .job-trend-view__event-table tbody tr > :last-child {
+    border-bottom: 0;
+  }
+  .job-trend-view__event-table .job-trend-view__event-count--current {
+    font-size: 0.96rem !important;
+  }
+  .job-trend-view__event-metric {
+    min-width: 0;
   }
   .job-trend-view__detail-drawer {
     border-radius: 0;

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-16
+goal: 让本地 5175 预览默认连接当前回环 API 隧道，避免缺少环境变量时将 API 请求静默回退为前端 HTML。
+skip_specs: true
