@@ -459,6 +459,11 @@ FROM technology_analysis_release_events
 WHERE configuration_id = $1 AND event_type = 'published'`, configuration.ID).Scan(&summary.Publisher); err != nil {
 			return ReleaseSummary{}, fmt.Errorf("load %s release attestation: %w", policyVersion, err)
 		}
+		if policyVersion == "v0.4" {
+			if err := publishTrendFormalReleaseForConfigurationTx(ctx, tx, configuration.ID); err != nil {
+				return ReleaseSummary{}, fmt.Errorf("align v0.4 trend formal release: %w", err)
+			}
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return ReleaseSummary{}, fmt.Errorf("commit reused %s release: %w", policyVersion, err)
 		}
@@ -552,6 +557,11 @@ UPDATE technology_analysis_publication_state
 SET configuration_id = $1, updated_at = now()
 WHERE singleton = true`, configuration.ID); err != nil {
 		return ReleaseSummary{}, fmt.Errorf("advance %s analysis publication pointer: %w", policyVersion, err)
+	}
+	if policyVersion == "v0.4" {
+		if err := publishTrendFormalReleaseForConfigurationTx(ctx, tx, configuration.ID); err != nil {
+			return ReleaseSummary{}, fmt.Errorf("align v0.4 trend formal release: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO technology_analysis_release_events (
