@@ -151,6 +151,13 @@ func TestReleaseV04UpgradeReanalyzesHistoryAndPublishesExpandedEvidence(t *testi
 	if _, err := repository.ReleaseV03Upgrade(ctx, "github-reviewer"); err != nil {
 		t.Fatal(err)
 	}
+	previousTrendCandidate, err := repository.PrepareTrendFormalRelease(ctx)
+	if err != nil {
+		t.Fatalf("prepare predecessor trend formal release: %v", err)
+	}
+	if _, err := repository.PublishTrendFormalRelease(ctx, previousTrendCandidate.ID); err != nil {
+		t.Fatalf("publish predecessor trend formal release: %v", err)
+	}
 
 	v04Seed := CandidateV04Seed()
 	v04Imported, err := repository.ImportCandidateDictionary(ctx, v04Seed, "remote-operator")
@@ -206,6 +213,19 @@ WHERE result.configuration_id = $1 AND result.body_content_version_id = $2`, v04
 	assertDictionaryStatus(t, repository, v03Imported.DictionaryVersionID, "published")
 	assertDictionaryStatus(t, repository, v04Imported.DictionaryVersionID, "published")
 	assertReleaseEvent(t, repository, v04Prepared.ConfigurationID, v04Imported.DictionaryVersionID, "published", "", "github-reviewer", 1)
+	var trendStatus, trendConfigurationID string
+	if err := repository.pool.QueryRow(ctx, `
+SELECT release.status::text, component.technology_analysis_configuration_id::text
+FROM trend_formal_releases AS release
+JOIN trend_formal_release_components AS component
+  ON component.trend_formal_release_id = release.id
+ AND component.dimension = 'technology'
+WHERE release.status = 'published'`).Scan(&trendStatus, &trendConfigurationID); err != nil {
+		t.Fatalf("read published trend technology component: %v", err)
+	}
+	if trendStatus != string(TrendFormalReleasePublished) || trendConfigurationID != v04Prepared.ConfigurationID {
+		t.Fatalf("published trend technology component = status:%s configuration:%s, want published v0.4 configuration:%s", trendStatus, trendConfigurationID, v04Prepared.ConfigurationID)
+	}
 
 	second, err := repository.ReleaseV04Upgrade(ctx, "other-reviewer")
 	if err != nil {

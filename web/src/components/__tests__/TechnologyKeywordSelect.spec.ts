@@ -49,6 +49,9 @@ describe('TechnologyKeywordSelect', () => {
     const browserRule = source.match(
       /\.technology-keyword-select__browser \{(?<declarations>[\s\S]*?)\n\}/u,
     )?.groups?.declarations
+    const termPanelRule = source.match(
+      /\.technology-keyword-select__term-panel \{(?<declarations>[\s\S]*?)\n\}/u,
+    )?.groups?.declarations
 
     expect(source).toMatch(/<Teleport\s+to="body">/u)
     expect(menuRule).toMatch(/position:\s*fixed;/u)
@@ -59,6 +62,7 @@ describe('TechnologyKeywordSelect', () => {
       /\.technology-keyword-select \{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;/u,
     )
     expect(browserRule).toMatch(/grid-template-columns:\s*minmax\(164px, 43%\) minmax\(0, 1fr\);/u)
+    expect(termPanelRule).toMatch(/min-height:\s*0;/u)
     expect(source).toMatch(
       /\.technology-keyword-select__categories \{[\s\S]*?overscroll-behavior:\s*contain;/u,
     )

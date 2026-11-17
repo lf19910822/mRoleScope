@@ -213,6 +213,68 @@ func insertTrendFormalReleaseComponents(ctx context.Context, tx pgx.Tx, releaseI
 	return nil
 }
 
+func publishTrendFormalReleaseForConfigurationTx(ctx context.Context, tx pgx.Tx, technologyConfigurationID string) error {
+	if tx == nil || technologyConfigurationID == "" {
+		return fmt.Errorf("technology configuration is required for trend formal release")
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "trend-formal-release"); err != nil {
+		return fmt.Errorf("lock trend formal release publication: %w", err)
+	}
+
+	components := currentTrendFormalReleaseComponents(technologyConfigurationID)
+	identitySHA256 := trendFormalReleaseIdentityDigest(components)
+	var release TrendFormalRelease
+	inserted := false
+	err := tx.QueryRow(ctx, `
+INSERT INTO trend_formal_releases (identity_sha256)
+VALUES ($1)
+ON CONFLICT (identity_sha256) DO NOTHING
+RETURNING id::text, identity_sha256, status::text`, identitySHA256).Scan(
+		&release.ID, &release.IdentitySHA256, &release.Status,
+	)
+	if err == pgx.ErrNoRows {
+		err = tx.QueryRow(ctx, `
+SELECT id::text, identity_sha256, status::text
+FROM trend_formal_releases
+WHERE identity_sha256 = $1
+FOR UPDATE`, identitySHA256).Scan(&release.ID, &release.IdentitySHA256, &release.Status)
+	} else {
+		inserted = err == nil
+	}
+	if err != nil {
+		return fmt.Errorf("ensure trend formal release candidate: %w", err)
+	}
+	if inserted {
+		if err := insertTrendFormalReleaseComponents(ctx, tx, release.ID, components); err != nil {
+			return err
+		}
+	}
+	if release.Status == TrendFormalReleasePublished {
+		return nil
+	}
+	if release.Status != TrendFormalReleaseCandidate {
+		return fmt.Errorf("trend formal release is not publishable")
+	}
+	if missing, err := countUncoveredTrendFormalInputs(ctx, tx, components); err != nil {
+		return err
+	} else if missing != 0 {
+		return ErrTrendFormalReleaseIncomplete
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE trend_formal_releases
+SET status = 'superseded', superseded_at = now()
+WHERE status = 'published'`); err != nil {
+		return fmt.Errorf("supersede prior trend formal release: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE trend_formal_releases
+SET status = 'published', published_at = now()
+WHERE id = $1`, release.ID); err != nil {
+		return fmt.Errorf("publish trend formal release: %w", err)
+	}
+	return nil
+}
+
 // PublishTrendFormalRelease advances a prepared release only when its five
 // exact component identities cover every historical Serving membership that
 // requires a formal body/title result. It switches releases atomically, so a

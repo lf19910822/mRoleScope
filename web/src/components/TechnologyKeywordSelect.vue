@@ -587,6 +587,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: 10px;
 }
 
