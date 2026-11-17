@@ -188,7 +188,7 @@ WHERE result.configuration_id = $1 AND result.body_content_version_id = $2`, v04
 		Scan(&identityCount, &startMin, &startMax, &endMin, &endMax); err != nil {
 		t.Fatal(err)
 	}
-	if identityCount != 2 || startMin != 0 || startMax != 0 || endMin != 3 || endMax != 3 {
+	if identityCount != 2 || startMin != 3 || startMax != 3 || endMin != 6 || endMax != 6 {
 		t.Fatalf("UE5 expanded evidence = identities:%d span:%d-%d/%d-%d", identityCount, startMin, startMax, endMin, endMax)
 	}
 
