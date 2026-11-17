@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { darkTheme, dateZhCN, NConfigProvider, useOsTheme, zhCN } from 'naive-ui'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { oceanBreezeDarkThemeOverrides, oceanBreezeThemeOverrides } from '@/theme/ocean-breeze'
@@ -10,10 +10,13 @@ import { requestActivity } from '@/lib/request-activity'
 const route = useRoute()
 const osTheme = useOsTheme()
 const navigationOpen = ref(false)
+const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+const navigationExpanded = ref(defaultNavigationExpanded())
+const navigationManuallyToggled = ref(false)
 const lastJobListPath = ref(route.name === 'jobs' ? route.fullPath : '/jobs')
 const releasedDestinations = [
-  { label: '岗位筛选', name: 'jobs' as const },
-  { label: '趋势看板', name: 'job-trends' as const },
+  { label: '岗位筛选', name: 'jobs' as const, icon: 'jobs' },
+  { label: '趋势看板', name: 'job-trends' as const, icon: 'trends' },
 ]
 const isJobDestination = computed(() => route.name === 'jobs' || route.name === 'job-detail')
 const colorScheme = computed(() => (osTheme.value === 'dark' ? 'dark' : 'light'))
@@ -21,18 +24,42 @@ const selectedTheme = computed(() => (colorScheme.value === 'dark' ? darkTheme :
 const selectedThemeOverrides = computed(() =>
   colorScheme.value === 'dark' ? oceanBreezeDarkThemeOverrides : oceanBreezeThemeOverrides,
 )
+const isDesktopViewport = computed(() => viewportWidth.value > 760)
 
-function closeNavigation(): void {
+function defaultNavigationExpanded(): boolean {
+  return viewportWidth.value >= 1100
+}
+
+function closeMobileNavigation(): void {
   navigationOpen.value = false
+}
+
+function toggleDesktopNavigation(): void {
+  navigationManuallyToggled.value = true
+  navigationExpanded.value = !navigationExpanded.value
+}
+
+function expandCollapsedNavigation(): void {
+  if (!isDesktopViewport.value || navigationExpanded.value) return
+  navigationManuallyToggled.value = true
+  navigationExpanded.value = true
+}
+
+function handleViewportResize(): void {
+  viewportWidth.value = window.innerWidth
+  if (!navigationManuallyToggled.value) navigationExpanded.value = defaultNavigationExpanded()
 }
 
 watch(
   () => route.fullPath,
   () => {
     if (route.name === 'jobs') lastJobListPath.value = route.fullPath
-    closeNavigation()
+    closeMobileNavigation()
   },
 )
+
+onMounted(() => window.addEventListener('resize', handleViewportResize))
+onBeforeUnmount(() => window.removeEventListener('resize', handleViewportResize))
 </script>
 
 <template>
@@ -42,7 +69,11 @@ watch(
     :theme="selectedTheme"
     :theme-overrides="selectedThemeOverrides"
   >
-    <div class="app-shell" :data-color-scheme="colorScheme">
+    <div
+      class="app-shell"
+      :class="{ 'app-shell--navigation-collapsed': !navigationExpanded }"
+      :data-color-scheme="colorScheme"
+    >
       <button
         class="app-menu-toggle"
         type="button"
@@ -59,21 +90,53 @@ watch(
         class="app-navigation-overlay"
         aria-hidden="true"
         data-testid="navigation-overlay"
-        @click="closeNavigation"
+        @click="closeMobileNavigation"
       ></div>
-      <aside :class="['app-sidebar', { 'app-sidebar--open': navigationOpen }]">
-        <div class="app-sidebar__brand">
-          <span class="app-sidebar__wave" aria-hidden="true"><i></i><i></i><i></i></span>
-          <div>
-            <strong>mRoleScope</strong>
-            <small>JD OBSERVATORY</small>
+      <aside
+        :class="[
+          'app-sidebar',
+          { 'app-sidebar--expanded': navigationExpanded },
+          { 'app-sidebar--collapsed': !navigationExpanded },
+          { 'app-sidebar--mobile-open': navigationOpen },
+        ]"
+        :aria-hidden="false"
+      >
+        <div class="app-sidebar__header">
+          <div
+            class="app-sidebar__brand"
+            :class="{ 'app-sidebar__brand--expand': !navigationExpanded && isDesktopViewport }"
+            :role="!navigationExpanded && isDesktopViewport ? 'button' : undefined"
+            :tabindex="!navigationExpanded && isDesktopViewport ? 0 : undefined"
+            :aria-label="!navigationExpanded && isDesktopViewport ? '展开导航栏' : undefined"
+            data-testid="navigation-brand"
+            @click="expandCollapsedNavigation"
+            @keydown.enter.prevent="expandCollapsedNavigation"
+            @keydown.space.prevent="expandCollapsedNavigation"
+          >
+            <span class="app-sidebar__wave" aria-hidden="true"><i></i><i></i><i></i></span>
+            <div class="app-sidebar__brand-copy">
+              <strong>mRoleScope</strong>
+              <small>JD OBSERVATORY</small>
+            </div>
           </div>
           <button
-            class="app-sidebar__close"
+            v-if="navigationExpanded"
+            class="app-sidebar__desktop-toggle"
+            type="button"
+            aria-label="隐藏导航栏"
+            :aria-expanded="navigationExpanded"
+            aria-controls="application-navigation"
+            data-testid="toggle-desktop-navigation"
+            @click="toggleDesktopNavigation"
+          >
+            <span aria-hidden="true">‹</span>
+          </button>
+          <button
+            class="app-sidebar__mobile-close"
             type="button"
             aria-label="关闭导航"
             data-testid="close-navigation"
-            @click="closeNavigation"
+            @click="closeMobileNavigation"
           >
             ×
           </button>
@@ -91,10 +154,25 @@ watch(
                   destination.name === route.name,
               },
             ]"
-            @click="closeNavigation"
+            :title="destination.label"
+            @click="closeMobileNavigation"
           >
-            <span class="app-navigation__glyph" aria-hidden="true">⌁</span>
-            {{ destination.label }}
+            <span
+              class="app-navigation__glyph"
+              data-testid="navigation-icon"
+              :data-icon="destination.icon"
+              aria-hidden="true"
+            >
+              <svg v-if="destination.icon === 'jobs'" viewBox="0 0 24 24" role="presentation">
+                <path d="M7 7.5h10M7 12h10M7 16.5h6" />
+                <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" role="presentation">
+                <path d="M4 17.5 9 12l3.5 3 7.5-8" />
+                <path d="M17 7h3v3" />
+              </svg>
+            </span>
+            <span class="app-navigation__label">{{ destination.label }}</span>
           </RouterLink>
         </nav>
         <p class="app-sidebar__note">最新岗位视图</p>
@@ -118,8 +196,14 @@ watch(
     linear-gradient(135deg, #edf7fb 0%, #e8f2f8 52%, #eaf7f5 100%);
   color: #121c22;
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-columns: 224px minmax(0, 1fr);
   min-height: 100vh;
+  overflow-x: clip;
+  transition: grid-template-columns 260ms cubic-bezier(0.22, 0.9, 0.25, 1);
+}
+
+.app-shell--navigation-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr);
 }
 
 .app-shell[data-color-scheme='dark'] {
@@ -130,26 +214,36 @@ watch(
 }
 
 .app-sidebar {
-  background: rgba(255, 255, 255, 0.92);
+  background: #f8fcfd;
   border-right: 1px solid #e3ebf0;
   display: flex;
   flex-direction: column;
   height: 100dvh;
-  left: 0;
-  padding: 28px 16px 20px;
-  position: fixed;
+  min-width: 0;
+  overflow: hidden;
+  padding: 22px 10px 20px;
+  position: sticky;
   top: 0;
-  width: 236px;
-  z-index: 10;
+  transition:
+    padding 260ms cubic-bezier(0.22, 0.9, 0.25, 1),
+    background-color 180ms ease;
+  z-index: 2;
+}
+
+.app-sidebar__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
 }
 
 .app-shell[data-color-scheme='dark'] .app-sidebar {
-  background: rgba(16, 37, 46, 0.94);
+  background: #102b35;
   border-right-color: #294752;
 }
 
 .app-shell__content {
-  grid-column: 2;
   min-width: 0;
   overflow: visible;
 }
@@ -157,8 +251,22 @@ watch(
 .app-sidebar__brand {
   align-items: center;
   display: flex;
+  flex: 1 1 auto;
   gap: 10px;
-  padding: 0 10px 30px;
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 8px 26px;
+}
+
+.app-sidebar__brand-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  opacity: 1;
+  overflow: hidden;
+  transition:
+    opacity 180ms ease,
+    width 260ms cubic-bezier(0.22, 0.9, 0.25, 1);
+  width: auto;
 }
 
 .app-sidebar__brand strong,
@@ -227,7 +335,8 @@ watch(
   text-decoration: none;
   transition:
     background-color 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    padding 260ms cubic-bezier(0.22, 0.9, 0.25, 1);
 }
 
 .app-shell[data-color-scheme='dark'] .app-navigation__link {
@@ -255,9 +364,32 @@ watch(
 }
 
 .app-navigation__glyph {
+  align-items: center;
   color: #008287;
-  font-size: 1.35rem;
+  display: inline-flex;
+  flex: 0 0 24px;
+  justify-content: center;
   line-height: 1;
+}
+
+.app-navigation__glyph svg {
+  fill: none;
+  height: 20px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 20px;
+}
+
+.app-navigation__label {
+  opacity: 1;
+  overflow: hidden;
+  transition:
+    opacity 180ms ease,
+    width 260ms cubic-bezier(0.22, 0.9, 0.25, 1);
+  white-space: nowrap;
+  width: 130px;
 }
 
 .app-sidebar__note {
@@ -273,9 +405,35 @@ watch(
 }
 
 .app-menu-toggle,
-.app-sidebar__close,
-.app-navigation-overlay {
+.app-navigation-overlay,
+.app-sidebar__mobile-close {
   display: none;
+}
+
+.app-sidebar__desktop-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #406980;
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 32px;
+  font-size: 1.5rem;
+  justify-content: center;
+  line-height: 1;
+  min-height: 32px;
+  padding: 0;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.app-sidebar__desktop-toggle:hover,
+.app-sidebar__desktop-toggle:focus-visible {
+  background: #e4f4fa;
+  border-radius: 9px;
+  color: #00658e;
+  outline: none;
 }
 
 .app-shell[data-color-scheme='dark'] .app-menu-toggle {
@@ -287,8 +445,84 @@ watch(
   background: #6ad0c0;
 }
 
-.app-shell[data-color-scheme='dark'] .app-sidebar__close {
+.app-shell[data-color-scheme='dark'] .app-sidebar__desktop-toggle {
+  color: #6ad0c0;
+}
+
+.app-shell[data-color-scheme='dark'] .app-sidebar__desktop-toggle:hover,
+.app-shell[data-color-scheme='dark'] .app-sidebar__desktop-toggle:focus-visible {
+  background: #193f4a;
+}
+
+.app-shell[data-color-scheme='dark'] .app-sidebar__mobile-close {
   color: #b6d0d6;
+}
+
+@media (min-width: 761px) {
+  .app-sidebar--collapsed {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .app-sidebar--collapsed .app-sidebar__header {
+    align-items: center;
+  }
+
+  .app-sidebar--collapsed .app-sidebar__brand {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-sidebar--collapsed .app-sidebar__brand-copy,
+  .app-sidebar--collapsed .app-navigation__label,
+  .app-sidebar--collapsed .app-sidebar__note {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+  }
+
+  .app-sidebar--collapsed .app-sidebar__brand {
+    gap: 0;
+  }
+
+  .app-sidebar__brand--expand {
+    border-radius: 10px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .app-sidebar__brand--expand:hover,
+  .app-sidebar__brand--expand:focus-visible {
+    background: #eaf1f6;
+  }
+
+  .app-sidebar--collapsed .app-sidebar__wave {
+    transform: scale(0.8);
+  }
+
+  .app-sidebar--collapsed .app-navigation__link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-sidebar--collapsed .app-navigation__link::after {
+    background: transparent;
+    border-radius: 0 4px 4px 0;
+    content: '';
+    inset: 8px auto 8px 0;
+    position: absolute;
+    width: 3px;
+  }
+
+  .app-sidebar--collapsed .app-navigation__link {
+    position: relative;
+  }
+
+  .app-sidebar--collapsed .app-navigation__link--active::after {
+    background: #008287;
+  }
 }
 
 @media (max-width: 760px) {
@@ -297,6 +531,7 @@ watch(
     height: auto;
     min-height: 100vh;
     overflow: visible;
+    transition: none;
   }
 
   .app-menu-toggle {
@@ -341,14 +576,23 @@ watch(
     min-height: 0;
     position: fixed;
     top: 0;
-    transform: translateX(-105%);
     transition: transform 180ms ease;
     width: min(280px, 82vw);
     z-index: 50;
   }
 
-  .app-sidebar--open {
+  .app-sidebar--mobile-open {
     transform: translateX(0);
+  }
+
+  .app-sidebar:not(.app-sidebar--mobile-open) {
+    transform: translateX(-105%);
+  }
+
+  .app-sidebar__brand-copy,
+  .app-navigation__label {
+    opacity: 1;
+    width: auto;
   }
 
   .app-shell__content {
@@ -357,7 +601,11 @@ watch(
     padding-top: 24px;
   }
 
-  .app-sidebar__close {
+  .app-sidebar__desktop-toggle {
+    display: none;
+  }
+
+  .app-sidebar__mobile-close {
     background: transparent;
     border: 0;
     color: #406980;
@@ -367,6 +615,19 @@ watch(
     line-height: 1;
     margin-left: auto;
     padding: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .app-sidebar,
+  .app-navigation__link {
+    transition-duration: 140ms !important;
+  }
+
+  .app-sidebar__brand-copy,
+  .app-navigation__label {
+    transition: opacity 140ms ease !important;
   }
 }
 </style>

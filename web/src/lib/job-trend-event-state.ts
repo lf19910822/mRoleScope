@@ -392,13 +392,13 @@ export function formatTrendEventRate(rate: number | null): string {
 export function trendEventTypeLabel(type: TrendEventType): string {
   switch (type) {
     case 'entered':
-      return '进入曲线'
+      return '新增'
     case 'modified':
-      return '曲线内修改'
+      return '修改'
     case 'left':
-      return '离开曲线'
+      return '下线'
     case 'reopened':
-      return '重新上线'
+      return '重上线'
   }
 }
 
@@ -546,7 +546,12 @@ export function createTrendEventState(
       const cached = key === undefined ? undefined : cache.get(key)
       const cachedResponse = cached === undefined ? undefined : copyResponse(cached.response)
       if (cached !== undefined && cachedResponse === undefined) cache.delete(key!)
-      if (!force && cached !== undefined && cachedResponse !== undefined && now() - cached.cachedAt <= cacheLifetimeMilliseconds) {
+      if (
+        !force &&
+        cached !== undefined &&
+        cachedResponse !== undefined &&
+        now() - cached.cachedAt <= cacheLifetimeMilliseconds
+      ) {
         state.response = cachedResponse
         state.status = 'ready'
         state.error = ''

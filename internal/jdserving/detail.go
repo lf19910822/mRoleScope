@@ -283,6 +283,9 @@ FROM (
     LIMIT 1
 ) AS resolution
 JOIN technology_analysis_results AS result ON result.id = resolution.technology_analysis_result_id
+JOIN technology_analysis_publication_state AS publication
+  ON publication.singleton = true
+ AND publication.configuration_id = result.configuration_id
 JOIN technology_mentions AS mention ON mention.analysis_result_id = result.id
 JOIN technology_mention_evidence AS evidence ON evidence.technology_mention_id = mention.id
 WHERE resolution.selection_priority = 0

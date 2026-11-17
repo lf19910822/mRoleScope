@@ -333,6 +333,9 @@ const technologyOptionsSQL = `
 SELECT DISTINCT identity.technology_key, identity.canonical_name, identity.technology_kind
 FROM serving_jd_current_dimension_resolutions AS resolution
 JOIN technology_analysis_results AS result ON result.id = resolution.technology_analysis_result_id
+JOIN technology_analysis_publication_state AS publication
+  ON publication.singleton = true
+ AND publication.configuration_id = result.configuration_id
 JOIN technology_mentions AS mention ON mention.analysis_result_id = result.id
 JOIN technology_identities AS identity ON identity.id = mention.technology_identity_id
 WHERE resolution.dimension = 'technology'

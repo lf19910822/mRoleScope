@@ -53,6 +53,9 @@ func main() {
 		case "dictionary-v0.3":
 			runV03Dictionary(arguments[1:])
 			return
+		case "dictionary-v0.4":
+			runV04Dictionary(arguments[1:])
+			return
 		case "analyze-candidate-v0.1":
 			runV01CandidateAnalysis(arguments[1:])
 			return
@@ -62,11 +65,17 @@ func main() {
 		case "analyze-candidate-v0.3":
 			runV03CandidateAnalysis(arguments[1:])
 			return
+		case "analyze-candidate-v0.4":
+			runV04CandidateAnalysis(arguments[1:])
+			return
 		case "release-v0.2":
 			runV02ReleaseLifecycle(arguments[1:])
 			return
 		case "release-v0.3":
 			runV03ReleaseUpgrade(arguments[1:])
+			return
+		case "release-v0.4":
+			runV04ReleaseUpgrade(arguments[1:])
 			return
 		}
 	}
@@ -1005,6 +1014,79 @@ func runV03Dictionary(arguments []string) {
 	}
 }
 
+// runV04Dictionary exposes only the fixed v0.4 successor lifecycle. The
+// root-owned adapter supplies no dictionary content or caller-selected policy.
+func runV04Dictionary(arguments []string) {
+	if len(arguments) < 2 {
+		fmt.Fprintln(os.Stderr, "dictionary-v0.4 accepts seed <operator>, approve <rule-key> <operator>, approve-reviewed <operator>, or prepare-analysis <operator>")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid dictionary lifecycle configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("dictionary lifecycle database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+
+	seed := jdanalysis.CandidateV04Seed()
+	switch arguments[0] {
+	case "seed":
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.4 seed accepts exactly one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.ImportCandidateDictionary(ctx, seed, arguments[1])
+		if err != nil {
+			slog.Error("candidate dictionary import failed")
+			os.Exit(1)
+		}
+		slog.Info("candidate dictionary import completed", "rules_created", summary.RulesCreated, "candidates_created", summary.CandidatesCreated, "reused", summary.Reused)
+	case "approve":
+		if len(arguments) != 3 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.4 approve accepts exactly one rule key and one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.ApproveV04ReviewedRule(ctx, arguments[1], arguments[2])
+		if err != nil {
+			slog.Error("candidate dictionary approval failed")
+			os.Exit(1)
+		}
+		slog.Info("candidate dictionary rule approval completed", "reused", summary.Reused)
+	case "approve-reviewed":
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.4 approve-reviewed accepts exactly one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.ApproveAllV04ReviewedRules(ctx, arguments[1])
+		if err != nil {
+			slog.Error("reviewed candidate dictionary bulk approval failed")
+			os.Exit(1)
+		}
+		slog.Info("reviewed candidate dictionary bulk approval completed", "approved", summary.Approved, "reused", summary.Reused)
+	case "prepare-analysis":
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "dictionary-v0.4 prepare-analysis accepts exactly one operator")
+			os.Exit(2)
+		}
+		summary, err := repository.PrepareCandidateConfigurationForDictionary(ctx, seed.VersionLabel, jdanalysis.V01ParserVersion, arguments[1])
+		if err != nil {
+			slog.Error("candidate analysis preparation failed")
+			os.Exit(1)
+		}
+		slog.Info("candidate analysis preparation completed", "queued", summary.Queued, "reused", summary.Reused)
+	default:
+		fmt.Fprintln(os.Stderr, "dictionary-v0.4 operation must be seed, approve, approve-reviewed, or prepare-analysis")
+		os.Exit(2)
+	}
+}
+
 // runV01CandidateAnalysis processes only the fixed, un-published v0.1
 // configuration. Normal `analyze` continues to resolve the published pointer
 // and therefore cannot accidentally consume this candidate.
@@ -1093,6 +1175,39 @@ func runV03CandidateAnalysis(arguments []string) {
 	}
 	defer repository.Close()
 	configurationID, err := repository.CandidateConfigurationID(ctx, jdanalysis.CandidateV03Seed().VersionLabel, jdanalysis.V01ParserVersion)
+	if err != nil {
+		slog.Error("candidate analysis configuration is unavailable")
+		os.Exit(1)
+	}
+	summary, err := (jdanalysis.Processor{Repository: repository}).ProcessPending(ctx, configurationID)
+	if err != nil {
+		slog.Error(jdanalysis.SafeOperationMessage(err), "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+		os.Exit(1)
+	}
+	slog.Info("candidate analysis completed", "claimed", summary.Claimed, "completed", summary.Completed, "failed", summary.Failed)
+}
+
+// runV04CandidateAnalysis processes only the isolated v0.4 candidate. It
+// cannot resolve or change the published pointer.
+func runV04CandidateAnalysis(arguments []string) {
+	if len(arguments) != 0 {
+		fmt.Fprintln(os.Stderr, "analyze-candidate-v0.4 accepts no positional arguments")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid candidate analysis configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("candidate analysis database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+	configurationID, err := repository.CandidateConfigurationID(ctx, jdanalysis.CandidateV04Seed().VersionLabel, jdanalysis.V01ParserVersion)
 	if err != nil {
 		slog.Error("candidate analysis configuration is unavailable")
 		os.Exit(1)
@@ -1217,11 +1332,68 @@ func runV03ReleaseUpgrade(arguments []string) {
 	)
 }
 
+func runV04ReleaseUpgrade(arguments []string) {
+	if len(arguments) != 1 || arguments[0] != "publish-upgrade" {
+		fmt.Fprintln(os.Stderr, "release-v0.4 accepts only publish-upgrade")
+		os.Exit(2)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("invalid release lifecycle configuration")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.SyncTimeout)
+	defer cancel()
+	repository, err := jdanalysis.NewRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("release lifecycle database initialization failed")
+		os.Exit(1)
+	}
+	defer repository.Close()
+
+	summary, servingSummary, err := publishV04UpgradeAndReconcile(
+		ctx,
+		repository,
+		cfg.DatabaseURL,
+		os.Getenv("MROLESCOPE_RELEASE_PUBLISHER"),
+		newServingInventoryReconciler,
+	)
+	if err != nil {
+		if summary.Published {
+			slog.Error("v0.4 release committed but serving projection refresh failed; retry the fixed v0.4 release operation")
+		} else {
+			slog.Error(jdanalysis.SafeOperationMessage(err))
+		}
+		os.Exit(1)
+	}
+	slog.Info("v0.4 technology analysis upgrade published",
+		"configuration_id", summary.ConfigurationID,
+		"dictionary_version_id", summary.DictionaryVersionID,
+		"rule_set_sha256", summary.RuleSetSHA256,
+		"release_gate_version", summary.ReleaseGateVersion,
+		"publisher", summary.Publisher,
+		"queued", summary.Queued,
+		"pending", summary.Pending,
+		"missing_results", summary.MissingResults,
+		"evidence_total", summary.EvidenceTotal,
+		"invalid_evidence", summary.InvalidEvidence,
+		"reused", summary.Reused,
+		"serving_reconciled_runs", servingSummary.ReconciledRuns,
+		"serving_memberships_created", servingSummary.MembershipsCreated,
+		"serving_memberships_reused", servingSummary.MembershipsReused,
+		"serving_retryable_failures", servingSummary.RetryableFailures,
+	)
+}
+
 // v03UpgradeReleaser keeps the immutable release gate independent from its
 // post-commit Serving projection.  The production repository and test fakes
 // both satisfy this narrow seam.
 type v03UpgradeReleaser interface {
 	ReleaseV03Upgrade(context.Context, string) (jdanalysis.ReleaseSummary, error)
+}
+
+type v04UpgradeReleaser interface {
+	ReleaseV04Upgrade(context.Context, string) (jdanalysis.ReleaseSummary, error)
 }
 
 // servingInventoryReconciler exposes exactly the read-model refresh needed
@@ -1263,6 +1435,28 @@ func publishV03UpgradeAndReconcile(
 	servingSummary, err := servingRepository.ReconcilePublishedInventory(ctx)
 	if err != nil {
 		return summary, servingSummary, fmt.Errorf("reconcile serving projection after v0.3 release: %w", err)
+	}
+	return summary, servingSummary, nil
+}
+
+func publishV04UpgradeAndReconcile(
+	ctx context.Context,
+	releaseRepository v04UpgradeReleaser,
+	databaseURL, publisher string,
+	newServingRepository servingInventoryReconcilerFactory,
+) (jdanalysis.ReleaseSummary, jdserving.ReconciliationSummary, error) {
+	summary, err := releaseRepository.ReleaseV04Upgrade(ctx, publisher)
+	if err != nil {
+		return summary, jdserving.ReconciliationSummary{}, err
+	}
+	servingRepository, err := newServingRepository(ctx, databaseURL)
+	if err != nil {
+		return summary, jdserving.ReconciliationSummary{}, fmt.Errorf("initialize serving projection after v0.4 release: %w", err)
+	}
+	defer servingRepository.Close()
+	servingSummary, err := servingRepository.ReconcilePublishedInventory(ctx)
+	if err != nil {
+		return summary, servingSummary, fmt.Errorf("reconcile serving projection after v0.4 release: %w", err)
 	}
 	return summary, servingSummary, nil
 }

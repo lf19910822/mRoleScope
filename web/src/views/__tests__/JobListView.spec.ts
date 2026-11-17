@@ -336,7 +336,7 @@ describe('JD list filters', () => {
     wrapper.unmount()
   })
 
-  it('temporarily magnifies only a mouse-focused query-canvas role card', async () => {
+  it('emphasizes only a mouse-focused query-canvas role card without scaling it', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -374,9 +374,11 @@ describe('JD list filters', () => {
     expect(restingRule).not.toMatch(/^\s*(?:transform|will-change)\s*:/mu)
     expect(restingRule).not.toContain('translateZ')
     expect(source).toMatch(
-      /\.query-canvas \.job-card--focused \{[\s\S]*?transform:\s*scale\(1\.15\);[\s\S]*?z-index:\s*10;/u,
+      /\.query-canvas \.job-card--focused \{[\s\S]*?border-color:\s*#9cd7e5;[\s\S]*?box-shadow:[\s\S]*?z-index:\s*10;/u,
     )
-    expect(restingRule).toMatch(/transform 360ms/u)
+    expect(restingRule).toMatch(/border-color 180ms/u)
+    expect(restingRule).toMatch(/box-shadow 180ms/u)
+    expect(source).not.toContain('transform: scale(1.15)')
 
     wrapper.unmount()
   })

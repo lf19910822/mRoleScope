@@ -17,7 +17,7 @@ die() {
 grep -Fqx '    networks: [backend, edge]' "$compose_file" \
   || die 'API must be attached to backend and edge networks'
 
-[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 30 ]] \
+[[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 36 ]] \
   || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal audits may use backend alone'
 
 grep -Fqx '    profiles: [sync]' "$compose_file" \
@@ -50,13 +50,19 @@ grep -Fqx '    profiles: [candidate-analysis-v0.2]' "$compose_file" \
 grep -Fqx '    profiles: [candidate-analysis-v0.3]' "$compose_file" \
   || die 'v0.3 candidate analysis must remain an explicitly requested one-shot profile'
 
+grep -Fqx '    profiles: [candidate-analysis-v0.4]' "$compose_file" \
+  || die 'v0.4 candidate analysis must remain an explicitly requested one-shot profile'
+
 [[ "$(grep -Fxc '    profiles: [release-v0.2]' "$compose_file")" -eq 3 ]] \
   || die 'the fixed v0.2 release lifecycle services must remain explicitly requested'
 
 [[ "$(grep -Fxc '    profiles: [release-v0.3]' "$compose_file")" -eq 1 ]] \
   || die 'the fixed v0.3 upgrade release service must remain explicitly requested'
 
-[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 11 ]] \
+[[ "$(grep -Fxc '    profiles: [release-v0.4]' "$compose_file")" -eq 1 ]] \
+  || die 'the fixed v0.4 upgrade release service must remain explicitly requested'
+
+[[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 15 ]] \
   || die 'the fixed dictionary lifecycle services must remain explicitly requested'
 
 [[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \

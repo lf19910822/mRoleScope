@@ -242,7 +242,18 @@ JOIN technology_identities AS identity ON identity.id = rule.technology_identity
 WHERE snapshot.configuration_id = $1
   AND rule.id = $2
   AND rule.dictionary_version_id = $3
-  AND rule.technology_identity_id = $4`, configurationID, ruleID, dictionaryVersionID, technologyIdentityID).Scan(
+  AND (
+      rule.technology_identity_id = $4
+      OR EXISTS (
+          SELECT 1
+          FROM technology_analysis_configuration_emissions AS emission_snapshot
+          JOIN technology_dictionary_rule_emissions AS emission
+            ON emission.id = emission_snapshot.dictionary_emission_id
+          WHERE emission_snapshot.configuration_id = $1
+            AND emission.source_rule_id = rule.id
+            AND emission.emitted_technology_identity_id = $4
+      )
+  )`, configurationID, ruleID, dictionaryVersionID, technologyIdentityID).Scan(
 		&rule.TechnologyKey, &rule.CanonicalName, &rule.TechnologyKind,
 		&rule.RuleKey, &rule.Alias, &rule.CaseMode, &rule.BoundaryMode, &rule.OverlapPriority,
 		&rule.Summary, &reviewer, &decidedAt)

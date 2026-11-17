@@ -250,6 +250,19 @@ func TestClassifyTrendEventUsesLifecyclePriorityAndExistingModificationSignal(t 
 	}
 }
 
+func TestTrendEventDrilldownMarksInternalModificationAsChanged(t *testing.T) {
+	observation := trendEventObservation{
+		SourceMetadataVersionID: "metadata-v2",
+		BodyContentVersionID:    "body-v2",
+	}
+	if got := trendEventDrilldownItemStatus(TrendEventModified, string(ActivityStateEffective), "metadata-v2", "body-v2", observation); got != TrendDrilldownStatusChanged {
+		t.Fatalf("modified event status = %q, want changed", got)
+	}
+	if got := trendEventDrilldownItemStatus(TrendEventModified, string(ActivityStateConfirmedClosed), "metadata-v2", "body-v2", observation); got != TrendDrilldownStatusClosed {
+		t.Fatalf("closed modified event status = %q, want confirmed_closed", got)
+	}
+}
+
 func TestAggregateTrendEventsDeduplicatesPerJobAndType(t *testing.T) {
 	window := trendEventWindow{Start: trendEventDate(2026, time.October, 22), End: trendEventDate(2026, time.October, 31)}
 	events := []trendEvent{

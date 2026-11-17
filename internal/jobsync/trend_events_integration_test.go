@@ -144,8 +144,18 @@ func TestTrendEventStatsUsesBaselineMissingDaysAndEventDrilldown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read modified event drilldown: %v", err)
 	}
-	if modified.MatchedTotal != 1 || len(modified.Items) != 1 || modified.Items[0].Reason != "曲线内修改" || modified.CountMatchesExpected != nil {
+	if modified.MatchedTotal != 1 || len(modified.Items) != 1 || modified.Items[0].Reason != "曲线内修改" ||
+		modified.Items[0].Status != jdserving.TrendDrilldownStatusChanged ||
+		!modified.Items[0].CanViewHistorical || !modified.Items[0].CanViewLatest || modified.CountMatchesExpected != nil {
 		t.Fatalf("modified event search = %#v", modified)
+	}
+	modifiedDetail, err := serving.GetJobHistoryDetail(ctx, modified.Items[0].ID, day(27), jdserving.HistoryNodeModified)
+	if err != nil {
+		t.Fatalf("read modified event history detail: %v", err)
+	}
+	if modifiedDetail.HistoryDate != "2026-10-27" || modifiedDetail.HistoryNodeType != jdserving.HistoryNodeModified ||
+		modifiedDetail.Comparison == nil || modifiedDetail.Comparison.Status != jdserving.ComparisonStatusAvailable {
+		t.Fatalf("modified event history detail = %#v", modifiedDetail)
 	}
 
 	reopened, err := serving.ReadTrendDrilldown(ctx, jdserving.TrendDrilldownQuery{

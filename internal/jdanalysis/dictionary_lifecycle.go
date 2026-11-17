@@ -96,6 +96,18 @@ FOR UPDATE`, versionID).Scan(&status); err != nil {
 		}
 		identityIDs[rule.TechnologyKey] = identityID
 	}
+	for _, rule := range seed.Rules {
+		for _, emission := range rule.EffectiveEmissions() {
+			if _, exists := identityIDs[emission.TechnologyKey]; exists {
+				continue
+			}
+			identityID, err := upsertTechnologyIdentityValues(ctx, tx, emission.TechnologyKey, emission.CanonicalName, emission.TechnologyKind)
+			if err != nil {
+				return DictionaryImportSummary{}, err
+			}
+			identityIDs[emission.TechnologyKey] = identityID
+		}
+	}
 
 	summary := DictionaryImportSummary{DictionaryVersionID: versionID, Reused: reused}
 	for _, rule := range seed.Rules {
@@ -111,6 +123,39 @@ ON CONFLICT (dictionary_version_id, rule_key) DO NOTHING`,
 			return DictionaryImportSummary{}, fmt.Errorf("insert candidate dictionary rule: %w", err)
 		}
 		summary.RulesCreated += int(command.RowsAffected())
+	}
+	for _, rule := range seed.Rules {
+		for _, emission := range rule.EffectiveEmissions() {
+			if _, err := tx.Exec(ctx, `
+INSERT INTO technology_dictionary_rule_emissions (
+    source_rule_id, emitted_technology_identity_id, relation_type
+)
+SELECT source_rule.id, emitted_identity.id, $3
+FROM technology_dictionary_rules AS source_rule
+JOIN technology_identities AS emitted_identity ON emitted_identity.technology_key = $2
+WHERE source_rule.dictionary_version_id = $1
+  AND source_rule.rule_key = $4
+ON CONFLICT (source_rule_id, emitted_technology_identity_id) DO NOTHING`,
+				versionID, emission.TechnologyKey, emission.RelationType, rule.RuleKey); err != nil {
+				return DictionaryImportSummary{}, fmt.Errorf("insert dictionary rule emission: %w", err)
+			}
+		}
+	}
+	for _, pattern := range seed.ExclusionPatterns {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO technology_dictionary_exclusion_patterns (
+    dictionary_version_id, source_rule_id, pattern_key, pattern, state,
+    case_mode, boundary_mode, window_codepoints, provenance
+)
+SELECT $1, rule.id, $2, $3, $4, $5, $6, $7, $8
+FROM technology_dictionary_rules AS rule
+WHERE rule.dictionary_version_id = $1 AND rule.rule_key = $9
+ON CONFLICT (dictionary_version_id, pattern_key) DO NOTHING`,
+			versionID, pattern.PatternKey, pattern.Pattern, pattern.State,
+			pattern.CaseMode, pattern.BoundaryMode, pattern.WindowCodePoints,
+			pattern.Provenance, pattern.SourceRuleKey); err != nil {
+			return DictionaryImportSummary{}, fmt.Errorf("insert dictionary exclusion pattern: %w", err)
+		}
 	}
 	for _, candidate := range seed.Candidates {
 		var proposedIdentityID *string
@@ -141,11 +186,11 @@ ON CONFLICT (dictionary_version_id, candidate_text) DO NOTHING`,
 func importDictionaryVersion(ctx context.Context, tx pgx.Tx, seed DictionarySeed, hash, createdBy string) (string, bool, error) {
 	var versionID, existingHash string
 	err := tx.QueryRow(ctx, `
-INSERT INTO technology_dictionary_versions (
-    version_label, content_sha256, status, source_document, created_by
-) VALUES ($1, $2, 'candidate', $3, $4)
-ON CONFLICT (version_label) DO NOTHING
-RETURNING id::text, content_sha256`, seed.VersionLabel, hash, seed.SourceDocument, createdBy).Scan(&versionID, &existingHash)
+	INSERT INTO technology_dictionary_versions (
+	    version_label, content_sha256, status, source_document, matcher_policy_version, created_by
+	) VALUES ($1, $2, 'candidate', $3, $4, $5)
+	ON CONFLICT (version_label) DO NOTHING
+	RETURNING id::text, content_sha256`, seed.VersionLabel, hash, seed.SourceDocument, matcherPolicyVersion(seed), createdBy).Scan(&versionID, &existingHash)
 	if err == nil {
 		return versionID, false, nil
 	}
@@ -165,13 +210,17 @@ WHERE version_label = $1`, seed.VersionLabel).Scan(&versionID, &existingHash); e
 }
 
 func upsertTechnologyIdentity(ctx context.Context, tx pgx.Tx, rule DictionaryRule) (string, error) {
+	return upsertTechnologyIdentityValues(ctx, tx, rule.TechnologyKey, rule.CanonicalName, rule.TechnologyKind)
+}
+
+func upsertTechnologyIdentityValues(ctx context.Context, tx pgx.Tx, technologyKey, canonicalNameValue, technologyKindValue string) (string, error) {
 	var identityID string
 	err := tx.QueryRow(ctx, `
 INSERT INTO technology_identities (technology_key, canonical_name, technology_kind)
 VALUES ($1, $2, $3)
 ON CONFLICT (technology_key)
-DO NOTHING
-RETURNING id::text`, rule.TechnologyKey, rule.CanonicalName, rule.TechnologyKind).Scan(&identityID)
+		DO NOTHING
+		RETURNING id::text`, technologyKey, canonicalNameValue, technologyKindValue).Scan(&identityID)
 	if err == nil {
 		return identityID, nil
 	}
@@ -182,13 +231,20 @@ RETURNING id::text`, rule.TechnologyKey, rule.CanonicalName, rule.TechnologyKind
 	if err := tx.QueryRow(ctx, `
 SELECT id::text, canonical_name, technology_kind
 FROM technology_identities
-WHERE technology_key = $1`, rule.TechnologyKey).Scan(&identityID, &canonicalName, &technologyKind); err != nil {
+WHERE technology_key = $1`, technologyKey).Scan(&identityID, &canonicalName, &technologyKind); err != nil {
 		return "", fmt.Errorf("load technology identity: %w", err)
 	}
-	if canonicalName != rule.CanonicalName || technologyKind != rule.TechnologyKind {
+	if canonicalName != canonicalNameValue || technologyKind != technologyKindValue {
 		return "", fmt.Errorf("technology identity conflicts with the candidate dictionary")
 	}
 	return identityID, nil
+}
+
+func matcherPolicyVersion(seed DictionarySeed) string {
+	if seed.MatcherPolicyVersion != "" {
+		return seed.MatcherPolicyVersion
+	}
+	return MatcherPolicyV01
 }
 
 // ApproveCandidateRule moves one deterministic candidate rule to enabled and
@@ -289,6 +345,22 @@ func (repository *Repository) ApproveAllV03ReviewedRules(ctx context.Context, re
 	return repository.approveAllReviewedRules(ctx, reviewer, CandidateV03Seed().VersionLabel, V03ApprovedRuleKeys(), "v0.3")
 }
 
+// ApproveV04ReviewedRule is the fixed per-rule v0.4 approval entry point.
+// Callers cannot promote an arbitrary imported alias by supplying its key.
+func (repository *Repository) ApproveV04ReviewedRule(ctx context.Context, ruleKey, reviewer string) (DictionaryApprovalSummary, error) {
+	if !V04RuleApprovalEligible(ruleKey) {
+		return DictionaryApprovalSummary{}, fmt.Errorf("dictionary rule is not approved by the v0.4 review")
+	}
+	return repository.ApproveCandidateRule(ctx, CandidateV04Seed().VersionLabel, ruleKey, reviewer)
+}
+
+// ApproveAllV04ReviewedRules atomically enables the fixed v0.4 rule and
+// exclusion policy. It is intentionally a closed operation: the caller can
+// provide only the reviewer identity, never a target version or rule list.
+func (repository *Repository) ApproveAllV04ReviewedRules(ctx context.Context, reviewer string) (DictionaryBulkApprovalSummary, error) {
+	return repository.approveAllReviewedRules(ctx, reviewer, CandidateV04Seed().VersionLabel, V04ApprovedRuleKeys(), "v0.4")
+}
+
 func (repository *Repository) approveAllReviewedRules(ctx context.Context, reviewer, dictionaryVersionLabel string, ruleKeys []string, policyVersion string) (DictionaryBulkApprovalSummary, error) {
 	if !validOperator(reviewer) {
 		return DictionaryBulkApprovalSummary{}, fmt.Errorf("candidate dictionary reviewer is invalid")
@@ -352,6 +424,37 @@ VALUES ($1, 'approved_enabled', $2, $3)`, ruleID, reviewer, "approved through th
 			summary.Approved++
 		default:
 			return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed %s dictionary rule requires a context-aware policy", policyVersion)
+		}
+	}
+	if policyVersion == "v0.4" {
+		for _, patternKey := range V04ApprovedExclusionPatternKeys() {
+			var patternID, state string
+			err := tx.QueryRow(ctx, `
+SELECT pattern.id::text, pattern.state::text
+FROM technology_dictionary_exclusion_patterns AS pattern
+JOIN technology_dictionary_versions AS version ON version.id = pattern.dictionary_version_id
+WHERE version.version_label = $1 AND pattern.pattern_key = $2
+FOR UPDATE`, dictionaryVersionLabel, patternKey).Scan(&patternID, &state)
+			if err == pgx.ErrNoRows {
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed %s dictionary exclusion is unavailable for approval", policyVersion)
+			}
+			if err != nil {
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("lock reviewed %s dictionary exclusion for approval: %w", policyVersion, err)
+			}
+			switch state {
+			case string(RuleEnabled):
+				summary.Reused++
+			case string(RuleCandidate):
+				if _, err := tx.Exec(ctx, `
+UPDATE technology_dictionary_exclusion_patterns
+SET state = 'enabled', approved_by = $2, approved_at = now()
+WHERE id = $1`, patternID, reviewer); err != nil {
+					return DictionaryBulkApprovalSummary{}, fmt.Errorf("enable reviewed %s dictionary exclusion: %w", policyVersion, err)
+				}
+				summary.Approved++
+			default:
+				return DictionaryBulkApprovalSummary{}, fmt.Errorf("reviewed %s dictionary exclusion has invalid state", policyVersion)
+			}
 		}
 	}
 

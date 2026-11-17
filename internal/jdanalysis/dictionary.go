@@ -36,12 +36,70 @@ const (
 	BoundaryCustom          BoundaryMode = "custom"
 )
 
+const (
+	MatcherPolicyV01 = "technology-mentions-v1"
+	MatcherPolicyV04 = "technology-mentions-v4"
+)
+
 // Approval is intentionally separate from the rule itself so an enabled rule
 // always has a named, dated human decision that can be stored and audited.
 type Approval struct {
 	Reviewer  string
 	Decided   time.Time
 	Rationale string
+}
+
+type DictionaryEmission struct {
+	TechnologyKey  string `json:"technology_key"`
+	CanonicalName  string `json:"canonical_name"`
+	TechnologyKind string `json:"technology_kind"`
+	RelationType   string `json:"relation_type"`
+}
+
+func (emission DictionaryEmission) Validate() error {
+	if emission.TechnologyKey == "" || emission.CanonicalName == "" || emission.TechnologyKind == "" {
+		return fmt.Errorf("dictionary emission is missing identity fields")
+	}
+	if emission.RelationType != "self" && emission.RelationType != "inherited" {
+		return fmt.Errorf("dictionary emission has invalid relation type")
+	}
+	return nil
+}
+
+type DictionaryExclusionPattern struct {
+	PatternKey       string
+	SourceRuleKey    string
+	Pattern          string
+	State            RuleState
+	CaseMode         CaseMode
+	BoundaryMode     BoundaryMode
+	WindowCodePoints int
+	Provenance       string
+	Approval         *Approval
+}
+
+func (pattern DictionaryExclusionPattern) Validate() error {
+	if pattern.PatternKey == "" || pattern.SourceRuleKey == "" || pattern.Pattern == "" || pattern.Provenance == "" {
+		return fmt.Errorf("dictionary exclusion pattern is missing required fields")
+	}
+	if !pattern.State.Valid() {
+		return fmt.Errorf("dictionary exclusion pattern has invalid state")
+	}
+	if pattern.CaseMode != CaseSensitive && pattern.CaseMode != CaseInsensitive {
+		return fmt.Errorf("dictionary exclusion pattern has invalid case mode")
+	}
+	if pattern.BoundaryMode != BoundaryExact && pattern.BoundaryMode != BoundaryASCIIIdentifier && pattern.BoundaryMode != BoundaryCustom {
+		return fmt.Errorf("dictionary exclusion pattern has invalid boundary mode")
+	}
+	if pattern.WindowCodePoints < 1 || pattern.WindowCodePoints > 96 {
+		return fmt.Errorf("dictionary exclusion pattern window is outside the allowed range")
+	}
+	if pattern.State == RuleEnabled {
+		if pattern.Approval == nil || strings.TrimSpace(pattern.Approval.Reviewer) == "" || pattern.Approval.Decided.IsZero() || strings.TrimSpace(pattern.Approval.Rationale) == "" {
+			return fmt.Errorf("enabled dictionary exclusion pattern requires explicit approval")
+		}
+	}
+	return nil
 }
 
 type DictionaryRule struct {
@@ -56,6 +114,7 @@ type DictionaryRule struct {
 	OverlapPriority int
 	Summary         string
 	Approval        *Approval
+	Emissions       []DictionaryEmission
 }
 
 func (rule DictionaryRule) Validate() error {
@@ -76,11 +135,26 @@ func (rule DictionaryRule) Validate() error {
 			return fmt.Errorf("enabled dictionary rule requires explicit approval")
 		}
 	}
+	for _, emission := range rule.Emissions {
+		if err := emission.Validate(); err != nil {
+			return fmt.Errorf("rule %s: %w", rule.RuleKey, err)
+		}
+	}
 	return nil
 }
 
 func (rule DictionaryRule) Executable() bool {
 	return rule.State == RuleEnabled && rule.Validate() == nil
+}
+
+func (rule DictionaryRule) EffectiveEmissions() []DictionaryEmission {
+	if len(rule.Emissions) != 0 {
+		return append([]DictionaryEmission(nil), rule.Emissions...)
+	}
+	return []DictionaryEmission{{
+		TechnologyKey: rule.TechnologyKey, CanonicalName: rule.CanonicalName,
+		TechnologyKind: rule.TechnologyKind, RelationType: "self",
+	}}
 }
 
 type CandidateTerm struct {
@@ -91,10 +165,12 @@ type CandidateTerm struct {
 }
 
 type DictionarySeed struct {
-	VersionLabel   string
-	SourceDocument string
-	Rules          []DictionaryRule
-	Candidates     []CandidateTerm
+	VersionLabel         string
+	SourceDocument       string
+	MatcherPolicyVersion string
+	Rules                []DictionaryRule
+	Candidates           []CandidateTerm
+	ExclusionPatterns    []DictionaryExclusionPattern
 }
 
 func (seed DictionarySeed) Validate() error {
@@ -102,6 +178,7 @@ func (seed DictionarySeed) Validate() error {
 		return fmt.Errorf("dictionary seed is missing version provenance")
 	}
 	ruleKeys := make(map[string]struct{}, len(seed.Rules))
+	technologyKeys := make(map[string]struct{}, len(seed.Rules))
 	for _, rule := range seed.Rules {
 		if err := rule.Validate(); err != nil {
 			return err
@@ -110,6 +187,27 @@ func (seed DictionarySeed) Validate() error {
 			return fmt.Errorf("dictionary seed repeats a rule key")
 		}
 		ruleKeys[rule.RuleKey] = struct{}{}
+		technologyKeys[rule.TechnologyKey] = struct{}{}
+	}
+	for _, rule := range seed.Rules {
+		for _, emission := range rule.Emissions {
+			if _, exists := technologyKeys[emission.TechnologyKey]; !exists {
+				return fmt.Errorf("dictionary rule %s emits an unknown technology identity", rule.RuleKey)
+			}
+		}
+	}
+	patternKeys := make(map[string]struct{}, len(seed.ExclusionPatterns))
+	for _, pattern := range seed.ExclusionPatterns {
+		if err := pattern.Validate(); err != nil {
+			return err
+		}
+		if _, exists := ruleKeys[pattern.SourceRuleKey]; !exists {
+			return fmt.Errorf("dictionary exclusion pattern references an unknown source rule")
+		}
+		if _, exists := patternKeys[pattern.PatternKey]; exists {
+			return fmt.Errorf("dictionary seed repeats an exclusion pattern key")
+		}
+		patternKeys[pattern.PatternKey] = struct{}{}
 	}
 	candidateTexts := make(map[string]struct{}, len(seed.Candidates))
 	for _, candidate := range seed.Candidates {
@@ -132,6 +230,16 @@ func (seed DictionarySeed) ExecutableRules() []DictionaryRule {
 		}
 	}
 	return rules
+}
+
+func (seed DictionarySeed) ExecutableExclusionPatterns() []DictionaryExclusionPattern {
+	patterns := make([]DictionaryExclusionPattern, 0)
+	for _, pattern := range seed.ExclusionPatterns {
+		if pattern.State == RuleEnabled && pattern.Validate() == nil {
+			patterns = append(patterns, pattern)
+		}
+	}
+	return patterns
 }
 
 // CandidateV01Seed is a structured transcription of
@@ -283,6 +391,116 @@ func CandidateV03Seed() DictionarySeed {
 	return seed
 }
 
+// CandidateV04Seed is the immutable successor policy for the reviewed v0.3
+// dictionary. It keeps the v0.3 rules as historical input, then adds only the
+// explicitly reviewed aliases, identity emissions, and observed exclusions.
+func CandidateV04Seed() DictionarySeed {
+	seed := CandidateV03Seed()
+	seed.VersionLabel = "technology-keyword-alias-map-v0.4"
+	seed.SourceDocument = "Docs/开发指导/JD建模/technical-keyword-alias-map-v0.4.md"
+	seed.MatcherPolicyVersion = MatcherPolicyV04
+
+	for index := range seed.Rules {
+		rule := &seed.Rules[index]
+		switch rule.RuleKey {
+		case "unreal-engine.01", "unreal-engine.02", "unity.01", "unity.02":
+			rule.State = RuleCandidate
+			rule.CaseMode = CaseSensitive
+			rule.Summary = "reviewed v0.4 direct technology alias"
+		case "react.01":
+			rule.State = RuleCandidate
+			rule.CaseMode = CaseSensitive
+			rule.Summary = "reviewed exact-case frontend React alias"
+		}
+	}
+
+	appendRule := func(key, canonical, kind, ruleKey, alias string, boundary BoundaryMode, emissions ...DictionaryEmission) {
+		seed.Rules = append(seed.Rules, DictionaryRule{
+			TechnologyKey: key, CanonicalName: canonical, TechnologyKind: kind,
+			RuleKey: ruleKey, Alias: alias, State: RuleCandidate,
+			CaseMode: CaseSensitive, BoundaryMode: boundary,
+			OverlapPriority: len([]rune(alias)), Summary: "reviewed v0.4 direct technology alias",
+			Emissions: emissions,
+		})
+	}
+	self := func(key, canonical, kind string) DictionaryEmission {
+		return DictionaryEmission{TechnologyKey: key, CanonicalName: canonical, TechnologyKind: kind, RelationType: "self"}
+	}
+	inherited := func(key, canonical, kind string) DictionaryEmission {
+		return DictionaryEmission{TechnologyKey: key, CanonicalName: canonical, TechnologyKind: kind, RelationType: "inherited"}
+	}
+
+	appendRule("unreal-engine", "Unreal Engine", "game-engine", "unreal-engine.03", "Unreal Engine", BoundaryASCIIIdentifier)
+	appendRule("unreal-engine", "Unreal Engine", "game-engine", "unreal-engine.04", "UE", BoundaryASCIIIdentifier)
+	appendRule("unreal-engine-4", "Unreal Engine 4", "game-engine", "unreal-engine-4.01", "UE4", BoundaryASCIIIdentifier,
+		inherited("unreal-engine", "Unreal Engine", "game-engine"), self("unreal-engine-4", "Unreal Engine 4", "game-engine"))
+	appendRule("unreal-engine-5", "Unreal Engine 5", "game-engine", "unreal-engine-5.01", "UE5", BoundaryASCIIIdentifier,
+		inherited("unreal-engine", "Unreal Engine", "game-engine"), self("unreal-engine-5", "Unreal Engine 5", "game-engine"))
+	appendRule("unreal-engine-5", "Unreal Engine 5", "game-engine", "unreal-engine-5.02", "UE5.4", BoundaryASCIIIdentifier,
+		inherited("unreal-engine", "Unreal Engine", "game-engine"), self("unreal-engine-5", "Unreal Engine 5", "game-engine"))
+	appendRule("unity", "Unity", "game-engine", "unity.03", "Unity 3D", BoundaryASCIIIdentifier)
+	appendRule("unity", "Unity", "game-engine", "unity.04", "Unity3D", BoundaryASCIIIdentifier)
+	appendRule("react", "React", "frontend-framework", "react.02", "react", BoundaryASCIIIdentifier)
+	appendRule("react-agent", "ReAct", "agent-paradigm", "react-agent.01", "ReAct", BoundaryASCIIIdentifier)
+
+	appendRule("uobject", "UObject", "game-engine-subsystem", "uobject.01", "UObject", BoundaryASCIIIdentifier)
+	appendRule("world-partition", "World Partition", "game-engine-subsystem", "world-partition.01", "World Partition", BoundaryASCIIIdentifier)
+	appendRule("world-partition", "World Partition", "game-engine-subsystem", "world-partition.02", "WorldPartition", BoundaryASCIIIdentifier)
+	appendRule("statetree", "StateTree", "game-engine-subsystem", "statetree.01", "StateTree", BoundaryASCIIIdentifier)
+	appendRule("massentity", "MassEntity", "game-engine-subsystem", "massentity.01", "MassEntity", BoundaryASCIIIdentifier)
+	appendRule("gamethread", "GameThread", "game-engine-subsystem", "gamethread.01", "GameThread", BoundaryASCIIIdentifier)
+	appendRule("buildgraph", "BuildGraph", "game-engine-subsystem", "buildgraph.01", "BuildGraph", BoundaryASCIIIdentifier)
+
+	appendRule("wwise", "Wwise", "game-audio-tool", "wwise.01", "Wwise", BoundaryASCIIIdentifier)
+	appendRule("fmod", "FMOD", "game-audio-tool", "fmod.01", "FMOD", BoundaryASCIIIdentifier)
+	appendRule("fmod", "FMOD", "game-audio-tool", "fmod.02", "FMOD Studio", BoundaryASCIIIdentifier)
+	appendRule("criware", "CRIWARE", "game-audio-tool", "criware.01", "CRIWARE", BoundaryASCIIIdentifier)
+	appendRule("criware", "CRIWARE", "game-audio-tool", "criware.02", "Criware", BoundaryASCIIIdentifier)
+	appendRule("maya", "Maya", "3d-art-tool", "maya.01", "Maya", BoundaryASCIIIdentifier)
+
+	appendRule("dcgm", "DCGM", "gpu-or-parallel-computing", "dcgm.01", "DCGM", BoundaryASCIIIdentifier)
+	appendRule("nsight-systems", "Nsight Systems", "gpu-or-parallel-computing", "nsight-systems.01", "Nsight Systems", BoundaryASCIIIdentifier)
+	appendRule("nsight-compute", "Nsight Compute", "gpu-or-parallel-computing", "nsight-compute.01", "Nsight Compute", BoundaryASCIIIdentifier)
+	appendRule("nvswitch", "NVSwitch", "gpu-or-parallel-computing", "nvswitch.01", "NVSwitch", BoundaryASCIIIdentifier)
+	appendRule("cann", "CANN", "gpu-or-parallel-computing", "cann.01", "CANN", BoundaryASCIIIdentifier)
+	appendRule("numa", "NUMA", "gpu-or-parallel-computing", "numa.01", "NUMA", BoundaryASCIIIdentifier)
+	appendRule("pcie", "PCIe", "gpu-or-parallel-computing", "pcie.01", "PCIe", BoundaryASCIIIdentifier)
+	appendRule("roce", "RoCE", "gpu-or-parallel-computing", "roce.01", "RoCE", BoundaryASCIIIdentifier)
+	appendRule("roce", "RoCE", "gpu-or-parallel-computing", "roce.02", "ROCE", BoundaryASCIIIdentifier)
+
+	appendRule("kubelet", "kubelet", "cloud-native-component", "kubelet.01", "kubelet", BoundaryASCIIIdentifier)
+	appendRule("kube-scheduler", "kube-scheduler", "cloud-native-component", "kube-scheduler.01", "kube-scheduler", BoundaryASCIIIdentifier)
+	appendRule("controller-manager", "controller-manager", "cloud-native-component", "controller-manager.01", "controller-manager", BoundaryASCIIIdentifier)
+	appendRule("kubefed", "KubeFed", "cloud-native-component", "kubefed.01", "KubeFed", BoundaryASCIIIdentifier)
+	appendRule("controller-runtime", "controller-runtime", "cloud-native-component", "controller-runtime.01", "controller-runtime", BoundaryASCIIIdentifier)
+	appendRule("client-go", "client-go", "cloud-native-component", "client-go.01", "client-go", BoundaryASCIIIdentifier)
+	appendRule("keda", "KEDA", "cloud-native-component", "keda.01", "KEDA", BoundaryASCIIIdentifier)
+
+	appendRule("elasticsearch", "Elasticsearch", "infrastructure", "elasticsearch.01", "Elasticsearch", BoundaryASCIIIdentifier)
+	appendRule("ceph", "Ceph", "infrastructure", "ceph.01", "Ceph", BoundaryASCIIIdentifier)
+	appendRule("openstack", "OpenStack", "infrastructure", "openstack.01", "OpenStack", BoundaryASCIIIdentifier)
+	appendRule("qemu", "QEMU", "infrastructure", "qemu.01", "QEMU", BoundaryASCIIIdentifier)
+	appendRule("libvirt", "libvirt", "infrastructure", "libvirt.01", "libvirt", BoundaryASCIIIdentifier)
+	appendRule("cloud-init", "cloud-init", "infrastructure", "cloud-init.01", "cloud-init", BoundaryASCIIIdentifier)
+
+	seed.ExclusionPatterns = []DictionaryExclusionPattern{
+		{PatternKey: "react.to.01", SourceRuleKey: "react.02", Pattern: "react to", State: RuleCandidate, CaseMode: CaseSensitive, BoundaryMode: BoundaryExact, WindowCodePoints: 96, Provenance: "Docs/开发指导/JD建模/技术关键词候选审计-2026-11-13.md"},
+		{PatternKey: "unreal.user-experience.01", SourceRuleKey: "unreal-engine.04", Pattern: "user experience", State: RuleCandidate, CaseMode: CaseInsensitive, BoundaryMode: BoundaryExact, WindowCodePoints: 96, Provenance: "Docs/开发指导/JD建模/技术关键词候选审计-2026-11-13.md"},
+		{PatternKey: "unreal.用户体验.01", SourceRuleKey: "unreal-engine.04", Pattern: "用户体验", State: RuleCandidate, CaseMode: CaseSensitive, BoundaryMode: BoundaryExact, WindowCodePoints: 96, Provenance: "Docs/开发指导/JD建模/技术关键词候选审计-2026-11-13.md"},
+	}
+
+	filteredCandidates := make([]CandidateTerm, 0, len(seed.Candidates))
+	for _, candidate := range seed.Candidates {
+		switch candidate.Text {
+		case "UE", "UE4", "UE5", "UE5.4", "ReAct":
+			continue
+		}
+		filteredCandidates = append(filteredCandidates, candidate)
+	}
+	seed.Candidates = filteredCandidates
+	return seed
+}
+
 // V02ApprovedRuleKeys is the fixed policy allowlist derived from the local
 // human review. It is deliberately separate from candidate import: every key
 // still requires the durable, authenticated approval operation before use.
@@ -369,6 +587,34 @@ func V03RuleApprovalEligible(ruleKey string) bool {
 		}
 	}
 	return false
+}
+
+func V04ApprovedRuleKeys() []string {
+	approved := append([]string(nil), V03ApprovedRuleKeys()...)
+	approved = append(approved,
+		"unreal-engine.01", "unreal-engine.02", "unreal-engine.03", "unreal-engine.04",
+		"unreal-engine-4.01", "unreal-engine-5.01", "unreal-engine-5.02",
+		"unity.01", "unity.02", "unity.03", "unity.04", "react.01", "react.02", "react-agent.01",
+		"uobject.01", "world-partition.01", "world-partition.02", "statetree.01", "massentity.01", "gamethread.01", "buildgraph.01",
+		"wwise.01", "fmod.01", "fmod.02", "criware.01", "criware.02", "maya.01",
+		"dcgm.01", "nsight-systems.01", "nsight-compute.01", "nvswitch.01", "cann.01", "numa.01", "pcie.01", "roce.01", "roce.02",
+		"kubelet.01", "kube-scheduler.01", "controller-manager.01", "kubefed.01", "controller-runtime.01", "client-go.01", "keda.01",
+		"elasticsearch.01", "ceph.01", "openstack.01", "qemu.01", "libvirt.01", "cloud-init.01",
+	)
+	return approved
+}
+
+func V04RuleApprovalEligible(ruleKey string) bool {
+	for _, approvedRuleKey := range V04ApprovedRuleKeys() {
+		if ruleKey == approvedRuleKey {
+			return true
+		}
+	}
+	return false
+}
+
+func V04ApprovedExclusionPatternKeys() []string {
+	return []string{"react.to.01", "unreal.user-experience.01", "unreal.用户体验.01"}
 }
 
 func stableTechnologyKey(name string) string {

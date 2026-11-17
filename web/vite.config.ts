@@ -1,12 +1,10 @@
 import { fileURLToPath, URL } from 'node:url'
 
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 import { localAccessEntryPath } from './src/lib/local-access-entry'
-
-const apiProxyTarget = process.env.VITE_API_PROXY_TARGET
 
 function localAccessEntryPlugin(): Plugin {
   return {
@@ -23,12 +21,19 @@ function localAccessEntryPlugin(): Plugin {
   }
 }
 
+const env = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), 'VITE_')
+const apiProxyTarget =
+  process.env.VITE_API_PROXY_TARGET ??
+  env.VITE_API_PROXY_TARGET ??
+  (process.env.NODE_ENV === 'production' ? undefined : 'http://127.0.0.1:20080')
+const enableDevtools = process.env.VITE_ENABLE_DEVTOOLS ?? env.VITE_ENABLE_DEVTOOLS
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     localAccessEntryPlugin(),
     vue(),
-    ...(process.env.VITE_ENABLE_DEVTOOLS === 'true' ? [vueDevTools()] : []),
+    ...(enableDevtools === 'true' ? [vueDevTools()] : []),
   ],
   resolve: {
     alias: {
@@ -36,9 +41,9 @@ export default defineConfig({
     },
   },
   // The local UI always uses one loopback-only entry point. Production keeps
-  // the Vue application and /api/ same-origin through Web Edge; locally the
-  // optional proxy must target the current read-only API, never an old fixture
-  // service that may silently ignore newly added filters.
+  // the Vue application and /api/ same-origin through Web Edge; local
+  // development defaults to the current read-only API tunnel so a missing
+  // shell environment variable cannot silently fall back to the SPA HTML.
   server: {
     host: '127.0.0.1',
     port: 5175,

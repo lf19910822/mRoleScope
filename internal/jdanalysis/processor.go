@@ -143,7 +143,7 @@ func (processor Processor) ProcessPending(ctx context.Context, configurationID s
 		matcherRules = append(matcherRules, rule.DictionaryRule)
 		rulesByKey[rule.RuleKey] = rule
 	}
-	matcher, err := NewMatcher(matcherRules)
+	matcher, err := NewMatcherWithExclusions(matcherRules, configuration.ExclusionPatterns)
 	if err != nil {
 		_ = processor.Repository.finishAnalysisRun(context.Background(), runID, summary, "analysis_rule_validation_failed")
 		return summary, err
@@ -211,10 +211,14 @@ func (processor Processor) processWork(ctx context.Context, configuration analys
 		if err != nil {
 			return err
 		}
-		mention := mentions[rule.TechnologyIdentityID]
+		targetIdentityID, ok := rule.EmissionIdentityIDs[match.TechnologyKey]
+		if !ok {
+			return fmt.Errorf("matched emitted technology identity is unavailable")
+		}
+		mention := mentions[targetIdentityID]
 		if mention == nil {
-			mention = &MentionInput{TechnologyIdentityID: rule.TechnologyIdentityID}
-			mentions[rule.TechnologyIdentityID] = mention
+			mention = &MentionInput{TechnologyIdentityID: targetIdentityID}
+			mentions[targetIdentityID] = mention
 		}
 		mention.Evidence = append(mention.Evidence, EvidenceInput{
 			SourceField: match.SourceField, RuleID: rule.ID, Start: interval.Start, End: interval.End,
@@ -240,12 +244,14 @@ type analysisConfiguration struct {
 	ID                  string
 	ParserVersion       string
 	DictionaryVersionID string
+	ExclusionPatterns   []DictionaryExclusionPattern
 }
 
 type databaseRule struct {
 	DictionaryRule
 	ID                   string
 	TechnologyIdentityID string
+	EmissionIdentityIDs  map[string]string
 }
 
 type analysisWork struct {
@@ -263,7 +269,48 @@ WHERE id = $1`, configurationID).Scan(&configuration.ID, &configuration.ParserVe
 	if err != nil {
 		return analysisConfiguration{}, fmt.Errorf("load analysis configuration: %w", err)
 	}
+	patterns, err := repository.loadConfigurationExclusionPatterns(ctx, configurationID)
+	if err != nil {
+		return analysisConfiguration{}, err
+	}
+	configuration.ExclusionPatterns = patterns
 	return configuration, nil
+}
+
+func (repository *Repository) loadConfigurationExclusionPatterns(ctx context.Context, configurationID string) ([]DictionaryExclusionPattern, error) {
+	rows, err := repository.pool.Query(ctx, `
+SELECT exclusion.pattern_key, source_rule.rule_key, exclusion.pattern,
+       exclusion.state::text, exclusion.case_mode, exclusion.boundary_mode,
+       exclusion.window_codepoints, exclusion.provenance,
+       exclusion.approved_by, exclusion.approved_at
+FROM technology_analysis_configuration_exclusions AS snapshot
+JOIN technology_dictionary_exclusion_patterns AS exclusion
+  ON exclusion.id = snapshot.dictionary_exclusion_pattern_id
+JOIN technology_dictionary_rules AS source_rule
+  ON source_rule.id = exclusion.source_rule_id
+WHERE snapshot.configuration_id = $1
+ORDER BY exclusion.pattern_key`, configurationID)
+	if err != nil {
+		return nil, fmt.Errorf("load frozen dictionary exclusions: %w", err)
+	}
+	defer rows.Close()
+	patterns := make([]DictionaryExclusionPattern, 0)
+	for rows.Next() {
+		var pattern DictionaryExclusionPattern
+		var reviewer string
+		var decidedAt time.Time
+		if err := rows.Scan(&pattern.PatternKey, &pattern.SourceRuleKey, &pattern.Pattern,
+			&pattern.State, &pattern.CaseMode, &pattern.BoundaryMode, &pattern.WindowCodePoints,
+			&pattern.Provenance, &reviewer, &decidedAt); err != nil {
+			return nil, fmt.Errorf("scan frozen dictionary exclusion: %w", err)
+		}
+		pattern.Approval = &Approval{Reviewer: reviewer, Decided: decidedAt, Rationale: "recorded dictionary approval"}
+		patterns = append(patterns, pattern)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate frozen dictionary exclusions: %w", err)
+	}
+	return patterns, nil
 }
 
 func (repository *Repository) loadExecutableRules(ctx context.Context, configuration analysisConfiguration) ([]databaseRule, error) {
@@ -294,10 +341,48 @@ ORDER BY rule.rule_key`, configuration.ID)
 		}
 		rule.State = RuleEnabled
 		rule.Approval = &Approval{Reviewer: reviewer, Decided: decidedAt, Rationale: "recorded dictionary approval"}
+		rule.EmissionIdentityIDs = map[string]string{rule.TechnologyKey: rule.TechnologyIdentityID}
 		rules = append(rules, rule)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate enabled dictionary rules: %w", err)
+	}
+	emissionRows, err := repository.pool.Query(ctx, `
+SELECT source_rule.rule_key, emitted_identity.technology_key, emitted_identity.canonical_name,
+       emitted_identity.technology_kind, emission.relation_type, emitted_identity.id::text
+FROM technology_analysis_configuration_emissions AS snapshot
+JOIN technology_dictionary_rule_emissions AS emission
+  ON emission.id = snapshot.dictionary_emission_id
+JOIN technology_dictionary_rules AS source_rule ON source_rule.id = emission.source_rule_id
+JOIN technology_identities AS emitted_identity
+  ON emitted_identity.id = emission.emitted_technology_identity_id
+WHERE snapshot.configuration_id = $1
+ORDER BY source_rule.rule_key, emission.relation_type, emitted_identity.technology_key`, configuration.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load frozen dictionary emissions: %w", err)
+	}
+	defer emissionRows.Close()
+	byRuleKey := make(map[string]*databaseRule, len(rules))
+	for index := range rules {
+		byRuleKey[rules[index].RuleKey] = &rules[index]
+	}
+	for emissionRows.Next() {
+		var ruleKey, technologyKey, canonicalName, technologyKind, relationType, identityID string
+		if err := emissionRows.Scan(&ruleKey, &technologyKey, &canonicalName, &technologyKind, &relationType, &identityID); err != nil {
+			return nil, fmt.Errorf("scan frozen dictionary emission: %w", err)
+		}
+		rule, ok := byRuleKey[ruleKey]
+		if !ok {
+			return nil, fmt.Errorf("frozen dictionary emission references an unavailable rule")
+		}
+		rule.Emissions = append(rule.Emissions, DictionaryEmission{
+			TechnologyKey: technologyKey, CanonicalName: canonicalName,
+			TechnologyKind: technologyKind, RelationType: relationType,
+		})
+		rule.EmissionIdentityIDs[technologyKey] = identityID
+	}
+	if err := emissionRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate frozen dictionary emissions: %w", err)
 	}
 	return rules, nil
 }

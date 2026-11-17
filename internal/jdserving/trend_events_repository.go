@@ -614,15 +614,17 @@ WHERE identifier.job_id::text = ANY($1::text[])`, jobIDs)
 			continue
 		}
 		current := currentRows[jobID]
-		status := TrendDrilldownStatusCurrent
-		if current.state == string(ActivityStateConfirmedClosed) || current.state == "" {
-			status = TrendDrilldownStatusClosed
-		} else if current.metadata != observation.SourceMetadataVersionID || current.body != observation.BodyContentVersionID {
-			status = TrendDrilldownStatusChanged
-		}
+		status := trendEventDrilldownItemStatus(
+			event.Type,
+			current.state,
+			current.metadata,
+			current.body,
+			observation,
+		)
+		canViewLatest := current.publicID != "" && current.state != "" && current.state != string(ActivityStateConfirmedClosed)
 		items = append(items, TrendDrilldownItem{
 			CanViewHistorical: true,
-			CanViewLatest:     current.publicID != "",
+			CanViewLatest:     canViewLatest,
 			EventDate:         formatTrendEventDate(event.Date),
 			ID:                current.publicID,
 			Reason:            publicTrendEventReason(event.Reason),
@@ -663,6 +665,23 @@ WHERE identifier.job_id::text = ANY($1::text[])`, jobIDs)
 		response.CountMatchesExpected = &matchesExpected
 	}
 	return response, nil
+}
+
+func trendEventDrilldownItemStatus(
+	eventType TrendEventType,
+	currentState string,
+	currentMetadata string,
+	currentBody string,
+	observation trendEventObservation,
+) TrendDrilldownStatus {
+	if currentState == string(ActivityStateConfirmedClosed) || currentState == "" {
+		return TrendDrilldownStatusClosed
+	}
+	if eventType == TrendEventModified ||
+		currentMetadata != observation.SourceMetadataVersionID || currentBody != observation.BodyContentVersionID {
+		return TrendDrilldownStatusChanged
+	}
+	return TrendDrilldownStatusCurrent
 }
 
 func publicTrendEventReason(reason TrendEventReason) string {

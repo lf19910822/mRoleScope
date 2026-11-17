@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { NSelect } from 'naive-ui'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -36,13 +37,14 @@ const filterOptions = {
   urgent_options: [],
 }
 
-const mountTrendView = async () => {
+const mountTrendView = async (options: Parameters<typeof mount>[1] = {}) => {
   const { default: JobTrendView } = await import('../JobTrendView.vue')
-  return mount(JobTrendView)
+  return mount(JobTrendView, options)
 }
 
 afterEach(() => {
   sessionStorage.clear()
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
   vi.resetModules()
   vi.unstubAllGlobals()
 })
@@ -61,8 +63,8 @@ describe('JobTrendView observation ledger', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="start-first-curve"]').text()).toBe('开始配置首条曲线')
-    expect(wrapper.find('[data-testid="open-trend-configuration"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('每点为当日匹配岗位数。')
+    expect(wrapper.find('[data-testid="open-trend-configuration"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('每点为当日匹配岗位数。')
     expect(wrapper.text()).not.toContain('刷新数据')
 
     await wrapper.get('[data-testid="start-first-curve"]').trigger('click')
@@ -71,9 +73,41 @@ describe('JobTrendView observation ledger', () => {
     expect(wrapper.findAll('.job-trend-view__curve-row')).toHaveLength(1)
     expect(wrapper.find('[aria-labelledby="trend-event-title"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="trend-configuration-rail"]').classes()).toContain(
-      'job-trend-view__rail--mobile-open',
+      'job-trend-view__rail--desktop-expanded',
     )
-    expect(wrapper.get('[data-testid="open-trend-configuration"]').text()).toContain('1')
+    expect(wrapper.find('[data-testid="close-trend-configuration"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('opens and closes the responsive configuration drawer without losing keyboard focus', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        throw new Error(`unexpected request ${String(input)}`)
+      }),
+    )
+    const wrapper = await mountTrendView({ attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="start-first-curve"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="trend-configuration-backdrop"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="close-trend-configuration"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="close-trend-configuration"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="trend-configuration-backdrop"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="open-trend-configuration"]').element)
+
+    await wrapper.get('[data-testid="open-trend-configuration"]').trigger('click')
+    await nextTick()
+    await wrapper.trigger('keydown', { key: 'Escape' })
+    await nextTick()
+    expect(wrapper.find('[data-testid="trend-configuration-backdrop"]').exists()).toBe(false)
 
     wrapper.unmount()
   })
@@ -160,9 +194,20 @@ describe('JobTrendView observation ledger', () => {
     await flushPromises()
     await nextTick()
 
+    const marker = wrapper.get('[data-testid="curve-marker-trend-1"]')
+    expect(marker.attributes('style')).toContain('#0072B2')
+    expect(marker.attributes('title')).toBeUndefined()
+    expect(
+      wrapper
+        .get('[data-testid="curve-marker-slot-trend-1"] .job-trend-view__curve-marker-note')
+        .text(),
+    ).toBe('技术关键词 · Go')
+    await marker.trigger('click')
+    await nextTick()
     expect(wrapper.get('[data-testid="curve-card-trend-1"]').attributes('style')).toContain(
       '#0072B2',
     )
+    expect(wrapper.text()).toContain('当前周期：2026.11.03 至 2026.11.05')
     expect(wrapper.find('[data-testid="curve-observation-trend-1"]').exists()).toBe(false)
 
     wrapper.unmount()
@@ -338,20 +383,53 @@ describe('JobTrendView observation ledger', () => {
 
     const firstRow = wrapper.get('.job-trend-view__event-table tbody tr')
     expect(wrapper.findAll('.job-trend-view__event-table tbody tr')).toHaveLength(4)
-    expect(wrapper.get('.job-trend-view__event-periods').text()).toContain(
-      '2026-11-01 至 2026-11-05',
-    )
-    expect(wrapper.get('.job-trend-view__event-periods').text()).toContain(
-      '2026-10-01 至 2026-10-05',
-    )
-    expect(wrapper.get('.job-trend-view__event-periods').text()).toContain(
-      '2025-11-01 至 2025-11-05',
-    )
-    const comparisonCell = firstRow.findAll('td')[1]!
+    expect(wrapper.find('[data-testid="event-count-definition"]').exists()).toBe(false)
+    expect(firstRow.classes()).toContain('job-trend-view__event-row--entered')
+    expect(wrapper.get('[data-testid="event-curve-selector"]').text()).toContain('技术关键词 · Go')
+    expect(wrapper.find('[data-testid="event-period-current"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="event-period-previous"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="event-period-year-over-year"]').exists()).toBe(false)
+    expect(
+      wrapper.get('[data-testid="event-period-current-help"]').attributes('data-tooltip'),
+    ).toBe('当前周期：2026-11-01 至 2026-11-05')
+    expect(
+      wrapper.get('[data-testid="event-period-year-over-year-help"]').attributes('data-tooltip'),
+    ).toBe('同比周期：2025-11-01 至 2025-11-05')
+    expect(
+      wrapper.get('[data-testid="event-period-previous-help"]').attributes('data-tooltip'),
+    ).toBe('环比周期：2026-10-01 至 2026-10-05')
+    expect(
+      firstRow.get('[data-testid="event-definition-entered"]').attributes('data-tooltip'),
+    ).toContain('首次被观察到进入该曲线')
+    expect(firstRow.get('th').text()).toContain('新增')
+    const comparisonCell = firstRow.findAll('td')[2]!
     expect(comparisonCell.text()).toContain('7')
     expect(comparisonCell.text()).toContain('+28.6%')
     expect(comparisonCell.findAll('button')).toHaveLength(1)
     expect(comparisonCell.get('button').text()).toBe('7')
+    expect(firstRow.get('[data-testid="event-count-current"]').classes()).toContain(
+      'job-trend-view__event-count--current',
+    )
+    expect(comparisonCell.get('[data-testid="event-count-previous"]').classes()).toContain(
+      'job-trend-view__event-count--comparison',
+    )
+    expect(comparisonCell.get('[data-testid="event-rate-previous"]').text()).toBe('+28.6%')
+    expect(firstRow.findAll('td')[0]!.attributes('data-label')).toBe('当前周期')
+    expect(firstRow.findAll('td')[1]!.attributes('data-label')).toBe('同比')
+    expect(firstRow.findAll('td')[2]!.attributes('data-label')).toBe('环比')
+
+    const modifiedRow = wrapper.findAll('.job-trend-view__event-table tbody tr')[1]!
+    expect(modifiedRow.get('[data-testid="event-count-current"]').text()).toBe('0')
+    expect(modifiedRow.get('[data-testid="event-rate-previous"]').text()).toBe('-')
+    expect(modifiedRow.get('th').text()).toContain('修改')
+    expect(
+      wrapper.find('[data-testid="event-definition-left"]').attributes('data-tooltip'),
+    ).toContain('移出该曲线')
+    expect(wrapper.findAll('.job-trend-view__event-table tbody th')[2]!.text()).toContain('下线')
+    expect(wrapper.findAll('.job-trend-view__event-table tbody th')[3]!.text()).toContain('重上线')
+    expect(
+      wrapper.find('[data-testid="event-definition-reopened"]').attributes('data-tooltip'),
+    ).toContain('确认下线后恢复有效')
 
     wrapper.unmount()
   })
@@ -566,7 +644,7 @@ describe('JobTrendView observation ledger', () => {
     wrapper.unmount()
   })
 
-  it('switches the event table with arrows without changing curve configuration', async () => {
+  it('switches the event table with a curve selector without changing curve configuration', async () => {
     let eventReads = 0
     vi.stubGlobal(
       'fetch',
@@ -668,17 +746,24 @@ describe('JobTrendView observation ledger', () => {
     expect(wrapper.get('.job-trend-view__event-development').text()).toBe('开发中')
     expect(eventReads).toBe(0)
 
-    expect(wrapper.get('[aria-label="上一条曲线"]').attributes('disabled')).toBeDefined()
-    const next = wrapper.get('[aria-label="下一条曲线"]')
-    expect(next.attributes('disabled')).toBeUndefined()
-    await next.trigger('click')
+    expect(wrapper.find('[aria-label="上一条曲线"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="下一条曲线"]').exists()).toBe(false)
+    const eventSelector = wrapper
+      .findAllComponents(NSelect)
+      .find((component) =>
+        (component.props('options') as Array<{ label?: string }>).some(
+          (option) => option.label === '学历 = 本科',
+        ),
+      )
+    expect(eventSelector).toBeDefined()
+    await eventSelector!.vm.$emit('update:value', technology.id)
     await flushPromises()
     expect(wrapper.get('#trend-event-title').text()).toContain('技术关键词 · Go')
     expect(wrapper.find('.job-trend-view__event-table').exists()).toBe(true)
     expect(eventReads).toBe(1)
-    expect(wrapper.get('[aria-label="上一条曲线"]').attributes('disabled')).toBeUndefined()
+    expect(eventSelector!.props('value')).toBe(technology.id)
 
-    await wrapper.get('[aria-label="上一条曲线"]').trigger('click')
+    await eventSelector!.vm.$emit('update:value', education.id)
     await flushPromises()
     expect(wrapper.get('#trend-event-title').text()).toContain('学历 = 本科')
     expect(eventReads).toBe(1)
@@ -913,11 +998,154 @@ describe('JobTrendView observation ledger', () => {
     const wrapper = await mountTrendView()
     await flushPromises()
 
-    await wrapper.get('.job-trend-view__event-table tbody button').trigger('click')
+    await wrapper.get('.job-trend-view__event-table tbody button').trigger('click', {
+      clientX: 500,
+      clientY: 600,
+    })
     await flushPromises()
     const drilldown = wrapper.get('[aria-label="趋势节点岗位"]')
+    expect(drilldown.classes()).toContain('job-trend-view__drilldown--event')
+    expect(drilldown.attributes('style')).toContain('--drilldown-height: 256px')
+    expect(drilldown.attributes('style')).toContain('left: 120px')
+    expect(drilldown.attributes('style')).toContain('top: 335px')
+    expect(drilldown.get('[data-testid="event-drilldown-title"]').text()).toBe(
+      '新增 · 技术关键词 · Go',
+    )
+    expect(drilldown.get('[data-testid="event-drilldown-period"]').text()).toBe(
+      '2026-11-01 至 2026-11-05',
+    )
+    expect(drilldown.get('[data-testid="event-drilldown-count"]').text()).toBe(
+      '周期内去重 1 个岗位',
+    )
+    expect(drilldown.find('[data-testid="event-drilldown-reasons"]').exists()).toBe(false)
+    expect(drilldown.get('[data-testid="event-drilldown-list"]').classes()).toContain(
+      'job-trend-view__drilldown-list--event',
+    )
     expect(drilldown.text()).toContain('2026-11-05')
     expect(drilldown.text()).toContain('历史基线进入')
+    wrapper.unmount()
+  })
+
+  it('uses the existing modified-history detail for curve-internal modifications', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        if (path === '/api/v1/jobs/filter-options')
+          return new Response(JSON.stringify(filterOptions))
+        if (path.startsWith('/api/v1/job-trends?')) {
+          return new Response(
+            JSON.stringify({
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              freshness: 'safe-marker',
+              points: [{ count: 1, date: '2026-11-05' }],
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/events?')) {
+          return new Response(
+            JSON.stringify({
+              current: { start: '2026-11-01', end: '2026-11-05' },
+              curve: { dimension: 'technology', label: 'Go', value: 'go' },
+              previous: { start: '2026-10-01', end: '2026-10-05' },
+              rows: [
+                {
+                  current: 1,
+                  previous: { count: 0, rate: null },
+                  type: 'modified',
+                  year_over_year: { count: 0, rate: null },
+                },
+              ],
+              status: 'available',
+              year_over_year: { start: '2025-11-01', end: '2025-11-05' },
+            }),
+          )
+        }
+        if (path.startsWith('/api/v1/job-trends/drilldown?')) {
+          return new Response(
+            JSON.stringify({
+              event_type: 'modified',
+              items: [
+                {
+                  can_view_historical: true,
+                  can_view_latest: true,
+                  event_date: '2026-11-03',
+                  id: 'opaque-modified-job',
+                  reason: '曲线内修改',
+                  status: 'changed',
+                  title: 'Go 平台工程师',
+                },
+              ],
+              matched_total: 1,
+              mode: 'event',
+              page: { number: 1, page_size: 20, total: 1 },
+              period_end: '2026-11-05',
+              period_start: '2026-11-01',
+              reason_counts: { 曲线内修改: 1 },
+            }),
+          )
+        }
+        if (
+          path === '/api/v1/jobs/opaque-modified-job/history/detail?date=2026-11-03&type=modified'
+        ) {
+          return new Response(
+            JSON.stringify({
+              activity_state: 'effective',
+              body: { requirements: '熟悉 Go', responsibilities: '建设平台服务' },
+              comparison: {
+                status: 'available',
+                dimension_changes: [{ field: '技术关键词', historical: 'Go', latest: 'Go、Rust' }],
+              },
+              first_discovered_date: '2026-11-01',
+              history_date: '2026-11-03',
+              history_node_type: 'modified',
+              id: 'opaque-modified-job',
+              is_urgent: false,
+              locations: ['上海'],
+              other_job_families: [],
+              projects: [],
+              technology_keywords: [{ label: 'Go', value: 'go' }],
+              title: 'Go 平台工程师',
+            }),
+          )
+        }
+        throw new Error(`unexpected request ${path}`)
+      }),
+    )
+    const { useJobTrendDashboard } = await import('@/lib/job-trend-dashboard')
+    const dashboard = useJobTrendDashboard()
+    const row = dashboard.addCurve({
+      dimension: 'technology',
+      includeSecondary: false,
+      operator: '',
+      value: 'go',
+    })!
+    row.appliedCondition = { ...row.condition }
+    row.series = {
+      curve: { dimension: 'technology', label: 'Go', value: 'go' },
+      freshness: 'safe-marker',
+      points: [{ count: 1, date: '2026-11-05' }],
+    }
+    row.status = 'ready'
+    const wrapper = await mountTrendView()
+    await flushPromises()
+
+    await wrapper
+      .get('.job-trend-view__event-row--modified [data-testid="event-count-current"]')
+      .trigger('click')
+    await flushPromises()
+    const drilldown = wrapper.get('[aria-label="趋势节点岗位"]')
+    const item = drilldown.get('li')
+    expect(item.text()).toContain('有改动')
+    await item
+      .findAll('button')
+      .find((button) => button.text().includes('查看历史 JD'))!
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="岗位详情"]').text()).toContain('变更摘要')
+    expect(wrapper.get('[aria-label="岗位详情"]').text()).toContain('1 项变动')
+    expect(wrapper.get('[aria-label="岗位详情"]').text()).toContain('历史 JD · 2026-11-03')
     wrapper.unmount()
   })
 
@@ -1213,7 +1441,7 @@ describe('JobTrendView observation ledger', () => {
                 },
                 {
                   can_view_historical: true,
-                  can_view_latest: false,
+                  can_view_latest: true,
                   id: 'opaque-closed-id',
                   status: 'confirmed_closed',
                   title: '确认下线岗位',

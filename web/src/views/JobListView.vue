@@ -1756,22 +1756,21 @@ p {
   position: relative;
   transition:
     border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow 180ms ease;
 }
 
 .query-canvas .job-card:hover,
 .query-canvas .job-card:focus-visible {
   background: #fff;
   border-color: #9cd7e5;
+  box-shadow: 0 18px 34px -26px rgba(0, 84, 117, 0.62);
   color: #121c22;
   outline: 0;
 }
 
 .query-canvas .job-card--focused {
-  box-shadow: 0 32px 55px -30px rgba(0, 84, 117, 0.58);
-  text-rendering: geometricPrecision;
-  transform: scale(1.15);
+  border-color: #9cd7e5;
+  box-shadow: 0 18px 34px -26px rgba(0, 84, 117, 0.62);
   z-index: 10;
 }
 

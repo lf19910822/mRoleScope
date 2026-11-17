@@ -17,14 +17,59 @@ describe('JobTrendView', () => {
     expect(source).not.toMatch(/mock|fixture|示例曲线/i)
   })
 
-  it('keeps the configuration rail visible on desktop and reachable from a narrow viewport panel', () => {
+  it('keeps the configuration rail in the workspace with a compact marker state', () => {
     expect(source).toContain('data-testid="trend-configuration-rail"')
-    expect(source).toContain('data-testid="open-trend-configuration"')
+    expect(source).toMatch(/:data-testid="`curve-marker-\$\{row\.id\}`"/u)
+    expect(source).toContain('data-testid="close-trend-configuration"')
+    expect(source).toContain('aria-expanded')
+    expect(source).toContain('job-trend-view--configuration-expanded')
+    expect(source).toContain('job-trend-view__curve-marker-rail')
+    expect(source).toContain('prefers-reduced-motion')
+    expect(source).toContain('window.innerWidth >= 1440')
     const narrowStyles = source.slice(source.indexOf('@media (max-width: 760px)'))
 
-    expect(source).toMatch(/\.job-trend-view__rail \{[\s\S]*?position:\s*fixed;/u)
-    expect(narrowStyles).toMatch(/\.job-trend-view__rail \{[\s\S]*?display:\s*none;/u)
+    expect(source).toMatch(/\.job-trend-view \{[\s\S]*?display:\s*grid;/u)
+    expect(source).toMatch(/\.job-trend-view__rail \{[\s\S]*?position:\s*sticky;/u)
+    expect(source).toMatch(/\.job-trend-view__curve-marker-rail \{[\s\S]*?display:\s*grid;/u)
+    expect(source).toMatch(/\.job-trend-view__configuration-trigger[\s\S]*?display:\s*none;/u)
     expect(narrowStyles).toMatch(/\.job-trend-view__mobile-panel \{[\s\S]*?display:\s*block;/u)
+    expect(source).not.toMatch(/sessionStorage|localStorage/u)
+  })
+
+  it('keeps both desktop rail surfaces mounted while animating and uses one collapse control', () => {
+    expect(source).toContain('job-trend-view__rail-content')
+    expect(source).toContain('job-trend-view__rail-content--hidden')
+    expect(source).not.toContain('v-if="!configurationExpanded && !mobileConfigurationOpen"')
+    expect(source).not.toContain('v-if="configurationExpanded || mobileConfigurationOpen"')
+    expect(source).not.toContain('data-testid="toggle-trend-configuration"')
+    expect(source).toContain('data-testid="close-trend-configuration"')
+    expect(source).toMatch(
+      /\.job-trend-view__rail \{[\s\S]*?border-radius:\s*18px;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__curve-marker-rail \{[\s\S]*?align-content:\s*start;[\s\S]*?grid-auto-rows:\s*32px;/u,
+    )
+  })
+
+  it('uses delayed pull-out notes instead of native marker tooltips', () => {
+    expect(source).toContain('job-trend-view__curve-marker-slot')
+    expect(source).toContain('job-trend-view__curve-marker-note')
+    expect(source).toContain('job-trend-view__curve-marker-divider')
+    expect(source).not.toContain(':title="`展开曲线：${trendCurveLabel(row) || \'未设置曲线\'}`"')
+    expect(source).toContain('transition-delay: 200ms, 200ms, 0s')
+    expect(source).toContain('transition-delay: 0ms, 0ms, 160ms')
+  })
+
+  it('does not open a marker note when closing the configuration rail restores focus', () => {
+    const markerNoteRules = source.slice(
+      source.indexOf('.job-trend-view__curve-marker-slot:hover'),
+      source.indexOf('.job-trend-view__curve-marker-core'),
+    )
+
+    expect(markerNoteRules).toContain(
+      '.job-trend-view__curve-marker-slot:hover .job-trend-view__curve-marker-note',
+    )
+    expect(markerNoteRules).not.toContain(':focus-within')
   })
 
   it('provides an all-history reset control that restores only the chart viewport', () => {
@@ -152,6 +197,12 @@ describe('JobTrendView', () => {
     )
   })
 
+  it('derives drilldown bounds from the responsive workspace instead of a fixed rail width', () => {
+    expect(source).toContain('const workspaceRight =')
+    expect(source).toContain('window.innerWidth >= 1440 ? 420')
+    expect(source).toContain('window.innerWidth >= 1180 ? 368 : 0')
+  })
+
   it('keeps the detail sheet rounded while scrolling its content inside the frame', () => {
     expect(source).toContain('job-trend-view__detail-content')
     expect(source).toMatch(
@@ -159,6 +210,65 @@ describe('JobTrendView', () => {
     )
     expect(source).toMatch(
       /\.job-trend-view__detail-content \{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/u,
+    )
+    const mobileStyles = source.slice(source.indexOf('@media (max-width: 760px)'))
+    expect(mobileStyles).toMatch(
+      /\.job-trend-detail-enter-from \{[\s\S]*?opacity:\s*1;[\s\S]*?transform:\s*translateY\(0\);/u,
+    )
+  })
+
+  it('defines four explicit responsive modes for the trend workspace', () => {
+    expect(source).toMatch(/@media \(min-width:\s*1440px\)/u)
+    expect(source).toMatch(
+      /@media \(min-width:\s*1180px\) and \(max-width:\s*1439px\)/u,
+    )
+    expect(source).toMatch(
+      /@media \(min-width:\s*761px\) and \(max-width:\s*1179px\)/u,
+    )
+    expect(source).toMatch(/@media \(max-width:\s*760px\)/u)
+  })
+
+  it('uses the right rail width to reflow the chart workspace', () => {
+    const compactStyles = source.slice(source.indexOf('@media (min-width: 761px)'))
+
+    expect(source).toContain('job-trend-view__rail--desktop-expanded')
+    expect(source).toContain('job-trend-view__rail--desktop-collapsed')
+    expect(compactStyles).toMatch(
+      /\.job-trend-view \{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s*48px;/u,
+    )
+    expect(compactStyles).toMatch(
+      /\.job-trend-view--configuration-expanded \{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s*320px;/u,
+    )
+    const mediumStyles = source.match(
+      /@media \(min-width:\s*1180px\) and \(max-width:\s*1439px\) \{([\s\S]*?)\n\}/u,
+    )?.[1]
+    expect(mediumStyles).not.toMatch(
+      /\.job-trend-view__rail \{[\s\S]*?width:\s*320px;/u,
+    )
+  })
+
+  it('keeps collapsed marker slots centered at the medium desktop breakpoint', () => {
+    const mediumStart = source.indexOf(
+      '@media (min-width: 1180px) and (max-width: 1439px)',
+    )
+    const nextMedia = source.indexOf('@media', mediumStart + 1)
+    const mediumStyles = source.slice(mediumStart, nextMedia)
+
+    expect(mediumStyles).toMatch(
+      /\.job-trend-view__rail--desktop-expanded\s*\{[\s\S]*?padding:\s*18px 14px 12px;/u,
+    )
+    expect(mediumStyles).not.toMatch(/\.job-trend-view__rail\s*\{/u)
+  })
+
+  it('keeps compact desktop configuration bounded and its footer outside the scrolling list', () => {
+    expect(source).toMatch(
+      /\.job-trend-view__rail--drawer \{[\s\S]*?max-width:\s*min\(368px, 92vw\);[\s\S]*?overflow:\s*hidden;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__rail--drawer \.job-trend-view__curve-list \{[\s\S]*?overflow-y:\s*auto;/u,
+    )
+    expect(source).toMatch(
+      /\.job-trend-view__rail--drawer \.job-trend-view__rail-footer \{[\s\S]*?flex:\s*0 0 auto;/u,
     )
   })
 })
