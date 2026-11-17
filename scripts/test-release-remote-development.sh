@@ -8,6 +8,7 @@ set -euo pipefail
 readonly repository_root="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 readonly release_script="$repository_root/scripts/release-remote-development.sh"
 readonly revision='0123456789abcdef0123456789abcdef01234567'
+readonly pinned_postgres_image='postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c'
 temporary_dir="$(mktemp -d)"
 
 cleanup() {
@@ -117,6 +118,19 @@ grep -Fq 'mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   || die 'successful release did not pass immutable API digest to CVM'
 grep -Fq '[[ "$actual" == '\''eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'\'' ]]' "$MROLESCOPE_RELEASE_TEST_LOG" \
   || die 'successful release did not verify the downloaded bootstrap against the reviewed checksum'
+grep -Fq "timeout 120 docker pull '$pinned_postgres_image'" "$MROLESCOPE_RELEASE_TEST_LOG" \
+  || die 'successful release did not preflight the exact pinned PostgreSQL pull through the CVM Docker daemon'
+grep -Fq 'docker info --format' "$MROLESCOPE_RELEASE_TEST_LOG" \
+  || die 'successful release did not report the CVM Docker daemon registry mirror context'
+if grep -Fq 'registry-1.docker.io' "$MROLESCOPE_RELEASE_TEST_LOG"; then
+  die 'release network preflight introduced a direct official Registry probe'
+fi
+preflight_line=$(grep -n "timeout 120 docker pull '$pinned_postgres_image'" "$MROLESCOPE_RELEASE_TEST_LOG" | head -n 1 | cut -d: -f1)
+quality_gate_line=$(grep -n "^make -C ${repository_root} remote-release-verify$" "$MROLESCOPE_RELEASE_TEST_LOG" | head -n 1 | cut -d: -f1)
+build_line=$(grep -n '^docker build ' "$MROLESCOPE_RELEASE_TEST_LOG" | head -n 1 | cut -d: -f1)
+[[ -n "$preflight_line" && -n "$quality_gate_line" && -n "$build_line" \
+  && "$preflight_line" -lt "$quality_gate_line" && "$quality_gate_line" -lt "$build_line" ]] \
+  || die 'release ordering did not put CVM Docker pull preflight before quality gate and image build'
 
 rm -f -- "$MROLESCOPE_RELEASE_TEST_LOG"
 if MROLESCOPE_TEST_LABEL=not-the-reviewed-revision "$release_script" --deploy >/dev/null 2>&1; then
@@ -125,8 +139,8 @@ fi
 if [[ -e "$MROLESCOPE_RELEASE_TEST_LOG" ]] && grep -q '^docker push ' "$MROLESCOPE_RELEASE_TEST_LOG"; then
   die 'mismatched image revision label pushed an image'
 fi
-if [[ -e "$MROLESCOPE_RELEASE_TEST_LOG" ]] && grep -q '^ssh ' "$MROLESCOPE_RELEASE_TEST_LOG"; then
-  die 'mismatched image revision label reached CVM'
+if [[ -e "$MROLESCOPE_RELEASE_TEST_LOG" ]] && grep -q 'mrolescope-deploy' "$MROLESCOPE_RELEASE_TEST_LOG"; then
+  die 'mismatched image revision label reached the CVM deployment helper'
 fi
 
 printf '%s\n' 'Local release orchestrator test passed'

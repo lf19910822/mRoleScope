@@ -39,6 +39,7 @@ web_edge_pattern=""
 web_edge_enabled=false
 image_cleanup_enabled=true
 previous_release_images=()
+pull_log=''
 
 die() {
   printf 'mrolescope deployment failed during %s: %s\n' "$phase" "$1" >&2
@@ -47,6 +48,21 @@ die() {
 
 log() {
   printf 'mrolescope deployment: %s\n' "$1"
+}
+
+report_pull_diagnostics() {
+  local mirrors
+
+  log 'Compose image pull failed through the CVM Docker daemon'
+  log 'fixed pull operation: compose --profile web pull postgres migrate api worker web-edge'
+  mirrors=$(docker info --format '{{range .RegistryConfig.Mirrors}}{{println .}}{{end}}' 2>/dev/null || true)
+  if [[ -n "$mirrors" ]]; then
+    log 'Docker daemon registry mirrors:'
+    printf '%s\n' "$mirrors" >&2
+  else
+    log 'Docker daemon registry mirrors: none reported'
+  fi
+  log 'direct Registry HTTP probes are not used to classify this release failure'
 }
 
 compose() {
@@ -353,6 +369,7 @@ rollback_web_edge() {
 cleanup() {
   local exit_code=$?
   trap - EXIT
+  [[ -z "$pull_log" ]] || rm -f -- "$pull_log"
   if [[ "$deployment_succeeded" != true && "$deployment_config_loaded" == true && "$api_image" =~ $api_pattern && "$migrate_image" =~ $migrate_pattern && "$worker_image" =~ $worker_pattern && "$web_edge_image" =~ $web_edge_pattern && -d "$RELEASE_DIR" ]]; then
     write_record failed "$phase" "$api_image" "$migrate_image" "$worker_image" "$web_edge_image" "$api_revision" || true
     prune_records || true
@@ -413,7 +430,17 @@ export MROLESCOPE_WORKER_IMAGE="$worker_image"
 export MROLESCOPE_WEB_EDGE_IMAGE="$web_edge_image"
 
 phase="pull-images"
-compose --profile web pull postgres migrate api worker web-edge
+pull_log=$(mktemp)
+set +e
+compose --profile web pull postgres migrate api worker web-edge 2>&1 | tee "$pull_log"
+pull_status=${PIPESTATUS[0]}
+set -e
+if [[ "$pull_status" -ne 0 ]]; then
+  report_pull_diagnostics
+  die 'the fixed Compose image pull failed; no migration or service startup was attempted'
+fi
+rm -f -- "$pull_log"
+pull_log=''
 api_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$api_image" 2>/dev/null || true)
 [[ "$api_revision" =~ $SHA_PATTERN ]] || die "API image is missing its immutable source revision label"
 migrate_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$migrate_image" 2>/dev/null || true)
