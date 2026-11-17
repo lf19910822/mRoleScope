@@ -3,7 +3,7 @@
 ## 1. Freeze v0.4 dictionary policy and persistence model
 
 - [x] 1.1 Add the immutable v0.4 source document and structured seed, including Unreal base/version rules, Unity aliases, React/ReAct case policies, all mandatory first-batch identities (`UObject`, `World Partition`/`WorldPartition`, `StateTree`, `MassEntity`, `GameThread`, `BuildGraph`, `Wwise`, `FMOD`/`FMOD Studio`, `CRIWARE`/`Criware`, `Maya`, `DCGM`, `Nsight Systems`, `Nsight Compute`, `NVSwitch`, `CANN`, `NUMA`, `PCIe`, `RoCE`/`ROCE`, `kubelet`, `kube-scheduler`, `controller-manager`, `KubeFed`, `controller-runtime`, `client-go`, `KEDA`, `Elasticsearch`, `Ceph`, `OpenStack`, `QEMU`, `libvirt`, `cloud-init`), and only evidence-backed exclusion patterns; verify seed validation rejects duplicate rules, unapproved enabled rules, and invalid emission references.
-- [ ] 1.2 Add additive PostgreSQL migration support for exclusion policies, rule-emission relations, configuration snapshot membership, policy fingerprint inputs, and frozen-version mutation guards; verify migration up/down and immutable-trigger integration tests pass.
+- [x] 1.2 Add additive PostgreSQL migration support for exclusion policies, rule-emission relations, configuration snapshot membership, policy fingerprint inputs, and frozen-version mutation guards; verify migration up/down and immutable-trigger integration tests pass.
 - [x] 1.3 Extend dictionary/configuration loading and canonical fingerprint calculation to include every v0.4 matching input; verify a changed exclusion or emission relation produces a different configuration fingerprint and cannot mutate an existing candidate or published configuration.
 - [x] 1.4 Document the v0.4 alias map, identity expansion table, direct-match policy, and observed exclusion provenance in `Docs/开发指导/JD建模/technical-keyword-alias-map-v0.4.md`; verify the document matches the structured seed and contains no real JD text or secrets.
 
@@ -38,14 +38,14 @@
 
 ## 6. Validate the complete change
 
-- [ ] 6.1 Add end-to-end synthetic coverage spanning v0.4 seed, approval, configuration preparation, full analysis, evidence replay, release, Serving projection, and historical audit separation; verify all scenarios in both v0.4 capability specs are represented.
-- [ ] 6.2 Run focused Go tests, migration/integration tests with `TEST_DATABASE_URL` when available, and frontend/public-contract tests affected by technology options; record any skipped real-database checks explicitly.
+- [x] 6.1 Add end-to-end synthetic coverage spanning v0.4 seed, approval, configuration preparation, full analysis, evidence replay, release, Serving projection, and historical audit separation; verify all scenarios in both v0.4 capability specs are represented.
+- [x] 6.2 Run focused Go tests, migration/integration tests with `TEST_DATABASE_URL` when available, and frontend/public-contract tests affected by technology options; record any skipped real-database checks explicitly.
 - [x] 6.3 Run `openspec validate --change upgrade-technology-dictionary-v04 --strict`, repository formatting checks, and `git diff --check`; resolve only issues caused by this change and report unrelated pre-existing failures separately.
 
 ### Validation note
 
-- Focused and full Go tests, public-contract tests, formatting checks, `git diff --check`, OpenSpec strict validation, and deployment static checks pass on 2026-11-17.
-- PostgreSQL migration/up-down and v0.4 end-to-end integration tests are not claimed as passed because `TEST_DATABASE_URL` is unset in the development environment; the integration tests skip explicitly.
+- Focused and full Go tests, disposable PostgreSQL migration/up-down and v0.4 end-to-end integration tests, public-contract tests, formatting checks, `git diff --check`, OpenSpec strict validation, and deployment static checks pass on 2026-11-17.
+- The release-quality script owns a temporary PostgreSQL 16.4 container and supplies `TEST_DATABASE_URL` only to the integration-test process; it does not read or modify project development data.
 
 ## Workflow follow-up
 
