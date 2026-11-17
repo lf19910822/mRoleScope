@@ -18,6 +18,7 @@ readonly ANALYSIS_SERVICE='mrolescope-analysis.service'
 readonly CANDIDATE_ANALYSIS_SERVICE='mrolescope-candidate-analysis.service'
 readonly CANDIDATE_V02_ANALYSIS_SERVICE='mrolescope-candidate-analysis-v0.2.service'
 readonly CANDIDATE_V03_ANALYSIS_SERVICE='mrolescope-candidate-analysis-v0.3.service'
+readonly CANDIDATE_V04_ANALYSIS_SERVICE='mrolescope-candidate-analysis-v0.4.service'
 readonly BACKFILL_SERVICE='mrolescope-backfill-versioned-content.service'
 readonly AI_TRIAL_PREPARE_SERVICE='mrolescope-ai-trial-prepare.service'
 readonly AI_PLUS_TRIAL_SERVICE='mrolescope-ai-plus-trial.service'
@@ -55,6 +56,7 @@ show_status() {
   print_unit_state "$CANDIDATE_ANALYSIS_SERVICE"
   print_unit_state "$CANDIDATE_V02_ANALYSIS_SERVICE"
   print_unit_state "$CANDIDATE_V03_ANALYSIS_SERVICE"
+  print_unit_state "$CANDIDATE_V04_ANALYSIS_SERVICE"
   print_unit_state "$AI_TRIAL_PREPARE_SERVICE"
   print_unit_state "$AI_PLUS_TRIAL_SERVICE"
   print_unit_state "$AI_PLUS_EXPAND_SERVICE"
@@ -181,6 +183,26 @@ case "$1" in
     [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
     exec "$DICTIONARY_HELPER" prepare-v0.3-analysis "$2"
     ;;
+  seed-v0.4-dictionary)
+    [[ "$#" -eq 2 ]] || die 'seed-v0.4-dictionary requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" seed-v0.4 "$2"
+    ;;
+  approve-v0.4-rule)
+    [[ "$#" -eq 3 ]] || die 'approve-v0.4-rule requires a rule key and the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" approve-v0.4-rule "$2" "$3"
+    ;;
+  approve-v0.4-reviewed-rules)
+    [[ "$#" -eq 2 ]] || die 'approve-v0.4-reviewed-rules requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" approve-v0.4-reviewed-rules "$2"
+    ;;
+  prepare-v0.4-analysis)
+    [[ "$#" -eq 2 ]] || die 'prepare-v0.4-analysis requires the authenticated operator'
+    [[ -x "$DICTIONARY_HELPER" ]] || die 'dictionary helper is not installed'
+    exec "$DICTIONARY_HELPER" prepare-v0.4-analysis "$2"
+    ;;
   publish-v0.2-baseline)
     [[ "$#" -eq 2 ]] || die 'publish-v0.2-baseline requires the authenticated publisher'
     [[ -x "$RELEASE_HELPER" ]] || die 'release lifecycle helper is not installed'
@@ -201,6 +223,11 @@ case "$1" in
     [[ -x "$RELEASE_HELPER" ]] || die 'release lifecycle helper is not installed'
     exec "$RELEASE_HELPER" publish-v0.3-upgrade "${2:-FAN}"
     ;;
+  publish-v0.4-upgrade)
+    [[ "$#" -eq 2 ]] || die 'publish-v0.4-upgrade requires the authenticated publisher'
+    [[ -x "$RELEASE_HELPER" ]] || die 'release lifecycle helper is not installed'
+    exec "$RELEASE_HELPER" publish-v0.4-upgrade "${2:-FAN}"
+    ;;
   run-v0.1-candidate-analysis)
     [[ "$#" -eq 1 ]] || die 'run-v0.1-candidate-analysis accepts no arguments'
     [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
@@ -218,6 +245,12 @@ case "$1" in
     [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
     [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
     systemctl start --wait "$CANDIDATE_V03_ANALYSIS_SERVICE"
+    ;;
+  run-v0.4-candidate-analysis)
+    [[ "$#" -eq 1 ]] || die 'run-v0.4-candidate-analysis accepts no arguments'
+    [[ -x "$ANALYSIS_HELPER" ]] || die 'analysis helper is not installed'
+    [[ -f "$SECRETS_FILE" ]] || die 'runtime secret file is not installed'
+    systemctl start --wait "$CANDIDATE_V04_ANALYSIS_SERVICE"
     ;;
   prepare-ai-trial)
     [[ "$#" -eq 1 ]] || die 'prepare-ai-trial accepts no arguments'

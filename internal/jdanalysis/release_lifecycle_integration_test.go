@@ -122,6 +122,100 @@ func TestReleaseV03UpgradeAtomicallyAdvancesThePublishedConfiguration(t *testing
 	}
 }
 
+func TestReleaseV04UpgradeReanalyzesHistoryAndPublishesExpandedEvidence(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	ctx := context.Background()
+	_, _, _, _ = insertSyntheticAnalysisPrerequisites(t, repository)
+	unrealBodyID := insertSyntheticAnalysisBody(t, repository, "00000000-0000-4000-8000-000000000506", "熟悉 UE5")
+
+	v02ConfigurationID, v02DictionaryID := prepareCompleteV02ReleaseCandidate(t, repository)
+	if _, err := repository.ReleaseV02Baseline(ctx, "github-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+
+	v03Seed := CandidateV03Seed()
+	v03Imported, err := repository.ImportCandidateDictionary(ctx, v03Seed, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ApproveAllV03ReviewedRules(ctx, "remote-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	v03Prepared, err := repository.PrepareCandidateConfigurationForDictionary(ctx, v03Seed.VersionLabel, V01ParserVersion, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Processor{Repository: repository}).ProcessPending(ctx, v03Prepared.ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReleaseV03Upgrade(ctx, "github-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+
+	v04Seed := CandidateV04Seed()
+	v04Imported, err := repository.ImportCandidateDictionary(ctx, v04Seed, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ApproveAllV04ReviewedRules(ctx, "remote-reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	v04Prepared, err := repository.PrepareCandidateConfigurationForDictionary(ctx, v04Seed.VersionLabel, V01ParserVersion, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := repository.PrepareCandidateConfigurationForDictionary(ctx, v04Seed.VersionLabel, V01ParserVersion, "remote-operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated.ConfigurationID != v04Prepared.ConfigurationID || repeated.Queued != 0 {
+		t.Fatalf("repeated v0.4 preparation = %#v, first=%#v", repeated, v04Prepared)
+	}
+	if _, err := (Processor{Repository: repository}).ProcessPending(ctx, v04Prepared.ConfigurationID); err != nil {
+		t.Fatal(err)
+	}
+
+	var identityCount, startMin, startMax, endMin, endMax int
+	if err := repository.pool.QueryRow(ctx, `
+SELECT count(DISTINCT identity.technology_key),
+       min(evidence.codepoint_start), max(evidence.codepoint_start),
+       min(evidence.codepoint_end), max(evidence.codepoint_end)
+FROM technology_analysis_results AS result
+JOIN technology_mentions AS mention ON mention.analysis_result_id = result.id
+JOIN technology_identities AS identity ON identity.id = mention.technology_identity_id
+JOIN technology_mention_evidence AS evidence ON evidence.technology_mention_id = mention.id
+WHERE result.configuration_id = $1 AND result.body_content_version_id = $2`, v04Prepared.ConfigurationID, unrealBodyID).
+		Scan(&identityCount, &startMin, &startMax, &endMin, &endMax); err != nil {
+		t.Fatal(err)
+	}
+	if identityCount != 2 || startMin != 0 || startMax != 0 || endMin != 3 || endMax != 3 {
+		t.Fatalf("UE5 expanded evidence = identities:%d span:%d-%d/%d-%d", identityCount, startMin, startMax, endMin, endMax)
+	}
+
+	first, err := repository.ReleaseV04Upgrade(ctx, "github-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Published || first.Reused || first.ConfigurationID != v04Prepared.ConfigurationID || first.DictionaryVersionID != v04Imported.DictionaryVersionID {
+		t.Fatalf("v0.4 release = %#v", first)
+	}
+	assertPublishedConfiguration(t, repository, v04Prepared.ConfigurationID, "published")
+	assertConfigurationStatus(t, repository, v03Prepared.ConfigurationID, "superseded")
+	assertConfigurationStatus(t, repository, v02ConfigurationID, "superseded")
+	assertDictionaryStatus(t, repository, v02DictionaryID, "published")
+	assertDictionaryStatus(t, repository, v03Imported.DictionaryVersionID, "published")
+	assertDictionaryStatus(t, repository, v04Imported.DictionaryVersionID, "published")
+	assertReleaseEvent(t, repository, v04Prepared.ConfigurationID, v04Imported.DictionaryVersionID, "published", "", "github-reviewer", 1)
+
+	second, err := repository.ReleaseV04Upgrade(ctx, "other-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Published || !second.Reused || second.ConfigurationID != first.ConfigurationID {
+		t.Fatalf("reused v0.4 release = %#v", second)
+	}
+}
+
 func TestReleaseV02BaselineRequiresTheCompleteReviewedRulePolicy(t *testing.T) {
 	repository := newIntegrationRepository(t)
 	ctx := context.Background()

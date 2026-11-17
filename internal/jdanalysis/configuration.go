@@ -49,19 +49,48 @@ type ruleSetSnapshotEntry struct {
 	OverlapPriority int    `json:"overlap_priority"`
 }
 
+type ruleSetEmissionSnapshotEntry struct {
+	SourceRuleKey  string `json:"source_rule_key"`
+	TechnologyKey  string `json:"technology_key"`
+	CanonicalName  string `json:"canonical_name"`
+	TechnologyKind string `json:"technology_kind"`
+	RelationType   string `json:"relation_type"`
+}
+
+type ruleSetExclusionSnapshotEntry struct {
+	PatternKey       string `json:"pattern_key"`
+	SourceRuleKey    string `json:"source_rule_key"`
+	Pattern          string `json:"pattern"`
+	CaseMode         string `json:"case_mode"`
+	BoundaryMode     string `json:"boundary_mode"`
+	WindowCodePoints int    `json:"window_codepoints"`
+	Provenance       string `json:"provenance"`
+}
+
 type ruleSetSnapshot struct {
-	SHA256  string
-	RuleIDs []string
+	SHA256        string
+	RuleIDs       []string
+	EmissionIDs   []string
+	ExclusionIDs  []string
+	PolicyVersion string
 }
 
 type ruleSetQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 // loadEnabledRuleSet serializes the exact executable matching semantics in a
 // stable order.  This is a configuration input, not a mutable dictionary
 // lookup: later approvals must result in a different configuration.
 func (repository *Repository) loadEnabledRuleSet(ctx context.Context, querier ruleSetQuerier, dictionaryVersionID string) (ruleSetSnapshot, error) {
+	var policyVersion string
+	if err := querier.QueryRow(ctx, `
+SELECT matcher_policy_version
+FROM technology_dictionary_versions
+WHERE id = $1`, dictionaryVersionID).Scan(&policyVersion); err != nil {
+		return ruleSetSnapshot{}, fmt.Errorf("load dictionary matcher policy version: %w", err)
+	}
 	rows, err := querier.Query(ctx, `
 SELECT rule.id::text, identity.technology_key, rule.rule_key, rule.alias,
        rule.case_mode, rule.boundary_mode, rule.overlap_priority
@@ -92,12 +121,86 @@ ORDER BY rule.rule_key`, dictionaryVersionID)
 	if len(entries) == 0 {
 		return ruleSetSnapshot{}, fmt.Errorf("analysis configuration requires at least one enabled dictionary rule")
 	}
-	encoded, err := json.Marshal(entries)
+	emissionEntries := make([]ruleSetEmissionSnapshotEntry, 0)
+	emissionIDs := make([]string, 0)
+	if policyVersion == MatcherPolicyV04 {
+		emissionRows, err := querier.Query(ctx, `
+SELECT emission.id::text, source_rule.rule_key, emitted_identity.technology_key,
+       emitted_identity.canonical_name, emitted_identity.technology_kind,
+       emission.relation_type
+FROM technology_dictionary_rule_emissions AS emission
+JOIN technology_dictionary_rules AS source_rule ON source_rule.id = emission.source_rule_id
+JOIN technology_identities AS emitted_identity ON emitted_identity.id = emission.emitted_technology_identity_id
+WHERE source_rule.dictionary_version_id = $1 AND source_rule.state = 'enabled'
+ORDER BY source_rule.rule_key, emission.relation_type, emitted_identity.technology_key`, dictionaryVersionID)
+		if err != nil {
+			return ruleSetSnapshot{}, fmt.Errorf("load dictionary identity emissions: %w", err)
+		}
+		for emissionRows.Next() {
+			var emission ruleSetEmissionSnapshotEntry
+			var emissionID string
+			if err := emissionRows.Scan(&emissionID, &emission.SourceRuleKey, &emission.TechnologyKey,
+				&emission.CanonicalName, &emission.TechnologyKind, &emission.RelationType); err != nil {
+				emissionRows.Close()
+				return ruleSetSnapshot{}, fmt.Errorf("scan dictionary identity emission: %w", err)
+			}
+			emissionEntries = append(emissionEntries, emission)
+			emissionIDs = append(emissionIDs, emissionID)
+		}
+		if err := emissionRows.Err(); err != nil {
+			emissionRows.Close()
+			return ruleSetSnapshot{}, fmt.Errorf("iterate dictionary identity emissions: %w", err)
+		}
+		emissionRows.Close()
+	}
+	exclusionEntries := make([]ruleSetExclusionSnapshotEntry, 0)
+	exclusionIDs := make([]string, 0)
+	if policyVersion == MatcherPolicyV04 {
+		exclusionRows, err := querier.Query(ctx, `
+SELECT exclusion.id::text, exclusion.pattern_key, source_rule.rule_key, exclusion.pattern,
+       exclusion.case_mode, exclusion.boundary_mode, exclusion.window_codepoints,
+       exclusion.provenance
+FROM technology_dictionary_exclusion_patterns AS exclusion
+JOIN technology_dictionary_rules AS source_rule ON source_rule.id = exclusion.source_rule_id
+WHERE exclusion.dictionary_version_id = $1 AND exclusion.state = 'enabled'
+ORDER BY exclusion.pattern_key`, dictionaryVersionID)
+		if err != nil {
+			return ruleSetSnapshot{}, fmt.Errorf("load dictionary exclusion policy: %w", err)
+		}
+		for exclusionRows.Next() {
+			var exclusion ruleSetExclusionSnapshotEntry
+			var exclusionID string
+			if err := exclusionRows.Scan(&exclusionID, &exclusion.PatternKey, &exclusion.SourceRuleKey,
+				&exclusion.Pattern, &exclusion.CaseMode, &exclusion.BoundaryMode,
+				&exclusion.WindowCodePoints, &exclusion.Provenance); err != nil {
+				exclusionRows.Close()
+				return ruleSetSnapshot{}, fmt.Errorf("scan dictionary exclusion policy: %w", err)
+			}
+			exclusionEntries = append(exclusionEntries, exclusion)
+			exclusionIDs = append(exclusionIDs, exclusionID)
+		}
+		if err := exclusionRows.Err(); err != nil {
+			exclusionRows.Close()
+			return ruleSetSnapshot{}, fmt.Errorf("iterate dictionary exclusion policy: %w", err)
+		}
+		exclusionRows.Close()
+	}
+	var fingerprintInput any = entries
+	if policyVersion == MatcherPolicyV04 {
+		fingerprintInput = struct {
+			PolicyVersion string                          `json:"policy_version"`
+			Rules         []ruleSetSnapshotEntry          `json:"rules"`
+			Emissions     []ruleSetEmissionSnapshotEntry  `json:"emissions"`
+			Exclusions    []ruleSetExclusionSnapshotEntry `json:"exclusions"`
+		}{policyVersion, entries, emissionEntries, exclusionEntries}
+	}
+	encoded, err := json.Marshal(fingerprintInput)
 	if err != nil {
 		return ruleSetSnapshot{}, fmt.Errorf("encode enabled rule-set snapshot: %w", err)
 	}
 	sum := sha256.Sum256(encoded)
-	return ruleSetSnapshot{SHA256: hex.EncodeToString(sum[:]), RuleIDs: ruleIDs}, nil
+	return ruleSetSnapshot{SHA256: hex.EncodeToString(sum[:]), RuleIDs: ruleIDs,
+		EmissionIDs: emissionIDs, ExclusionIDs: exclusionIDs, PolicyVersion: policyVersion}, nil
 }
 
 func persistConfigurationRuleSnapshot(ctx context.Context, tx pgx.Tx, configurationID string, ruleIDs []string) error {
@@ -107,6 +210,29 @@ INSERT INTO technology_analysis_configuration_rules (configuration_id, dictionar
 VALUES ($1, $2)
 ON CONFLICT (configuration_id, dictionary_rule_id) DO NOTHING`, configurationID, ruleID); err != nil {
 			return fmt.Errorf("persist configuration rule-set snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
+func persistConfigurationPolicySnapshot(ctx context.Context, tx pgx.Tx, configurationID string, snapshot ruleSetSnapshot) error {
+	if err := persistConfigurationRuleSnapshot(ctx, tx, configurationID, snapshot.RuleIDs); err != nil {
+		return err
+	}
+	for _, emissionID := range snapshot.EmissionIDs {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO technology_analysis_configuration_emissions (configuration_id, dictionary_emission_id)
+VALUES ($1, $2)
+ON CONFLICT (configuration_id, dictionary_emission_id) DO NOTHING`, configurationID, emissionID); err != nil {
+			return fmt.Errorf("persist configuration emission snapshot: %w", err)
+		}
+	}
+	for _, exclusionID := range snapshot.ExclusionIDs {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO technology_analysis_configuration_exclusions (configuration_id, dictionary_exclusion_pattern_id)
+VALUES ($1, $2)
+ON CONFLICT (configuration_id, dictionary_exclusion_pattern_id) DO NOTHING`, configurationID, exclusionID); err != nil {
+			return fmt.Errorf("persist configuration exclusion snapshot: %w", err)
 		}
 	}
 	return nil
@@ -146,7 +272,7 @@ RETURNING id::text, status::text`, input.ParserVersion, input.DictionaryVersionI
 	if err != nil {
 		return CandidatePreparation{}, fmt.Errorf("create or find candidate analysis configuration: %w", err)
 	}
-	if err := persistConfigurationRuleSnapshot(ctx, tx, configurationID, snapshot.RuleIDs); err != nil {
+	if err := persistConfigurationPolicySnapshot(ctx, tx, configurationID, snapshot); err != nil {
 		return CandidatePreparation{}, err
 	}
 	preparation := CandidatePreparation{ConfigurationID: configurationID, Reused: status == "published"}

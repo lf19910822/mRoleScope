@@ -11,6 +11,7 @@
 - 隔离候选分析：`run-v0.2-candidate-analysis` 只能启动独立的 `mrolescope-candidate-analysis-v0.2.service`。它只消费固定的未发布 v0.2 候选配置；日常 `run-pending-analysis` 仍只消费已发布配置。
 - 首版发布与撤回：`publish-v0.2-baseline`、`withdraw-v0.2-material-result-quality` 和 `withdraw-v0.2-security-privacy` 只能转交给 root-owned 的 `mrolescope-release`。它只使用部署记录中已验证的 worker digest，固定运行 v0.2 的发布门禁或两种撤回类别之一；不接收配置 ID、SQL、路径、镜像、词典内容、正文或自由文本理由。
 - Go 词典升级：v0.3 通过 `seed-v0.3-dictionary`、`approve-v0.3-reviewed-rules`、`prepare-v0.3-analysis`、`run-v0.3-candidate-analysis` 和 `publish-v0.3-upgrade` 逐步执行。它固定只升级到包含 `Go`/`Golang` 的 v0.3 规则集，不能选择任意版本、配置、SQL、镜像或正文；候选未完成时 v0.2 保持 Serving 生效。
+- 技术词典 v0.4 升级：v0.4 通过 `seed-v0.4-dictionary`、`approve-v0.4-reviewed-rules`、`approve-v0.4-rule`、`prepare-v0.4-analysis`、`run-v0.4-candidate-analysis` 和 `publish-v0.4-upgrade` 逐步执行。它固定包含 Unreal/Unity、React/ReAct 纠偏及首批已审阅技术身份；候选分析冻结词面、排除模式、身份展开关系和规则集指纹，不能选择任意版本、配置、SQL、镜像或正文。
 - 回填与分析容器仅在 `backend` 网络，未映射端口、未挂载采集目录，也不接收 COS 凭据或 edge 网络。
 - 同步成功后会 best-effort 启动分析服务。分析失败不会回滚同步、COS 归档或岗位可见期；待处理项保持在数据库中，稍后可重试固定分析操作。
 
@@ -46,6 +47,23 @@
 4. 只在候选无待处理/失败项、规则集完整且证据坐标重放通过后，选择 `publish-v0.3-upgrade`，确认文本 `PUBLISH_V03_UPGRADE`。操作在单一事务中发布 v0.3、将活动指针从 v0.2 移到 v0.3，并将 v0.2 配置标为 `superseded`；v0.2 词典、结果、证据和首版发布证明都保留，不会删除或改写。
 
 任一步失败或未完成时，不运行发布操作；v0.2 指针保持不动。正常升级不使用 v0.2 的撤回入口，也不能通过直接 SQL 或删除记录“切换版本”。
+
+## v0.4 技术词典升级
+
+本节适用于已部署包含 `000037` 迁移、v0.4 worker 子命令、Compose 服务、systemd 单元和 root-owned helper 的受保护修订之后。v0.3 仍保留为不可变历史事实；在 v0.4 发布门禁通过前，v0.3 是唯一对 Serving 生效的配置。
+
+1. **导入候选。** 选择 `seed-v0.4-dictionary`，确认文本 `SEED_V04_DICTIONARY`。它只导入仓库内固定的 [technical-keyword-alias-map-v0.4](technical-keyword-alias-map-v0.4.md)，所有规则和排除模式先保持候选状态；重复执行只复用同一内容指纹，不原地覆盖既有版本。
+2. **批准固定规则集。** 常规选择 `approve-v0.4-reviewed-rules`，确认文本 `APPROVE_V04_REVIEWED_RULES`；恢复或逐条审计才使用 `approve-v0.4-rule` 与 `APPROVE_V04_RULE`。批量入口固定批准 v0.4 白名单及三条已记录的排除模式，不接受规则列表或自由文本。
+3. **准备并运行全历史重算。** 选择 `prepare-v0.4-analysis`，确认文本 `PREPARE_V04_ANALYSIS`；再选择 `run-v0.4-candidate-analysis`，确认文本 `RUN_V04_CANDIDATE_ANALYSIS`。候选配置冻结解析器版本、v0.4 规则快照、身份展开关系、排除模式和指纹，并为每个历史正文版本建立至多一个幂等工作项。分析只读取 PostgreSQL 中的规范化 `description`、`jobRequire`、`addition`，不访问来源站、COS 或外部模型。
+4. **候选验收。** 只允许检查稳定 ID、状态、计数、固定错误码、规则集指纹和证据坐标。重点确认 `UE4`/`UE5`/`UE5.4` 同时产生 Unreal 基础与代际身份、Unity 别名归一、React/ReAct 精确大小写分离、首批五组技术身份均已进入正式规则，以及每条展开身份共享真实正文区间；不得复制正文或命中片段。
+5. **受控发布。** 仅在所有 v0.4 工作项完成、结果和证据重放通过、规则/展开/排除快照完整且当前指针确实指向已发布 v0.3 时，选择 `publish-v0.4-upgrade`，确认文本 `PUBLISH_V04_UPGRADE`。发布在单一事务中写入不可变发布证明、把 v0.4 词典和分析配置标为 `published`、把 v0.3 配置标为 `superseded` 并切换 active publication pointer；重复执行返回既有证明，不创建重复发布事实。
+6. **发布后验收。** 通过岗位筛选技术选项、岗位详情技术结果和趋势统计确认只读 active v0.4；v0.3 结果仍可供远端审计，但不作为缺失 v0.4 结果的回退来源。若 Serving 投影或缓存重建失败，只重试固定的指针驱动 reconciliation，不回滚已提交的 v0.4 发布事务。
+
+### v0.4 失败与回退
+
+- 候选分析失败只记录安全计数和固定错误码，工作项保持可重试；不改写来源历史、不把 v0.3 结果伪装成 v0.4，也不提前影响 Serving。
+- 发布门禁失败时 v0.3 指针保持不动，v0.4 继续保持候选状态；不得通过直接 SQL、删除事实或手工改 pointer 实施切换。
+- v0.4 发布后发现物料缺陷时，不删除 v0.4 规则、结果、证据或发布证明；按照新的受控词典版本和完整历史重算流程修复。未经新版本门禁，不自动恢复 v0.3。
 
 ## 恢复与回退
 

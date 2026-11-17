@@ -429,6 +429,25 @@ services:
     # object storage, a host mount, or an external network.
     networks: [backend]
 
+  candidate-analysis-v0.4:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [candidate-analysis-v0.4]
+    restart: "no"
+    command: ["analyze-candidate-v0.4"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Candidate analysis is private and cannot reach source collection,
+    # object storage, a host mount, or an external network.
+    networks: [backend]
+
   analysis-release-v0.2:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [release-v0.2]
@@ -502,6 +521,25 @@ services:
     tmpfs:
       - /tmp
     # The fixed upgrade gate works only on private PostgreSQL facts.
+    networks: [backend]
+
+  analysis-release-v0.4:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [release-v0.4]
+    restart: "no"
+    command: ["release-v0.4", "publish-upgrade"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+      MROLESCOPE_RELEASE_PUBLISHER: ${MROLESCOPE_RELEASE_PUBLISHER:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The fixed v0.4 gate works only on private PostgreSQL facts.
     networks: [backend]
 
   dictionary-seed:
@@ -679,6 +717,74 @@ services:
     profiles: [dictionary]
     restart: "no"
     command: ["dictionary-v0.3", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.4-seed:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.4", "seed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.4-approve:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.4", "approve", "${MROLESCOPE_DICTIONARY_RULE_KEY:-}", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.4-approve-reviewed:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.4", "approve-reviewed", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
+    environment:
+      APP_ENV: remote-development
+      DATABASE_URL: ${DATABASE_URL}
+      SYNC_TIMEOUT: ${SYNC_TIMEOUT:-45m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [backend]
+
+  dictionary-v0.4-prepare:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [dictionary]
+    restart: "no"
+    command: ["dictionary-v0.4", "prepare-analysis", "${MROLESCOPE_DICTIONARY_OPERATOR:-}"]
     environment:
       APP_ENV: remote-development
       DATABASE_URL: ${DATABASE_URL}

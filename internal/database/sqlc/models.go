@@ -2901,6 +2901,16 @@ type TechnologyAnalysisConfiguration struct {
 	RuleSetSha256       string
 }
 
+type TechnologyAnalysisConfigurationEmission struct {
+	ConfigurationID      pgtype.UUID
+	DictionaryEmissionID pgtype.UUID
+}
+
+type TechnologyAnalysisConfigurationExclusion struct {
+	ConfigurationID              pgtype.UUID
+	DictionaryExclusionPatternID pgtype.UUID
+}
+
 type TechnologyAnalysisConfigurationRule struct {
 	ConfigurationID  pgtype.UUID
 	DictionaryRuleID pgtype.UUID
@@ -2975,6 +2985,22 @@ type TechnologyDictionaryCandidate struct {
 	GovernanceStatus             string
 }
 
+type TechnologyDictionaryExclusionPattern struct {
+	ID                  pgtype.UUID
+	DictionaryVersionID pgtype.UUID
+	SourceRuleID        pgtype.UUID
+	PatternKey          string
+	Pattern             string
+	State               TechnologyRuleState
+	CaseMode            string
+	BoundaryMode        string
+	WindowCodepoints    int32
+	Provenance          string
+	ApprovedBy          pgtype.Text
+	ApprovedAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+}
+
 type TechnologyDictionaryRule struct {
 	ID                   pgtype.UUID
 	DictionaryVersionID  pgtype.UUID
@@ -3000,16 +3026,25 @@ type TechnologyDictionaryRuleDecision struct {
 	DecidedAt pgtype.Timestamptz
 }
 
+type TechnologyDictionaryRuleEmission struct {
+	ID                          pgtype.UUID
+	SourceRuleID                pgtype.UUID
+	EmittedTechnologyIdentityID pgtype.UUID
+	RelationType                string
+	CreatedAt                   pgtype.Timestamptz
+}
+
 type TechnologyDictionaryVersion struct {
-	ID             pgtype.UUID
-	VersionLabel   string
-	ContentSha256  string
-	Status         TechnologyDictionaryStatus
-	SourceDocument string
-	CreatedBy      string
-	CreatedAt      pgtype.Timestamptz
-	PublishedAt    pgtype.Timestamptz
-	RetiredAt      pgtype.Timestamptz
+	ID                   pgtype.UUID
+	VersionLabel         string
+	ContentSha256        string
+	Status               TechnologyDictionaryStatus
+	SourceDocument       string
+	CreatedBy            string
+	CreatedAt            pgtype.Timestamptz
+	PublishedAt          pgtype.Timestamptz
+	RetiredAt            pgtype.Timestamptz
+	MatcherPolicyVersion string
 }
 
 type TechnologyIdentity struct {

@@ -602,6 +602,9 @@ FROM trend_formal_releases AS release
 JOIN trend_formal_release_components AS component
   ON component.trend_formal_release_id = release.id
  AND component.dimension = 'technology'
+JOIN technology_analysis_publication_state AS publication
+  ON publication.singleton = true
+ AND publication.configuration_id = component.technology_analysis_configuration_id
 WHERE release.status = 'published'`).Scan(
 		&component.IdentitySHA256,
 		&component.ConfigurationID,

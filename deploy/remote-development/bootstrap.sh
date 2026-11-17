@@ -25,6 +25,7 @@ readonly ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-analysis.s
 readonly CANDIDATE_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis.service'
 readonly CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis-v0.2.service'
 readonly CANDIDATE_V03_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis-v0.3.service'
+readonly CANDIDATE_V04_ANALYSIS_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-candidate-analysis-v0.4.service'
 readonly BACKFILL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-backfill-versioned-content.service'
 readonly AI_TRIAL_PREPARE_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-trial-prepare.service'
 readonly AI_PLUS_TRIAL_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-ai-plus-trial.service'
@@ -160,6 +161,7 @@ download_asset 'deploy/remote-development/mrolescope-analysis.service' "$staging
 download_asset 'deploy/remote-development/mrolescope-candidate-analysis.service' "$staging_dir/mrolescope-candidate-analysis.service"
 download_asset 'deploy/remote-development/mrolescope-candidate-analysis-v0.2.service' "$staging_dir/mrolescope-candidate-analysis-v0.2.service"
 download_asset 'deploy/remote-development/mrolescope-candidate-analysis-v0.3.service' "$staging_dir/mrolescope-candidate-analysis-v0.3.service"
+download_asset 'deploy/remote-development/mrolescope-candidate-analysis-v0.4.service' "$staging_dir/mrolescope-candidate-analysis-v0.4.service"
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content.service' "$staging_dir/mrolescope-backfill-versioned-content.service"
 download_asset 'deploy/remote-development/mrolescope-ai-trial-prepare.service' "$staging_dir/mrolescope-ai-trial-prepare.service"
 download_asset 'deploy/remote-development/mrolescope-ai-plus-trial.service' "$staging_dir/mrolescope-ai-plus-trial.service"
@@ -207,6 +209,7 @@ install -o root -g root -m 0644 "$staging_dir/mrolescope-analysis.service" "$ANA
 install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis.service" "$CANDIDATE_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis-v0.2.service" "$CANDIDATE_V02_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis-v0.3.service" "$CANDIDATE_V03_ANALYSIS_SERVICE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/mrolescope-candidate-analysis-v0.4.service" "$CANDIDATE_V04_ANALYSIS_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-backfill-versioned-content.service" "$BACKFILL_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-trial-prepare.service" "$AI_TRIAL_PREPARE_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-trial.service" "$AI_PLUS_TRIAL_SERVICE_DESTINATION"

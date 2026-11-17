@@ -182,7 +182,13 @@ LEFT JOIN technology_analysis_results AS result
   ON result.body_content_version_id = membership.body_content_version_id
  AND result.configuration_id = $2::uuid
  AND result.status = 'complete'
- AND result.completed_at IS NOT NULL`
+ AND result.completed_at IS NOT NULL
+ AND EXISTS (
+     SELECT 1
+     FROM technology_analysis_publication_state AS publication
+     WHERE publication.singleton = true
+       AND publication.configuration_id = result.configuration_id
+ )`
 		return trendDrilldownFilter{
 			args:                []any{component.ConfigurationID, technologyID},
 			completenessArgs:    []any{component.ConfigurationID},

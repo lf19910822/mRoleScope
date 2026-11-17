@@ -83,6 +83,93 @@ func TestMatcherKeepsEachFieldIndependent(t *testing.T) {
 	}
 }
 
+func TestV04MatcherSeparatesReactAndReAct(t *testing.T) {
+	matcher := mustMatcher(t,
+		approvedRule("react", "React", "React", CaseSensitive, BoundaryASCIIIdentifier),
+		approvedRule("react", "React", "react", CaseSensitive, BoundaryASCIIIdentifier),
+		approvedRule("react-agent", "ReAct", "ReAct", CaseSensitive, BoundaryASCIIIdentifier),
+	)
+	matches, err := matcher.MatchField(SourceFieldJobRequire, "React react ReAct REACT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 3 {
+		t.Fatalf("React/ReAct matches = %#v", matches)
+	}
+	if matches[0].TechnologyKey != "react" || matches[1].TechnologyKey != "react" || matches[2].TechnologyKey != "react-agent" {
+		t.Fatalf("React/ReAct identities = %#v", matches)
+	}
+}
+
+func TestV04MatcherExpandsUnrealVersionWithoutDroppingBaseIdentity(t *testing.T) {
+	base := approvedRule("unreal-engine", "Unreal Engine", "Unreal", CaseSensitive, BoundaryASCIIIdentifier)
+	version := approvedRule("unreal-engine-5", "Unreal Engine 5", "UE5", CaseSensitive, BoundaryASCIIIdentifier)
+	version.Emissions = []DictionaryEmission{
+		{TechnologyKey: "unreal-engine", CanonicalName: "Unreal Engine", TechnologyKind: "game-engine", RelationType: "inherited"},
+		{TechnologyKey: "unreal-engine-5", CanonicalName: "Unreal Engine 5", TechnologyKind: "game-engine", RelationType: "self"},
+	}
+	matcher := mustMatcher(t, base, version)
+	matches, err := matcher.MatchField(SourceFieldDescription, "熟悉 UE5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("UE5 expansion = %#v", matches)
+	}
+	if matches[0].TechnologyKey != "unreal-engine" || matches[1].TechnologyKey != "unreal-engine-5" {
+		t.Fatalf("UE5 identities = %#v", matches)
+	}
+	if matches[0].ByteStart != matches[1].ByteStart || matches[0].ByteEnd != matches[1].ByteEnd {
+		t.Fatalf("UE5 emissions do not share source span: %#v", matches)
+	}
+}
+
+func TestV04MatcherAppliesOnlyExplicitLocalExclusions(t *testing.T) {
+	rule := approvedRule("react", "React", "react", CaseSensitive, BoundaryASCIIIdentifier)
+	matcher, err := NewMatcherWithExclusions([]DictionaryRule{rule}, []DictionaryExclusionPattern{{
+		PatternKey: "react.to.01", SourceRuleKey: rule.RuleKey, Pattern: "react to",
+		CaseMode: CaseSensitive, BoundaryMode: BoundaryExact, WindowCodePoints: 96, Provenance: "synthetic",
+		State: RuleEnabled, Approval: &Approval{Reviewer: "reviewer", Decided: rule.Approval.Decided, Rationale: "synthetic"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := matcher.MatchField(SourceFieldDescription, "熟悉 react。系统会 react to user input。熟悉 react")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("excluded react matches = %#v", matches)
+	}
+}
+
+func TestV04MatcherSuppressesUEOnlyWhenUserExperienceIsInTheLocalWindow(t *testing.T) {
+	rule := approvedRule("unreal-engine", "Unreal Engine", "UE", CaseSensitive, BoundaryASCIIIdentifier)
+	matcher, err := NewMatcherWithExclusions([]DictionaryRule{rule}, []DictionaryExclusionPattern{{
+		PatternKey: "unreal.user-experience.01", SourceRuleKey: rule.RuleKey, Pattern: "user experience",
+		CaseMode: CaseInsensitive, BoundaryMode: BoundaryExact, WindowCodePoints: 96, Provenance: "synthetic",
+		State: RuleEnabled, Approval: &Approval{Reviewer: "reviewer", Decided: rule.Approval.Decided, Rationale: "synthetic"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := matcher.MatchField(SourceFieldDescription, "熟悉 UE，负责 user experience 设计，熟悉 UE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("UE ordinary-language exclusion = %#v, want no matches", matches)
+	}
+
+	matches, err = matcher.MatchField(SourceFieldDescription, "熟悉 UE。负责客户端开发。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].TechnologyKey != "unreal-engine" {
+		t.Fatalf("standalone UE match = %#v", matches)
+	}
+}
+
 func mustMatcher(t *testing.T, rules ...DictionaryRule) Matcher {
 	t.Helper()
 	matcher, err := NewMatcher(rules)
