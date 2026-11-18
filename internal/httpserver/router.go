@@ -89,6 +89,7 @@ type Router struct {
 	jdDrilldown        JDTrendDrilldownReader
 	jdTrend            JDTrendReader
 	jdTrendEvents      JDTrendEventReader
+	aiTrend            AITrendStreamRunner
 	access             *access.Service
 	verificationLimits *verificationLimiter
 }
@@ -120,6 +121,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 		server.jdDrilldown, _ = readers[0].(JDTrendDrilldownReader)
 		server.jdTrend, _ = readers[0].(JDTrendReader)
 		server.jdTrendEvents, _ = readers[0].(JDTrendEventReader)
+		server.aiTrend, _ = readers[0].(AITrendStreamRunner)
 	}
 	router.GET("/healthz", server.health)
 	router.GET("/readyz", server.ready)
@@ -135,6 +137,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 	business.GET("/job-trends", server.jobTrend)
 	business.GET("/job-trends/events", server.jobTrendEvents)
 	business.GET("/job-trends/drilldown", server.jobTrendDrilldown)
+	business.POST("/job-trends/ai-draft", server.aiTrendDraft)
 	return router
 }
 

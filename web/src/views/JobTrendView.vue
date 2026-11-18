@@ -13,6 +13,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import {
   NButton,
   NEmpty,
+  NInput,
   NPagination,
   NPopover,
   NSelect,
@@ -39,6 +40,7 @@ import JDDetailReadingLayout from '@/components/JDDetailReadingLayout.vue'
 import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
 import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
 import { createTrendChartOption, trendCurveColor, trendCurveLabel } from '@/lib/job-trend-chart'
+import { createAITrendDraftState } from '@/lib/ai-trend-draft-state'
 import { useJobTrendDashboard } from '@/lib/job-trend-dashboard'
 import { createTrendDrilldownState } from '@/lib/job-trend-drilldown-state'
 import {
@@ -66,6 +68,7 @@ use([
 ])
 
 const dashboard = useJobTrendDashboard()
+const aiTrend = createAITrendDraftState()
 const drilldown = createTrendDrilldownState({ readTrendDrilldown: getJobTrendDrilldown })
 const eventStats = createTrendEventState({ readTrendEvents: getJobTrendEvents })
 const eventPopoverThemeOverrides = { boxShadow: 'none' }
@@ -459,6 +462,17 @@ function clearAllCurves(): void {
   curveFeedback.value = ''
 }
 
+function applyAITrendDraft(): void {
+  aiTrend.applySelected((condition) => {
+    const row = dashboard.addCurve(condition)
+    if (row) void dashboard.applyCurve(row.id)
+  })
+}
+
+function formatAITrendOperationParams(params?: Record<string, unknown>): string {
+  return params ? JSON.stringify(params) : ''
+}
+
 async function refreshAll(): Promise<void> {
   await dashboard.refresh()
   await eventStats.load(dashboard.rows, dashboard.range, dashboard.customRange, true)
@@ -771,6 +785,61 @@ onBeforeUnmount(() => {
           </NButton>
         </div>
       </header>
+
+      <section class="job-trend-view__ai-draft" aria-labelledby="ai-trend-draft-title">
+        <div class="job-trend-view__ai-draft-heading">
+          <div>
+            <p class="job-trend-view__eyebrow">AI 曲线草稿</p>
+            <h2 id="ai-trend-draft-title">直接描述你想看的趋势</h2>
+          </div>
+          <NButton v-if="aiTrend.status === 'running'" size="small" @click="aiTrend.stop">
+            停止分析
+          </NButton>
+        </div>
+        <div class="job-trend-view__ai-draft-input">
+          <NInput
+            v-model:value="aiTrend.query"
+            :disabled="aiTrend.status === 'running'"
+            aria-label="输入趋势问题"
+            placeholder="例如：哪些数据库？各项目岗位数怎么变化？"
+            @keyup.enter="void aiTrend.submit()"
+          />
+          <NButton type="primary" :disabled="aiTrend.status === 'running'" @click="void aiTrend.submit()">
+            生成草稿
+          </NButton>
+        </div>
+        <NButton
+          v-if="aiTrend.operations.length && aiTrend.status !== 'running'"
+          size="tiny"
+          quaternary
+          @click="aiTrend.operationsExpanded = !aiTrend.operationsExpanded"
+        >
+          {{ aiTrend.operationsExpanded ? '收起操作记录' : '查看操作记录' }}
+        </NButton>
+        <ol v-if="aiTrend.status === 'running' || (aiTrend.operations.length && aiTrend.operationsExpanded)" class="job-trend-view__ai-operations" aria-live="polite">
+          <li v-for="(operation, index) in aiTrend.operations" :key="`${index}-${operation.tool}`">
+            {{ operation.status === 'failed' ? '失败' : operation.status === 'completed' ? '完成' : '进行中' }}：{{ operation.tool }}
+            <code v-if="operation.params">{{ formatAITrendOperationParams(operation.params) }}</code>
+          </li>
+        </ol>
+        <p v-if="aiTrend.error" class="job-trend-view__ai-error" role="alert">{{ aiTrend.error }}</p>
+        <div v-if="aiTrend.draft" class="job-trend-view__ai-draft-list">
+          <p v-if="aiTrend.draft.status === 'stopped'">分析已停止，结果可能不完整。</p>
+          <p v-for="warning in aiTrend.draft.warnings ?? []" :key="warning">{{ warning }}</p>
+          <label v-for="curve in aiTrend.draft.curves" :key="`${curve.condition.dimension}-${curve.condition.value}-${curve.condition.includeSecondary}`">
+            <input v-model="curve.selected" type="checkbox" />
+            <span>{{ curve.label }} · {{ curve.reason }}</span>
+          </label>
+          <NButton v-if="aiTrend.draft.curves.length" size="small" type="primary" @click="applyAITrendDraft">
+            应用已勾选曲线
+          </NButton>
+          <div v-else class="job-trend-view__ai-examples">
+            <span>可以试试：</span>
+            <NButton size="tiny" @click="aiTrend.query = '哪些数据库'">哪些数据库</NButton>
+            <NButton size="tiny" @click="aiTrend.query = '各项目岗位数趋势'">各项目岗位数趋势</NButton>
+          </div>
+        </div>
+      </section>
 
       <div class="job-trend-view__range-stage">
         <nav class="job-trend-view__ranges" aria-label="时间范围">
@@ -1607,6 +1676,55 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.job-trend-view__ai-draft {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--trend-rule) 70%, #007cab);
+  border-radius: 14px;
+}
+
+.job-trend-view__ai-draft-heading,
+.job-trend-view__ai-draft-input {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.job-trend-view__ai-draft-input :deep(.n-input) {
+  flex: 1;
+}
+
+.job-trend-view__ai-operations,
+.job-trend-view__ai-draft-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--trend-muted);
+  font-size: 0.85rem;
+}
+
+.job-trend-view__ai-draft-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.job-trend-view__ai-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.job-trend-view__ai-error {
+  margin: 0;
+  color: #c23b3b;
+}
+
 .job-trend-view {
   --trend-card-surface: rgba(255, 255, 255, 0.96);
   --trend-curve-border: #e1ebef;
