@@ -982,6 +982,95 @@ func (ns NullAiSemanticValueStatus) Value() (driver.Value, error) {
 	return string(ns.AiSemanticValueStatus), nil
 }
 
+type AiTrendAuditStatus string
+
+const (
+	AiTrendAuditStatusRunning     AiTrendAuditStatus = "running"
+	AiTrendAuditStatusSuccess     AiTrendAuditStatus = "success"
+	AiTrendAuditStatusPartial     AiTrendAuditStatus = "partial"
+	AiTrendAuditStatusFailure     AiTrendAuditStatus = "failure"
+	AiTrendAuditStatusUserStopped AiTrendAuditStatus = "user_stopped"
+)
+
+func (e *AiTrendAuditStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiTrendAuditStatus(s)
+	case string:
+		*e = AiTrendAuditStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiTrendAuditStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiTrendAuditStatus struct {
+	AiTrendAuditStatus AiTrendAuditStatus
+	Valid              bool // Valid is true if AiTrendAuditStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiTrendAuditStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiTrendAuditStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiTrendAuditStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiTrendAuditStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiTrendAuditStatus), nil
+}
+
+type AiTrendAuditToolStatus string
+
+const (
+	AiTrendAuditToolStatusRunning   AiTrendAuditToolStatus = "running"
+	AiTrendAuditToolStatusCompleted AiTrendAuditToolStatus = "completed"
+	AiTrendAuditToolStatusFailed    AiTrendAuditToolStatus = "failed"
+	AiTrendAuditToolStatusSkipped   AiTrendAuditToolStatus = "skipped"
+)
+
+func (e *AiTrendAuditToolStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AiTrendAuditToolStatus(s)
+	case string:
+		*e = AiTrendAuditToolStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AiTrendAuditToolStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAiTrendAuditToolStatus struct {
+	AiTrendAuditToolStatus AiTrendAuditToolStatus
+	Valid                  bool // Valid is true if AiTrendAuditToolStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAiTrendAuditToolStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AiTrendAuditToolStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AiTrendAuditToolStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAiTrendAuditToolStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AiTrendAuditToolStatus), nil
+}
+
 type CollectionRunStatus string
 
 const (
@@ -2380,6 +2469,41 @@ type AiTechnologyRequirementOption struct {
 	TechnologyIdentityID pgtype.UUID
 	Proficiency          NullAiProficiencyLevel
 	OptionOrder          int32
+}
+
+type AiTrendRequestAudit struct {
+	ID                 pgtype.UUID
+	RequestHash        string
+	IntentHash         pgtype.Text
+	DraftHash          pgtype.Text
+	ContractVersion    string
+	ValidationStatus   string
+	Status             AiTrendAuditStatus
+	SafeErrorCode      pgtype.Text
+	AiAttemptCount     int32
+	ToolCallCount      int32
+	ToolFailureCount   int32
+	InputTokenCount    int32
+	OutputTokenCount   int32
+	DurationMs         int64
+	DraftCurveCount    int32
+	DraftSelectedCount int32
+	DraftWarningCount  int32
+	CreatedAt          pgtype.Timestamptz
+	CompletedAt        pgtype.Timestamptz
+	ExpiresAt          pgtype.Timestamptz
+}
+
+type AiTrendRequestAuditTool struct {
+	ID             pgtype.UUID
+	RequestAuditID pgtype.UUID
+	SequenceNumber int32
+	ToolName       string
+	Status         AiTrendAuditToolStatus
+	SafeErrorCode  pgtype.Text
+	DurationMs     int64
+	StartedAt      pgtype.Timestamptz
+	CompletedAt    pgtype.Timestamptz
 }
 
 type ChangeEvent struct {
