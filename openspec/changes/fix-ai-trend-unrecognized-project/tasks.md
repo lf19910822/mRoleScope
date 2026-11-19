@@ -8,7 +8,7 @@
 
 ## 2. Validation and live verification
 
-- [ ] 2.1 Run Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and repeat the real project query/application test with a mixed-success batch.
+- [x] 2.1 Run Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and repeat the real project query/application test with a mixed-success batch. Revision `0946b95` completed both project summary batches without `unrecognized`, returned 8 curves, and completed validation plus AI explanation; unit tests cover mixed-success batches retaining valid summaries and marking the request partial when needed.
 
 ## Workflow follow-up
 
