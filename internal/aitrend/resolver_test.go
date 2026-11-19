@@ -88,3 +88,33 @@ func TestResolverNaturalExpansionAndAmbiguity(t *testing.T) {
 		t.Fatalf("ambiguous candidates = %#v", ambiguous)
 	}
 }
+
+func TestResolverTreatsEmptyExpressionAsBroadDimension(t *testing.T) {
+	resolver := Resolver{Values: map[Dimension][]Candidate{
+		DimensionProject: {
+			{Dimension: DimensionProject, Value: "alpha", Label: "Alpha"},
+			{Dimension: DimensionProject, Value: "beta", Label: "Beta"},
+		},
+	}}
+	query := SubQuery{ID: "projects", Dimension: DimensionProject, Expressions: []string{""}}
+	got := resolveIntentExpression(resolver, query, "")
+	if len(got) != 2 {
+		t.Fatalf("broad candidates = %#v", got)
+	}
+	for _, candidate := range got {
+		if candidate.MatchStatus != MatchExpansion || candidate.Scope != "扩展推荐" {
+			t.Fatalf("candidate = %#v, want expansion recommendation", candidate)
+		}
+	}
+}
+
+func TestPlanServingToolsSkipsBroadRankExpression(t *testing.T) {
+	intent := Intent{SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{""}}}}
+	calls := planServingTools(intent, []CandidateGroup{{SubQueryID: "projects", Candidates: []Candidate{{Dimension: DimensionProject, Value: "alpha"}}}})
+	for _, call := range calls {
+		if call.Name != ToolRankValues {
+			continue
+		}
+		t.Fatalf("broad query emitted rank call: %#v", call)
+	}
+}

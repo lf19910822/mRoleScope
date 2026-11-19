@@ -359,6 +359,9 @@ func filterExcluded(candidates []Candidate, exclusions []string) []Candidate {
 
 func isBroadExpression(expression string) bool {
 	value := normalizeExpression(expression)
+	if value == "" {
+		return true
+	}
 	for _, marker := range []string{"哪些", "所有", "全部", "使用了哪些", "项目", "数据库", "技术", "岗位族", "地点", "project", "projects", "database", "databases"} {
 		if value == marker || strings.Contains(value, marker) && (strings.Contains(value, "哪些") || marker == value) {
 			return true
@@ -386,7 +389,11 @@ func planServingTools(intent Intent, groups []CandidateGroup) []ToolCall {
 		if len(query.Expressions) == 0 || len(calls) >= maxPlanningCalls {
 			continue
 		}
-		calls = append(calls, ToolCall{Name: ToolRankValues, Params: mustMarshal(rankRequest{Dimension: query.Dimension, Expression: query.Expressions[0], SubQueryID: query.ID})})
+		expression := strings.TrimSpace(query.Expressions[0])
+		if expression == "" || isBroadExpression(expression) {
+			continue
+		}
+		calls = append(calls, ToolCall{Name: ToolRankValues, Params: mustMarshal(rankRequest{Dimension: query.Dimension, Expression: expression, SubQueryID: query.ID})})
 	}
 	requests := make([]trendToolRequest, 0, MaxBatchCandidates)
 	for _, group := range groups {
