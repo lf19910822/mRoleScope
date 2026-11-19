@@ -2,7 +2,7 @@
 
 ## Context
 
-意图合同目前只要求 `expressions` 数组至少有一个元素，允许元素本身为空。`candidateGroups` 已有宽泛表达式扩展逻辑，但空字符串没有被识别为宽泛表达式；规划器随后把第一个空元素发送给 `rank_values`。参见 proposal.md 和 `ai-trend-broad-value-fallback` 规格。
+意图合同目前只要求 `expressions` 数组至少有一个元素，允许元素本身为空或使用通配符。`candidateGroups` 已有宽泛表达式扩展逻辑，但空字符串和 `*` 没有被识别为宽泛表达式；规划器随后把它发送给 `rank_values`。参见 proposal.md 和 `ai-trend-broad-value-fallback` 规格。
 
 ## Goals / Non-Goals
 
@@ -22,11 +22,11 @@
 
 ### 1. 在确定性 resolver 中将空表达式视为宽泛查询
 
-`isBroadExpression` 对归一化后为空的表达式返回 true，使现有 `resolver.Values[dimension]` 全量候选分支生效。候选仍标记为扩展推荐，并由后续摘要分数决定顺序。
+`isBroadExpression` 对归一化后为空、`*`、`all` 以及“全部/所有 + 维度”表达式返回 true，使现有 `resolver.Values[dimension]` 全量候选分支生效。候选仍标记为扩展推荐，并由后续摘要分数决定顺序。
 
 ### 2. 规划器跳过空/宽泛 rank
 
-规划器只为具体表达式生成 `rank_values`；空表达式和“项目/岗位族/哪些项目”等宽泛表达式直接依赖 `list_available_values` 与趋势摘要。这样不会产生空参数，也不额外消耗工具调用配额。
+规划器只为具体表达式生成 `rank_values`；空、通配和“项目/岗位族/哪些项目”等宽泛表达式直接依赖 `list_available_values` 与趋势摘要。这样不会产生无效参数，也不额外消耗工具调用配额。
 
 ### 3. 通过 runner 测试覆盖端到端候选生成
 

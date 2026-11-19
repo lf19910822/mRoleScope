@@ -359,11 +359,14 @@ func filterExcluded(candidates []Candidate, exclusions []string) []Candidate {
 
 func isBroadExpression(expression string) bool {
 	value := normalizeExpression(expression)
-	if value == "" {
+	if value == "" || value == "*" || value == "all" || value == "any" || value == "all values" {
 		return true
 	}
 	for _, marker := range []string{"哪些", "所有", "全部", "使用了哪些", "项目", "数据库", "技术", "岗位族", "地点", "project", "projects", "database", "databases"} {
-		if value == marker || strings.Contains(value, marker) && (strings.Contains(value, "哪些") || marker == value) {
+		if value == marker {
+			return true
+		}
+		if strings.Contains(value, marker) && (strings.Contains(value, "哪些") || strings.HasPrefix(value, "所有") || strings.HasPrefix(value, "全部")) {
 			return true
 		}
 	}
