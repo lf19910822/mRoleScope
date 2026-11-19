@@ -162,6 +162,11 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 	if runner == nil || runner.Audit == nil {
 		return
 	}
+	// A stopped request has a canceled context by design. Audit persistence is
+	// best-effort but must still retain the token/call summary, so detach it
+	// from request cancellation while keeping a short bounded write timeout.
+	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
 	if inputTokens == 0 {
 		inputTokens = (len([]byte(query)) + 3) / 4
 	}
@@ -210,7 +215,7 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 			record.ToolFailureCount++
 		}
 	}
-	auditID, err := runner.Audit.Insert(ctx, record)
+	auditID, err := runner.Audit.Insert(auditContext, record)
 	if err != nil {
 		return
 	}
@@ -230,9 +235,9 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 		} else if statusValue == "" || statusValue == string(StreamRunning) {
 			statusValue = string(StreamFailed)
 		}
-		_ = runner.Audit.InsertTool(ctx, AuditToolRecord{AuditID: auditID, Sequence: index + 1, ToolName: operation.Tool, Status: statusValue, SafeErrorCode: operation.SafeErrorCode, Duration: ended.Sub(operation.StartedAt), StartedAt: operation.StartedAt, CompletedAt: &ended})
+		_ = runner.Audit.InsertTool(auditContext, AuditToolRecord{AuditID: auditID, Sequence: index + 1, ToolName: operation.Tool, Status: statusValue, SafeErrorCode: operation.SafeErrorCode, Duration: ended.Sub(operation.StartedAt), StartedAt: operation.StartedAt, CompletedAt: &ended})
 	}
-	_ = runner.Audit.Cleanup(ctx)
+	_ = runner.Audit.Cleanup(auditContext)
 }
 
 func stringPointer(value string) *string { return &value }
