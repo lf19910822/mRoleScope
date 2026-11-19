@@ -15,7 +15,7 @@
 
 - [x] 3.1 Extend release and bootstrap shell tests for cache hit, cache miss, invalid fingerprint, and preserved deployment ordering.
 - [x] 3.2 Update the autonomous release runbook and bootstrap initialization guidance with the marker behavior and timing output.
-- [ ] 3.3 Run focused tests, strict OpenSpec validation, `make remote-release-verify`, and `git diff --check`; record the first cache-miss deployment and a later cache-hit release.
+- [x] 3.3 Run focused tests, strict OpenSpec validation, `make remote-release-verify`, and `git diff --check`; record the first cache-miss deployment and a later cache-hit release.
 
 ## Workflow follow-up
 
