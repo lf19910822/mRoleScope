@@ -84,10 +84,25 @@ MOCK
 cat >"$temporary_dir/bin/ssh" <<'MOCK'
 #!/usr/bin/env bash
 printf 'ssh %s\n' "$*" >>"$MROLESCOPE_RELEASE_TEST_LOG"
+remote_command="${!#}"
+if [[ "${MROLESCOPE_TEST_REMOTE_CACHE_HIT:-}" == true && "$remote_command" == *"asset_marker="* ]]; then
+  marker="${MROLESCOPE_TEST_ASSET_MARKER:?}"
+  mkdir -p "$(dirname "$marker")"
+  printf '%s\n' eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee >"$marker"
+  chmod 0644 "$marker"
+  rewritten="${remote_command//\/opt\/mrolescope\/remote-development.assets.sha256/$marker}"
+  bash -c "$rewritten"
+  : >"${MROLESCOPE_TEST_CACHE_HIT_FLAG:?}"
+fi
 MOCK
 cat >"$temporary_dir/bin/sha256sum" <<'MOCK'
 #!/usr/bin/env bash
-printf '%s  %s\n' 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' "$1"
+if [[ "$#" -eq 0 ]]; then
+  cat >/dev/null
+  printf '%s  -\n' 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+else
+  printf '%s  %s\n' 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' "$1"
+fi
 MOCK
 chmod 0755 "$temporary_dir/bin/git" "$temporary_dir/bin/make" "$temporary_dir/bin/docker" \
   "$temporary_dir/bin/ssh" "$temporary_dir/bin/sha256sum"
@@ -105,7 +120,7 @@ if MROLESCOPE_TEST_DIRTY=true "$release_script" --dry-run >/dev/null 2>&1; then
   die 'a dirty checkout unexpectedly passed release preflight'
 fi
 
-"$release_script" --deploy >/dev/null
+"$release_script" --deploy >"$temporary_dir/release-output.log"
 [[ "$(grep -c '^docker build ' "$MROLESCOPE_RELEASE_TEST_LOG")" -eq 4 ]] \
   || die 'successful release did not build exactly four images'
 [[ "$(grep -c '^docker push ' "$MROLESCOPE_RELEASE_TEST_LOG")" -eq 4 ]] \
@@ -122,6 +137,14 @@ grep -Fq "timeout 120 docker pull '$pinned_postgres_image'" "$MROLESCOPE_RELEASE
   || die 'successful release did not preflight the exact pinned PostgreSQL pull through the CVM Docker daemon'
 grep -Fq 'docker info --format' "$MROLESCOPE_RELEASE_TEST_LOG" \
   || die 'successful release did not report the CVM Docker daemon registry mirror context'
+grep -Fq "asset_marker='/opt/mrolescope/remote-development.assets.sha256'" "$MROLESCOPE_RELEASE_TEST_LOG" \
+  || die 'successful release did not compare the remote deployment asset fingerprint'
+grep -Fq "'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'" "$MROLESCOPE_RELEASE_TEST_LOG" \
+  || die 'successful release did not pass the asset fingerprint to bootstrap'
+for phase in preflight quality-gate image-publication asset-refresh remote-deployment total; do
+  grep -Fq "release timing: phase=${phase} elapsed_ms=" "$temporary_dir/release-output.log" \
+    || die "release output omitted timing for ${phase}"
+done
 if grep -Fq 'registry-1.docker.io' "$MROLESCOPE_RELEASE_TEST_LOG"; then
   die 'release network preflight introduced a direct official Registry probe'
 fi
@@ -131,6 +154,16 @@ build_line=$(grep -n '^docker build ' "$MROLESCOPE_RELEASE_TEST_LOG" | head -n 1
 [[ -n "$preflight_line" && -n "$quality_gate_line" && -n "$build_line" \
   && "$preflight_line" -lt "$quality_gate_line" && "$quality_gate_line" -lt "$build_line" ]] \
   || die 'release ordering did not put CVM Docker pull preflight before quality gate and image build'
+
+rm -f -- "$MROLESCOPE_RELEASE_TEST_LOG"
+export MROLESCOPE_TEST_REMOTE_CACHE_HIT=true
+export MROLESCOPE_TEST_ASSET_MARKER="$temporary_dir/remote-development.assets.sha256"
+export MROLESCOPE_TEST_CACHE_HIT_FLAG="$temporary_dir/cache-hit"
+"$release_script" --deploy >"$temporary_dir/cache-hit-output.log"
+[[ -e "$MROLESCOPE_TEST_CACHE_HIT_FLAG" ]] || die 'matching asset fingerprint did not execute the remote cache-hit branch'
+grep -Fq 'deployment assets unchanged; bootstrap download skipped.' "$temporary_dir/cache-hit-output.log" \
+  || die 'cache-hit release did not report skipped bootstrap downloads'
+unset MROLESCOPE_TEST_REMOTE_CACHE_HIT MROLESCOPE_TEST_ASSET_MARKER MROLESCOPE_TEST_CACHE_HIT_FLAG
 
 rm -f -- "$MROLESCOPE_RELEASE_TEST_LOG"
 if MROLESCOPE_TEST_LABEL=not-the-reviewed-revision "$release_script" --deploy >/dev/null 2>&1; then

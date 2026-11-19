@@ -41,6 +41,7 @@ readonly ACME_CHALLENGE_DIR='/var/lib/mrolescope/acme-challenge'
 readonly ACME_STATE_DIR='/var/lib/mrolescope/acme'
 readonly SECRETS_DIR='/etc/mrolescope/secrets'
 readonly SUDOERS_DESTINATION='/etc/sudoers.d/mrolescope-deploy'
+readonly ASSET_FINGERPRINT_DESTINATION='/opt/mrolescope/remote-development.assets.sha256'
 readonly DEPLOY_USER='mrolescope-deploy'
 readonly ASSET_MIRROR="${MROLESCOPE_ASSET_MIRROR:-github-raw}"
 readonly ASSET_DOWNLOAD_ATTEMPTS=2
@@ -51,12 +52,16 @@ die() {
 }
 
 [[ "${EUID}" -eq 0 ]] || die "run this script with sudo as root"
-[[ "$#" -eq 2 ]] || die "usage: $0 <full-protected-main-commit-sha> <docker-hub-namespace>"
+[[ "$#" -eq 2 || "$#" -eq 3 ]] || die "usage: $0 <full-protected-main-commit-sha> <docker-hub-namespace> [asset-fingerprint]"
 readonly REF="$1"
 readonly DOCKERHUB_NAMESPACE="$2"
+readonly ASSET_FINGERPRINT="${3:-}"
 [[ "$REF" =~ ^[a-f0-9]{40}$ ]] || die "the commit reference must be a full 40-character lowercase SHA"
 [[ "$DOCKERHUB_NAMESPACE" =~ ^[a-z0-9][a-z0-9_-]{0,38}$ ]] \
   || die "the Docker Hub namespace must contain only lowercase letters, digits, hyphens, or underscores"
+if [[ -n "$ASSET_FINGERPRINT" && ! "$ASSET_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]]; then
+  die 'the deployment asset fingerprint must be 64 lowercase hexadecimal characters'
+fi
 
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v docker >/dev/null 2>&1 || die "Docker Engine and the Compose plugin must be installed first"
@@ -218,6 +223,10 @@ install -o root -g root -m 0644 "$staging_dir/mrolescope-ai-plus-publish.service
 install -o root -g root -m 0644 "$staging_dir/mrolescope-cert-renew.service" "$CERT_RENEW_SERVICE_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/mrolescope-cert-renew.timer" "$CERT_RENEW_TIMER_DESTINATION"
 install -o root -g root -m 0644 "$staging_dir/remote-development.conf" "$DEPLOY_CONFIG_DESTINATION"
+if [[ -n "$ASSET_FINGERPRINT" ]]; then
+  printf '%s\n' "$ASSET_FINGERPRINT" >"$staging_dir/remote-development.assets.sha256"
+  install -o root -g root -m 0644 "$staging_dir/remote-development.assets.sha256" "$ASSET_FINGERPRINT_DESTINATION"
+fi
 
 # Retire only the obsolete future-Flash service definition. This does not
 # touch immutable Flash database history or output-audit artifacts.
