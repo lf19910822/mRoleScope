@@ -113,6 +113,29 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 			return err
 		}
 	}
+	if !result.Stopped {
+		if explanationProvider, ok := runner.Provider.(IntentExplanationUsageProvider); ok {
+			if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolExplainDraft)}); err != nil {
+				runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+				return err
+			}
+			explanation, input, output, explanationErr := explanationProvider.ExplainDraftUsage(ctx, query, buildDraftExplanationContext(plannedIntent, draft, groups, result.ToolResults))
+			inputTokens += input
+			outputTokens += output
+			if explanationErr != nil {
+				if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolExplainDraft), Error: safeErrorFrom(explanationErr)}); err != nil {
+					runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+					return err
+				}
+			} else {
+				draft.Explanation = explanation
+				if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolExplainDraft)}); err != nil {
+					runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+					return err
+				}
+			}
+		}
+	}
 	draftStatus := StreamCompleted
 	terminalStatus := StreamSuccess
 	if result.Stopped {
@@ -140,7 +163,7 @@ type auditOperation struct {
 }
 
 func appendAuditOperation(operations []auditOperation, event StreamEvent) []auditOperation {
-	if event.Tool == string(ToolAnalyzeIntent) {
+	if event.Tool == string(ToolAnalyzeIntent) || event.Tool == string(ToolExplainDraft) {
 		// Model progress is user-visible but is not a Serving tool call. Keep it
 		// out of the tool audit so the 20-call budget and tool metrics remain
 		// comparable with previous requests.
@@ -542,6 +565,76 @@ func draftExplanation(intent Intent) string {
 		break
 	}
 	return fmt.Sprintf("按%s整理候选，应用前仍可修改。", metric)
+}
+
+func buildDraftExplanationContext(intent Intent, draft Draft, groups []CandidateGroup, results []ToolCallResult) DraftExplanationContext {
+	context := DraftExplanationContext{Candidates: make([]DraftExplanationCandidate, 0, len(draft.Curves))}
+	if len(intent.SubQueries) > 0 {
+		context.Dimension = intent.SubQueries[0].Dimension
+		context.Metric = intent.SubQueries[0].Ranking.Metric
+		context.Order = intent.SubQueries[0].Ranking.Order
+	}
+	if len(intent.TimeRange.Kind) > 0 {
+		context.TimeRange = intent.TimeRange.Kind
+	}
+	metricValues := explanationMetricValues(intent, groups, results)
+	for _, curve := range draft.Curves {
+		candidate := DraftExplanationCandidate{Label: curve.Label, MatchStatus: curve.MatchStatus, Scope: curve.Scope}
+		if value, ok := metricValues[explanationCurveKey(curve.Condition.Dimension, curve.Condition.Value, curve.Condition.IncludeSecondary)]; ok {
+			candidate.MetricValue = &value
+		}
+		context.Candidates = append(context.Candidates, candidate)
+	}
+	seenTools := make(map[string]struct{})
+	for _, result := range results {
+		name := string(result.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seenTools[name]; ok {
+			continue
+		}
+		seenTools[name] = struct{}{}
+		context.ToolOperations = append(context.ToolOperations, name)
+	}
+	return context
+}
+
+func explanationMetricValues(intent Intent, groups []CandidateGroup, results []ToolCallResult) map[string]float64 {
+	metricBySubQuery := make(map[string]Metric, len(intent.SubQueries))
+	for _, query := range intent.SubQueries {
+		metricBySubQuery[query.ID] = query.Ranking.Metric
+	}
+	values := make(map[string]float64)
+	for _, result := range results {
+		if result.Name != ToolBatchTrendSummary || !result.Available {
+			continue
+		}
+		var summaries []summaryToolResponse
+		if json.Unmarshal(result.Payload, &summaries) != nil {
+			continue
+		}
+		for _, summary := range summaries {
+			for _, group := range groups {
+				for _, candidate := range group.Candidates {
+					if candidate.Dimension != Dimension(summary.Curve.Dimension) || candidate.Value != summary.Curve.Value || candidate.IncludeSecondary != summary.Curve.IncludeSecondary {
+						continue
+					}
+					for _, subQueryID := range candidateSubQueryIDs(candidate, group.SubQueryID) {
+						metricValue, ok := summaryMetric(summary, metricBySubQuery[subQueryID])
+						if ok {
+							values[explanationCurveKey(candidate.Dimension, candidate.Value, candidate.IncludeSecondary)] = metricValue
+						}
+					}
+				}
+			}
+		}
+	}
+	return values
+}
+
+func explanationCurveKey(dimension Dimension, value string, includeSecondary bool) string {
+	return fmt.Sprintf("%s:%s:%t", dimension, value, includeSecondary)
 }
 
 func emitValidatedDraft(ctx context.Context, registry *ToolRegistry, draft Draft, emit func(StreamEvent) error) error {
