@@ -26,6 +26,12 @@ func TestAITrendDraftStreamsNDJSONOperationEvents(t *testing.T) {
 		if query != "哪些数据库" {
 			return nil
 		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolAnalyzeIntent)}); err != nil {
+			return err
+		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamCompleted, Tool: string(aitrend.ToolAnalyzeIntent)}); err != nil {
+			return err
+		}
 		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolListTechnologyCategories), Params: []byte(`{"category":"databases-and-storage"}`)}); err != nil {
 			return err
 		}
@@ -41,8 +47,11 @@ func TestAITrendDraftStreamsNDJSONOperationEvents(t *testing.T) {
 	if response.Header().Get("Content-Type") != "application/x-ndjson; charset=utf-8" {
 		t.Fatalf("content type = %q", response.Header().Get("Content-Type"))
 	}
-	if lines := strings.Count(response.Body.String(), "\n"); lines != 2 {
+	if lines := strings.Count(response.Body.String(), "\n"); lines != 4 {
 		t.Fatalf("stream lines = %d body=%s", lines, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"tool":"analyze_intent"`) {
+		t.Fatalf("model operation missing: %s", response.Body.String())
 	}
 }
 

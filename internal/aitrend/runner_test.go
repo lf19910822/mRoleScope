@@ -107,6 +107,14 @@ func TestAppendAuditOperationCapturesTerminalFailure(t *testing.T) {
 	}
 }
 
+func TestAppendAuditOperationIgnoresModelProgress(t *testing.T) {
+	operations := appendAuditOperation(nil, StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolAnalyzeIntent)})
+	operations = appendAuditOperation(operations, StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolAnalyzeIntent)})
+	if len(operations) != 0 {
+		t.Fatalf("model progress operations = %#v", operations)
+	}
+}
+
 func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer test-key" {

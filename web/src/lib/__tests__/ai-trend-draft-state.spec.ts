@@ -16,6 +16,16 @@ describe('AI trend draft state', () => {
             JSON.stringify({
               type: 'operation',
               status: 'running',
+              tool: 'analyze_intent',
+            }),
+            JSON.stringify({
+              type: 'operation',
+              status: 'completed',
+              tool: 'analyze_intent',
+            }),
+            JSON.stringify({
+              type: 'operation',
+              status: 'running',
               tool: 'list_available_values',
               params: { dimension: 'technology' },
             }),
@@ -62,6 +72,7 @@ describe('AI trend draft state', () => {
     expect(state.status).toBe('success')
     expect(state.draft?.curves).toHaveLength(1)
     expect(state.draft?.explanation).toContain('岗位平均数量')
+    expect(state.operations.map((operation) => operation.tool)).toContain('analyze_intent')
     expect(state.operations.map((operation) => operation.tool)).toContain('list_available_values')
   })
 })
