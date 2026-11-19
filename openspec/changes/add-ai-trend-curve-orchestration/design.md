@@ -130,6 +130,14 @@ and builds the draft locally. The browser has no local curve fixtures or
 development mock branch; unit tests fake the HTTP NDJSON response at the
 transport boundary.
 
+The Qwen adapter also returns provider-reported prompt and completion token
+counts through an internal usage seam. The runner accumulates usage across
+validation retries and writes it to the bounded trend-audit record together
+with aggregate tool-call status and duration. A provider that does not expose
+usage receives a bounded input estimate for operational visibility; this
+fallback is never presented as provider billing. Audit insertion and cleanup
+are warning-only and cannot fail the user-facing draft request.
+
 ## Risks / Trade-offs
 
 - **Broad matching can add false positives** → mark possible matches and expansion recommendations, show formal names, keep all rows editable, and require explicit application.

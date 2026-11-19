@@ -2442,3 +2442,4 @@ AI 生成 MySQL、Redis 草稿后，用户又输入：
 - 审计只保存哈希和聚合计数，30 天/10,000 条清理；前端操作记录默认折叠且仅当前趋势页有效。
 - 后端已接入固定 Qwen Plus 意图适配器：API 只读取 CVM root-owned 运行时的 `MROLESCOPE_QWEN_WORKSPACE_ID` 与 `MROLESCOPE_QWEN_API_KEY`，通过专用 `ai-edge` 网络调用模型；缺少配置时仅 AI 草稿路由不可用，不影响既有趋势接口。
 - Serving runner 使用当前正式筛选值和有界趋势摘要生成草稿并完成校验；前端已移除本地曲线 mock，只消费 `/api/v1/job-trends/ai-draft` 的 NDJSON 流，单元测试仅在传输层伪造事件。
+- Qwen 返回的 prompt/completion token 用量已进入趋势审计汇总；API Runner 已接入 AuditStore，只保存哈希、计数、状态和工具耗时，不保存原问题、模型输出、凭证或工具返回内容。未提供 usage 的兼容 provider 仅使用有界输入估算用于运维可见性，不冒充供应商计费数据。
