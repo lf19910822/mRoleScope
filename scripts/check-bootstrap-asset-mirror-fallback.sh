@@ -111,6 +111,7 @@ MOCK
 chmod 0755 "$mock_bin"/*
 
 run_bootstrap() {
+  local fingerprint="${1:-}"
   local -a command=(
     env
     "PATH=$mock_bin:$PATH"
@@ -121,6 +122,9 @@ run_bootstrap() {
     0123456789abcdef0123456789abcdef01234567
     mrolescopeverify
   )
+  if [[ -n "$fingerprint" ]]; then
+    command+=("$fingerprint")
+  fi
 
   if [[ "$EUID" -eq 0 ]]; then
     "${command[@]}"
@@ -138,6 +142,11 @@ fi
 if ! run_bootstrap >"$bootstrap_log" 2>&1; then
   sed -n '1,160p' "$bootstrap_log" >&2
   die 'bootstrap did not recover after the preferred mirror failed'
+fi
+
+if run_bootstrap not-a-fingerprint >"$test_dir/invalid-fingerprint.log" 2>&1; then
+  cat "$test_dir/invalid-fingerprint.log" >&2
+  die 'bootstrap accepted an invalid deployment asset fingerprint'
 fi
 
 readonly jsdelivr_analysis_url='https://cdn.jsdelivr.net/gh/lf19910822/mRoleScope@0123456789abcdef0123456789abcdef01234567/deploy/remote-development/mrolescope-analysis'

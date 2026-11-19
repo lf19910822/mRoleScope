@@ -12,9 +12,20 @@ readonly source_label='org.opencontainers.image.source'
 readonly source_url='https://github.com/lf19910822/mRoleScope'
 readonly sha_pattern='^[a-f0-9]{40}$'
 readonly digest_pattern='^docker\.io/daud1991/mrolescope-(api|migrate|worker|web-edge)@sha256:[a-f0-9]{64}$'
+readonly asset_fingerprint_pattern='^[a-f0-9]{64}$'
 
 revision=''
 pinned_postgres_image=''
+
+now_milliseconds() {
+  date +%s%3N
+}
+
+log_phase_duration() {
+  local phase="$1" started_at="$2" ended_at
+  ended_at=$(now_milliseconds)
+  printf 'release timing: phase=%s elapsed_ms=%s\n' "$phase" "$((ended_at - started_at))"
+}
 
 die() {
   printf 'remote release failed: %s\n' "$1" >&2
@@ -48,6 +59,10 @@ resolve_pinned_postgres_image() {
   [[ "${#candidates[@]}" -eq 1 ]] \
     || die 'the reviewed Compose definition must contain exactly one pinned PostgreSQL image'
   pinned_postgres_image="${candidates[0]}"
+}
+
+deployment_asset_fingerprint() {
+  bash "$repository_root/scripts/hash-deployment-assets.sh" "$repository_root/deploy/remote-development"
 }
 
 preflight() {
@@ -132,9 +147,12 @@ build_and_push() {
   resolve_pushed_digest "$image_name" "$image_tag"
 }
 
-refresh_and_deploy() {
-  local api_image="$1" migrate_image="$2" worker_image="$3" web_edge_image="$4"
+refresh_assets() {
+  local asset_fingerprint="$1"
   local bootstrap_sha bootstrap_url bootstrap_fallback remote_command
+
+  [[ "$asset_fingerprint" =~ $asset_fingerprint_pattern ]] \
+    || die 'deployment asset fingerprint is invalid'
 
   bootstrap_sha=$(sha256sum "$repository_root/deploy/remote-development/bootstrap.sh" | awk '{print $1}')
   [[ "$bootstrap_sha" =~ ^[a-f0-9]{64}$ ]] || die 'could not checksum the reviewed CVM bootstrap asset'
@@ -142,6 +160,11 @@ refresh_and_deploy() {
   bootstrap_fallback="https://cdn.jsdelivr.net/gh/lf19910822/mRoleScope@${revision}/deploy/remote-development/bootstrap.sh"
   remote_command=$(cat <<REMOTE
 set -euo pipefail
+asset_marker='/opt/mrolescope/remote-development.assets.sha256'
+if [[ -f "\$asset_marker" && ! -L "\$asset_marker" ]] && [[ "\$(stat -c '%U:%G:%a' "\$asset_marker" 2>/dev/null || true)" == 'root:root:644' ]] && [[ "\$(cat "\$asset_marker")" == '${asset_fingerprint}' ]]; then
+  printf '%s\n' 'mRoleScope deployment assets unchanged; bootstrap download skipped.'
+  exit 0
+fi
 bootstrap=\$(mktemp /tmp/mrolescope-bootstrap.XXXXXX)
 trap 'rm -f -- "\$bootstrap"' EXIT
 if ! curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error --connect-timeout 10 --max-time 60 '${bootstrap_url}' --output "\$bootstrap"; then
@@ -149,11 +172,16 @@ if ! curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error --c
 fi
 actual=\$(sha256sum "\$bootstrap" | awk '{print \$1}')
 [[ "\$actual" == '${bootstrap_sha}' ]]
-sudo env MROLESCOPE_ASSET_MIRROR=github-raw bash "\$bootstrap" '${revision}' '${dockerhub_namespace}'
-sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-deploy '${api_image}' '${migrate_image}' '${worker_image}' '${web_edge_image}'
+sudo env MROLESCOPE_ASSET_MIRROR=github-raw bash "\$bootstrap" '${revision}' '${dockerhub_namespace}' '${asset_fingerprint}'
 REMOTE
 )
   ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote_host" "$remote_command"
+}
+
+deploy_remote() {
+  local api_image="$1" migrate_image="$2" worker_image="$3" web_edge_image="$4"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote_host" \
+    "sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-deploy '${api_image}' '${migrate_image}' '${worker_image}' '${web_edge_image}'"
 }
 
 [[ "$#" -eq 1 ]] || usage
@@ -163,17 +191,34 @@ case "$1" in
     printf 'Ready to release %s from %s. No images were built or pushed.\n' "$revision" "$repository_root"
     ;;
   --deploy)
+    release_started_at=$(now_milliseconds)
+    phase_started_at=$(now_milliseconds)
     preflight
+    log_phase_duration 'preflight' "$phase_started_at"
+    phase_started_at=$(now_milliseconds)
     remote_registry_preflight
+    log_phase_duration 'remote-registry-preflight' "$phase_started_at"
+    asset_fingerprint=$(deployment_asset_fingerprint)
+    [[ "$asset_fingerprint" =~ $asset_fingerprint_pattern ]] || die 'could not compute deployment asset fingerprint'
+    phase_started_at=$(now_milliseconds)
     make -C "$repository_root" remote-release-verify
+    log_phase_duration 'quality-gate' "$phase_started_at"
+    phase_started_at=$(now_milliseconds)
     api_image=$(build_and_push 'mrolescope-api' "$repository_root/docker/Dockerfile.api")
     migrate_image=$(build_and_push 'mrolescope-migrate' "$repository_root/docker/Dockerfile.migrate")
     worker_image=$(build_and_push 'mrolescope-worker' "$repository_root/docker/Dockerfile.worker")
     web_edge_image=$(build_and_push 'mrolescope-web-edge' "$repository_root/docker/Dockerfile.web-edge")
+    log_phase_duration 'image-publication' "$phase_started_at"
     for image in "$api_image" "$migrate_image" "$worker_image" "$web_edge_image"; do
       [[ "$image" =~ $digest_pattern ]] || die 'a release image failed digest validation'
     done
-    refresh_and_deploy "$api_image" "$migrate_image" "$worker_image" "$web_edge_image"
+    phase_started_at=$(now_milliseconds)
+    refresh_assets "$asset_fingerprint"
+    log_phase_duration 'asset-refresh' "$phase_started_at"
+    phase_started_at=$(now_milliseconds)
+    deploy_remote "$api_image" "$migrate_image" "$worker_image" "$web_edge_image"
+    log_phase_duration 'remote-deployment' "$phase_started_at"
+    log_phase_duration 'total' "$release_started_at"
     printf 'Remote release completed for %s.\n' "$revision"
     ;;
   *)
