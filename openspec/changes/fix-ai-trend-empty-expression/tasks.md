@@ -8,7 +8,7 @@
 
 ## 2. Validation and live verification
 
-- [ ] 2.1 Run Go tests, frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and run a real “哪些项目的岗位最多？” request through draft application.
+- [x] 2.1 Run Go tests, frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and run a real “哪些项目的岗位最多？” request through draft application. Revision `9d80798` returned 8 project curves without empty or wildcard rank parameters; the browser showed 8/8 rows, and all 8 Serving application requests returned HTTP 200 with 19 points. One unrelated batch summary backend failure was retained as partial status while preserving the usable draft.
 
 ## Workflow follow-up
 
