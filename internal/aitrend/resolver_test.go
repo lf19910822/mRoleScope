@@ -1,6 +1,10 @@
 package aitrend
 
-import "testing"
+import (
+	"testing"
+
+	"mrolescope/internal/jdserving"
+)
 
 func TestResolverUsesFormalValuesAndBoundsFuzzyExpansion(t *testing.T) {
 	resolver := Resolver{Values: map[Dimension][]Candidate{
@@ -112,6 +116,18 @@ func TestBroadExpressionRecognizesWildcardAndWholeDimensionPhrases(t *testing.T)
 	for _, expression := range []string{"*", "all", "全部项目", "所有岗位族"} {
 		if !isBroadExpression(expression) {
 			t.Fatalf("isBroadExpression(%q) = false", expression)
+		}
+	}
+}
+
+func TestResolverProjectCandidatesExcludeUnrecognizedPseudoValue(t *testing.T) {
+	resolver := resolverFromOptions(jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{
+		{Value: "alpha", Label: "Alpha"},
+		{Value: "unrecognized", Label: "未识别项目"},
+	}})
+	for _, candidate := range resolver.Values[DimensionProject] {
+		if candidate.Value == "unrecognized" {
+			t.Fatalf("resolver retained pseudo value: %#v", resolver.Values[DimensionProject])
 		}
 	}
 }

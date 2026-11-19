@@ -56,3 +56,29 @@ func TestServingToolBatchRejectsMoreThanEight(t *testing.T) {
 		t.Fatal("batch tool accepted more than eight requests")
 	}
 }
+
+func TestServingToolProjectValuesExcludeUnrecognizedTrendPseudoValue(t *testing.T) {
+	service := ServingToolService{Options: runnerOptionsReader{options: jdserving.FilterOptionsResponse{
+		Projects: []jdserving.FilterOption{
+			{Value: "alpha", Label: "Alpha"},
+			{Value: "unrecognized", Label: "未识别项目"},
+		},
+	}}}
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.Call(context.Background(), ToolCall{Name: ToolListAvailableValues, Params: json.RawMessage(`{"dimension":"project"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []FilterOption
+	if err := json.Unmarshal(result.Payload, &values); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range values {
+		if value.Value == "unrecognized" {
+			t.Fatalf("trend tool returned filter-only pseudo value: %#v", values)
+		}
+	}
+}

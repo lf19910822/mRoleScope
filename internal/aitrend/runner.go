@@ -291,6 +291,9 @@ func resolverFromOptions(options jdserving.FilterOptionsResponse) Resolver {
 		}
 	}
 	for _, option := range options.Projects {
+		if option.Value == "unrecognized" {
+			continue
+		}
 		values[DimensionProject] = append(values[DimensionProject], Candidate{Dimension: DimensionProject, Value: option.Value, Label: option.Label, MatchStatus: MatchExact})
 	}
 	for _, option := range options.JobFamilies {
