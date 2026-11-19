@@ -65,7 +65,7 @@ function mockDraftForQuery(query: string): AITrendDraft {
     ? [
         mockCurve(
           'project',
-          'genshin_impact',
+          'game.genshin-impact',
           '原神',
           'exact',
           'projects',
@@ -73,7 +73,7 @@ function mockDraftForQuery(query: string): AITrendDraft {
         ),
         mockCurve(
           'project',
-          'zenless_zone_zero',
+          'game.zenless-zone-zero',
           '绝区零',
           'possible',
           'projects',
@@ -81,7 +81,7 @@ function mockDraftForQuery(query: string): AITrendDraft {
         ),
         mockCurve(
           'project',
-          'honkai_star_rail',
+          'game.honkai-star-rail',
           '崩坏：星穹铁道',
           'exact',
           'projects',
@@ -122,7 +122,7 @@ function mockDraftForQuery(query: string): AITrendDraft {
     curves,
     explanation: '按当前周期岗位平均数量整理候选，曲线应用前仍可修改。',
     warnings: query.includes('项目')
-      ? ['本地预览的项目候选尚未连接当前正式项目列表，应用时会重新校验。']
+      ? ['本地预览未读取当前周期岗位数量，应用时会按正式项目值重新校验。']
       : undefined,
   }
 }
