@@ -1017,7 +1017,7 @@ onBeforeUnmount(() => {
             <div v-if="aiChatReply" class="job-trend-view__ai-chat-reply">
               <span class="job-trend-view__ai-chat-avatar" aria-hidden="true">AI</span>
               <div>
-                <strong>AI</strong>
+                <strong>AI 回复</strong>
                 <p>{{ aiChatReply }}</p>
               </div>
             </div>
@@ -2332,26 +2332,31 @@ onBeforeUnmount(() => {
 }
 
 .job-trend-view__ai-chat {
-  background: rgba(245, 251, 251, 0.86);
-  border: 1px solid var(--ai-rule);
+  background: linear-gradient(180deg, rgba(247, 252, 252, 0.96), rgba(241, 249, 250, 0.88));
+  border: 1px solid #cfe3e7;
   border-radius: 14px;
-  height: 236px;
+  height: 176px;
   overflow: hidden;
 }
 
 .job-trend-view__ai-chat-scroll {
   display: grid;
-  gap: 12px;
+  align-content: space-between;
+  gap: 10px;
   height: 100%;
   overflow-y: auto;
-  padding: 13px;
+  padding: 12px 13px 10px;
   scrollbar-width: thin;
 }
 
 .job-trend-view__ai-chat-reply {
   align-items: flex-start;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid #d8e9eb;
+  border-radius: 10px;
   display: flex;
   gap: 10px;
+  padding: 9px 10px;
 }
 
 .job-trend-view__ai-chat-avatar {
@@ -2378,14 +2383,14 @@ onBeforeUnmount(() => {
 
 .job-trend-view__ai-chat-reply p {
   color: #345761;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   line-height: 1.5;
   margin: 0;
 }
 
 .job-trend-view__ai-chat-details {
   border-top: 1px solid var(--ai-rule);
-  padding-top: 9px;
+  padding-top: 8px;
 }
 
 .job-trend-view__ai-chat-details summary {
@@ -2393,7 +2398,7 @@ onBeforeUnmount(() => {
   color: var(--ai-ink);
   cursor: pointer;
   display: flex;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 750;
   justify-content: space-between;
   list-style: none;
@@ -4016,7 +4021,7 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
   .job-trend-view__ai-chat {
-    height: 220px;
+    height: 190px;
   }
   .job-trend-view__ai-curve-list-head {
     display: none;
