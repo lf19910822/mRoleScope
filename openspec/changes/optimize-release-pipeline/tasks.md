@@ -9,6 +9,7 @@
 ## 2. Observable release timing
 
 - [x] 2.1 Add safe elapsed timing for preflight, quality gate, image publication, asset refresh, and remote deployment phases and verify output contains no secrets.
+- [x] 2.2 Avoid forced registry refreshes for digest-pinned local base images and verify the release build command retains platform and digest-pinned Dockerfiles.
 
 ## 3. Regression coverage and documentation
 

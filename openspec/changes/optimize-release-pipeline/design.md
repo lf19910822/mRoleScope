@@ -56,6 +56,14 @@ The local script records monotonic shell timestamps around its major phases and
 prints only phase names and milliseconds. It does not alter the remote helper's
 authorization or print command arguments containing runtime configuration.
 
+### Trust digest-pinned local base images
+
+The release build does not pass Docker's `--pull` flag. Each reviewed
+Dockerfile names its base image by a full digest, so refreshing the same digest
+on every release only adds a registry round-trip. Docker still obtains a base
+image when the pinned digest is absent locally, and changing a base digest
+remains a reviewed source change.
+
 ## Risks / Trade-offs
 
 - **Stale asset marker** → Treat a missing or mismatched marker as a cache miss;
