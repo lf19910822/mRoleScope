@@ -119,6 +119,13 @@ func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t
 		if body["model"] != "qwen-plus" {
 			t.Fatalf("model = %#v", body["model"])
 		}
+		if body["max_tokens"] != float64(1200) {
+			t.Fatalf("max_tokens = %#v", body["max_tokens"])
+		}
+		messages, ok := body["messages"].([]any)
+		if !ok || len(messages) == 0 || !strings.Contains(messages[0].(map[string]any)["content"].(string), "never put a metric name") {
+			t.Fatalf("intent prompt did not separate expressions from metrics: %#v", body["messages"])
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		response := map[string]any{
 			"choices": []any{map[string]any{"message": map[string]string{"content": `{"contract_version":"ai-trend-draft-v1","sub_queries":[],"time_range":{"kind":"month"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`}}},
