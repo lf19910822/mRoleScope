@@ -1071,12 +1071,22 @@ onBeforeUnmount(() => {
           </header>
           <div v-if="aiTrend.draft.explanation" class="job-trend-view__ai-reason">
             <span class="job-trend-view__ai-reason-mark" aria-hidden="true">✦</span>
-            <p>{{ aiTrend.draft.explanation }}</p>
+            <div>
+              <strong>AI 选择理由</strong>
+              <p>{{ aiTrend.draft.explanation }}</p>
+            </div>
           </div>
           <div v-if="aiTrend.draft.warnings?.length" class="job-trend-view__ai-warnings">
             <p v-for="warning in aiTrend.draft.warnings" :key="warning">{{ warning }}</p>
           </div>
           <div v-if="aiTrend.draft.curves.length" class="job-trend-view__ai-curve-list">
+            <div class="job-trend-view__ai-curve-list-head" aria-hidden="true">
+              <span>曲线名称</span>
+              <span>维度</span>
+              <span>条件</span>
+              <span>匹配</span>
+              <span></span>
+            </div>
             <article
               v-for="(curve, index) in aiTrend.draft.curves"
               :key="`${curve.condition.dimension}-${curve.condition.value}-${curve.condition.includeSecondary}`"
@@ -1089,37 +1099,22 @@ onBeforeUnmount(() => {
                 aria-hidden="true"
               ></span>
               <div class="job-trend-view__ai-curve-main">
-                <div class="job-trend-view__ai-curve-topline">
-                  <label class="job-trend-view__ai-check">
-                    <input v-model="curve.selected" type="checkbox" />
-                    <span class="job-trend-view__ai-checkbox" aria-hidden="true"></span>
+                <label class="job-trend-view__ai-check job-trend-view__ai-curve-name">
+                  <input v-model="curve.selected" type="checkbox" />
+                  <span class="job-trend-view__ai-checkbox" aria-hidden="true"></span>
+                  <span>
                     <strong>{{ curve.label || curve.condition.value || '待填写' }}</strong>
-                  </label>
-                  <span class="job-trend-view__ai-match" :class="`is-${curve.match_status}`">{{
-                    aiMatchLabel(curve.match_status)
-                  }}</span>
-                  <button
-                    class="job-trend-view__ai-remove"
-                    type="button"
-                    aria-label="移除这条草稿曲线"
-                    @click="removeAIDraftCurve(index)"
-                  >
-                    ×
-                  </button>
-                </div>
-                <div class="job-trend-view__ai-curve-meta">
-                  <span>{{ aiDimensionLabel(curve.condition.dimension) }}</span>
-                  <span>{{ aiDraftConditionText(curve) }}</span>
-                  <span v-if="curve.scope">{{ curve.scope }}</span>
-                </div>
-                <div class="job-trend-view__ai-curve-edit">
-                  <NSelect
-                    :value="curve.condition.dimension"
-                    :options="aiDimensionOptions"
-                    size="small"
-                    aria-label="修改统计维度"
-                    @update:value="updateAIDraftDimension(curve, $event)"
-                  />
+                    <small>{{ curve.reason }}</small>
+                  </span>
+                </label>
+                <NSelect
+                  :value="curve.condition.dimension"
+                  :options="aiDimensionOptions"
+                  size="small"
+                  aria-label="修改统计维度"
+                  @update:value="updateAIDraftDimension(curve, $event)"
+                />
+                <div class="job-trend-view__ai-condition-cell">
                   <NSelect
                     :value="curve.condition.value || null"
                     :options="aiDraftValueOptions(curve)"
@@ -1150,7 +1145,17 @@ onBeforeUnmount(() => {
                     @update:value="updateAIDraftOperator(curve, $event)"
                   />
                 </div>
-                <p class="job-trend-view__ai-curve-reason">{{ curve.reason }}</p>
+                <span class="job-trend-view__ai-match" :class="`is-${curve.match_status}`">{{
+                  aiMatchLabel(curve.match_status)
+                }}</span>
+                <button
+                  class="job-trend-view__ai-remove"
+                  type="button"
+                  aria-label="移除这条草稿曲线"
+                  @click="removeAIDraftCurve(index)"
+                >
+                  ×
+                </button>
               </div>
             </article>
           </div>
@@ -2326,7 +2331,9 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   display: grid;
   gap: 14px;
+  max-width: 1000px;
   padding: 16px;
+  width: 100%;
 }
 
 .job-trend-view__ai-result-header h3 {
@@ -2361,6 +2368,13 @@ onBeforeUnmount(() => {
   color: #008f7a;
   font-size: 1rem;
 }
+.job-trend-view__ai-reason strong {
+  color: #14784e;
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
 .job-trend-view__ai-reason p {
   color: #345761;
   font-size: 0.79rem;
@@ -2377,17 +2391,25 @@ onBeforeUnmount(() => {
 
 .job-trend-view__ai-curve-list {
   display: grid;
-  gap: 9px;
+  gap: 4px;
+}
+.job-trend-view__ai-curve-list-head {
+  color: var(--ai-muted);
+  display: grid;
+  font-size: 0.64rem;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 1.1fr) minmax(100px, 0.65fr) minmax(210px, 1.45fr) 74px 20px;
+  padding: 0 10px 3px 20px;
 }
 .job-trend-view__ai-curve-row {
   background: #fbfdfd;
   border: 1px solid var(--ai-rule);
   border-radius: 12px;
-  display: flex;
-  gap: 12px;
+  display: grid;
+  gap: 0;
   min-width: 0;
   overflow: hidden;
-  padding: 12px 12px 11px 0;
+  padding: 0 10px 0 0;
 }
 .job-trend-view__ai-curve-row.is-selected {
   border-color: #b7d8dc;
@@ -2396,25 +2418,24 @@ onBeforeUnmount(() => {
 .job-trend-view__ai-curve-line {
   background: var(--ai-curve-color);
   border-radius: 0 4px 4px 0;
-  flex: 0 0 4px;
-  min-height: 100%;
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 50px;
+  width: 4px;
 }
 .job-trend-view__ai-curve-main {
-  display: grid;
-  flex: 1;
-  gap: 8px;
-  min-width: 0;
-}
-.job-trend-view__ai-curve-topline {
   align-items: center;
-  display: flex;
-  gap: 8px;
+  display: grid;
+  gap: 10px;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-columns: minmax(160px, 1.1fr) minmax(100px, 0.65fr) minmax(210px, 1.45fr) 74px 20px;
   min-width: 0;
+  padding: 6px 0 6px 20px;
 }
 .job-trend-view__ai-check {
   align-items: center;
   display: flex;
-  flex: 1;
   gap: 8px;
   min-width: 0;
 }
@@ -2448,6 +2469,31 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.job-trend-view__ai-curve-name > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.job-trend-view__ai-curve-name small {
+  color: var(--ai-muted);
+  font-size: 0.63rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-trend-view__ai-curve-main > :deep(.n-select) {
+  min-width: 0;
+}
+.job-trend-view__ai-condition-cell {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+.job-trend-view__ai-condition-cell > :deep(.n-select) {
+  flex: 1;
+  min-width: 0;
 }
 .job-trend-view__ai-match {
   border-radius: 999px;
@@ -2483,29 +2529,6 @@ onBeforeUnmount(() => {
 }
 .job-trend-view__ai-remove:hover {
   color: #a8424d;
-}
-.job-trend-view__ai-curve-meta {
-  color: var(--ai-muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 0.7rem;
-  gap: 6px;
-}
-.job-trend-view__ai-curve-meta span {
-  background: #f0f6f7;
-  border-radius: 5px;
-  padding: 3px 6px;
-}
-.job-trend-view__ai-curve-edit {
-  display: grid;
-  gap: 7px;
-  grid-template-columns: minmax(132px, 0.7fr) minmax(180px, 1.4fr) minmax(132px, 0.8fr);
-}
-.job-trend-view__ai-curve-reason {
-  color: #5d747d;
-  font-size: 0.72rem;
-  line-height: 1.45;
-  margin: 0;
 }
 .job-trend-view__ai-result-actions {
   border-top: 1px solid var(--ai-rule);
@@ -3889,8 +3912,22 @@ onBeforeUnmount(() => {
   .job-trend-view__ai-example {
     min-height: 0;
   }
-  .job-trend-view__ai-curve-edit {
+  .job-trend-view__ai-curve-list-head {
+    display: none;
+  }
+  .job-trend-view__ai-curve-main {
+    align-items: stretch;
+    gap: 6px;
     grid-template-columns: 1fr;
+    padding-left: 18px;
+  }
+  .job-trend-view__ai-curve-main > :deep(.n-select),
+  .job-trend-view__ai-condition-cell {
+    grid-column: 1;
+  }
+  .job-trend-view__ai-condition-cell {
+    align-items: stretch;
+    flex-direction: column;
   }
   .job-trend-view__ai-result-actions {
     align-items: flex-start;

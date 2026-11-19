@@ -11,6 +11,8 @@ describe('JobTrendView', () => {
     expect(source).toContain('submitAIExample')
     expect(source).toContain('job-trend-view__ai-activity')
     expect(source).toContain('job-trend-view__ai-reason')
+    expect(source).toContain('AI 选择理由')
+    expect(source).toContain('job-trend-view__ai-curve-list-head')
     expect(source).toContain('job-trend-view__ai-curve-list')
     expect(source).toContain('job-trend-view__ai-curve-line')
     expect(source).toContain('updateAIDraftDimension')
