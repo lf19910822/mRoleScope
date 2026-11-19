@@ -130,6 +130,9 @@ fi
   || die 'successful release did not build exactly four images'
 [[ "$(grep -c '^docker push ' "$MROLESCOPE_RELEASE_TEST_LOG")" -eq 4 ]] \
   || die 'successful release did not push exactly four images'
+if grep -Fq -- 'docker build --pull ' "$MROLESCOPE_RELEASE_TEST_LOG"; then
+  die 'release still forces redundant pulls for digest-pinned base images'
+fi
 grep -Fqx "make -C ${repository_root} remote-release-verify" "$MROLESCOPE_RELEASE_TEST_LOG" \
   || die 'successful release skipped the local release verification target'
 grep -Fq 'sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-deploy' "$MROLESCOPE_RELEASE_TEST_LOG" \

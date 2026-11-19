@@ -68,3 +68,20 @@ credentials or connection strings.
 - **WHEN** a release completes or fails
 - **THEN** its output contains safe phase names and elapsed durations suitable
   for comparing release performance
+
+### Requirement: Pinned base images avoid redundant pulls
+
+The release SHALL build from the full digest-pinned base images declared by the
+reviewed Dockerfiles without forcing a registry refresh when those exact images
+are already present locally.
+
+#### Scenario: Base image is cached locally
+
+- **WHEN** a release builds an image whose digest-pinned base is already local
+- **THEN** the build proceeds without a forced base-image registry pull
+
+#### Scenario: Base image is absent
+
+- **WHEN** a digest-pinned base image is absent from the local daemon
+- **THEN** Docker may obtain that exact digest as part of the normal build and
+  the build does not accept a mutable tag as a substitute

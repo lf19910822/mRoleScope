@@ -133,7 +133,10 @@ build_and_push() {
 
   image_tag="docker.io/${dockerhub_namespace}/${image_name}:${revision}"
   printf 'Building %s…\n' "$image_name" >&2
-  docker build --pull --platform linux/amd64 \
+  # Every Dockerfile uses digest-pinned base images. Avoid forcing a registry
+  # round-trip on every release; Docker still pulls a pinned base if it is
+  # genuinely absent from the local daemon.
+  docker build --platform linux/amd64 \
     --file "$dockerfile" \
     --label "${revision_label}=${revision}" \
     --label "${source_label}=${source_url}" \
