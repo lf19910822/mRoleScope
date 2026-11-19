@@ -47,3 +47,12 @@
 
 - **WHEN** 用户询问“原神项目的岗位趋势”
 - **THEN** 系统继续优先使用该正式项目值，不将其替换为全部项目扩展候选
+
+### Requirement: The intent contract names the wildcard representation
+
+意图提示词 SHALL 明确要求模型在没有点名具体正式值的宽泛类别问题中使用 `expressions: ["*"]`，并禁止用空字符串表示全部候选。
+
+#### Scenario: Prompt guides a broad project question
+
+- **WHEN** 模型需要表达“哪些项目的岗位最多？”
+- **THEN** 提示词要求其使用 `"*"`，同时把岗位数量指标放在 `ranking.metric` 中
