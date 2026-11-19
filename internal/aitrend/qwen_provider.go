@@ -104,7 +104,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentUsage(ctx context.Context, quer
 	}
 	body, err := json.Marshal(qwenTrendRequest{
 		EnableThinking: false,
-		MaxTokens:      5000,
+		MaxTokens:      1200,
 		Messages: []qwenTrendMessage{
 			{Role: "system", Content: IntentPromptV1()},
 			{Role: "user", Content: userPrompt},

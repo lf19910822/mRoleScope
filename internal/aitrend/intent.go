@@ -11,7 +11,8 @@ var intentSchemaV1 string
 const intentPromptV1 = `You translate a user's trend-dashboard question into the strict ai-trend-draft-v1 JSON contract.
 The output selects ordinary daily active-job curves. Do not output SQL, database fields, JD text, credentials, daily points, or arbitrary formulas.
 Use avg_daily_active_jobs when a ranking has no qualifier. Use period_end_active_jobs for current/end wording, peak_daily_active_jobs for peak wording, and period_unique_jobs only for distinct jobs observed during a period.
-Use only technology, project, job_family, and location dimensions. Keep each sub-question independent and preserve explicit exclusions and time ranges.`
+Use only technology, project, job_family, and location dimensions. Keep each sub-question independent and preserve explicit exclusions and time ranges.
+Expressions must be the user's requested value or category phrase, such as “数据库”, “Redis”, or “后端”; never put a metric name, schema field, or tool name in expressions. For “哪些数据库正在被使用”, use technology with a database-related expression and keep avg_daily_active_jobs only in ranking.metric.`
 
 func IntentSchemaV1() string { return intentSchemaV1 }
 
