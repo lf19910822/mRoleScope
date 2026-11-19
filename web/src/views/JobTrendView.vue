@@ -161,7 +161,7 @@ const eventCurveRows = computed(() =>
 )
 const eventCurveOptions = computed<SelectOption[]>(() =>
   eventCurveRows.value.slice(0, 8).map((row) => ({
-    label: trendCurveLabel(row),
+    label: safeTrendCurveLabel(row),
     value: row.id,
   })),
 )
@@ -172,7 +172,7 @@ const selectedEventRow = computed(() =>
   eventCurveRows.value.find((row) => row.id === eventStats.selectedCurveId),
 )
 const selectedEventCurveLabel = computed(() =>
-  selectedEventRow.value ? trendCurveLabel(selectedEventRow.value) : '',
+  selectedEventRow.value ? safeTrendCurveLabel(selectedEventRow.value) : '',
 )
 const eventStatsRows = computed(() => eventStats.response?.rows ?? [])
 
@@ -214,30 +214,6 @@ function aiCurveColor(index: number): string {
     '#332288',
   ]
   return palette[index % palette.length] ?? palette[0]!
-}
-
-function aiDimensionLabel(dimension: TrendDimension): string {
-  return dimensionOptions.find((option) => option.value === dimension)?.label ?? dimension
-}
-
-function aiDraftConditionText(curve: AITrendDraftCurve): string {
-  const operatorLabels: Record<string, string> = {
-    eq: '等于',
-    gt: '大于',
-    gte: '至少',
-    lt: '小于',
-    lte: '至多',
-  }
-  const operator = curve.condition.operator
-    ? (operatorLabels[curve.condition.operator] ?? curve.condition.operator)
-    : ''
-  const scope =
-    curve.condition.dimension === 'job_family'
-      ? curve.condition.includeSecondary
-        ? '含副岗位族'
-        : '仅主岗位族'
-      : ''
-  return [operator, curve.condition.value || '待填写', scope].filter(Boolean).join(' · ')
 }
 
 function aiMatchLabel(status: AITrendDraftCurve['match_status']): string {
@@ -282,10 +258,7 @@ function aiDraftValueOptions(curve: AITrendDraftCurve): SelectOption[] {
       break
   }
   if (curve.condition.value && !options.some((option) => option.value === curve.condition.value)) {
-    options = [
-      { label: `当前不可用：${curve.condition.value}`, value: curve.condition.value },
-      ...options,
-    ]
+    options = [{ label: `${curve.label || '当前条件'}（当前不可用）`, value: curve.condition.value }, ...options]
   }
   return options
 }
@@ -451,9 +424,32 @@ function curveValueOptions(row: TrendCurveRow): SelectOption[] {
       break
   }
   if (row.condition.value && !options.some((option) => option.value === row.condition.value)) {
-    return [{ label: `当前不可用：${row.condition.value}`, value: row.condition.value }, ...options]
+    return [{ label: '当前条件不可用', value: row.condition.value }, ...options]
   }
   return options
+}
+
+function isCurrentCurveValueAvailable(row: TrendCurveRow): boolean {
+  return curveValueOptions(row).some(
+    (option) => option.value === row.condition.value && option.label !== '当前条件不可用',
+  )
+}
+
+function safeTrendCurveLabel(row: TrendCurveRow): string {
+  if (row.series !== undefined || !row.condition.value || isCurrentCurveValueAvailable(row)) {
+    return trendCurveLabel(row) || '未设置曲线'
+  }
+  const draftCurve = aiTrend.draft?.curves.find(
+    (curve) =>
+      curve.condition.dimension === row.condition.dimension &&
+      curve.condition.value === row.condition.value &&
+      curve.condition.includeSecondary === row.condition.includeSecondary,
+  )
+  const safeValue = draftCurve?.label || '当前条件不可用'
+  return trendCurveLabel({
+    ...row,
+    condition: { ...row.condition, value: safeValue },
+  }) || '当前条件不可用'
 }
 
 function addCurve(): void {
@@ -1103,7 +1099,7 @@ onBeforeUnmount(() => {
                   <input v-model="curve.selected" type="checkbox" />
                   <span class="job-trend-view__ai-checkbox" aria-hidden="true"></span>
                   <span>
-                    <strong>{{ curve.label || curve.condition.value || '待填写' }}</strong>
+                    <strong>{{ curve.label || '当前条件' }}</strong>
                     <small>{{ curve.reason }}</small>
                   </span>
                 </label>
@@ -1805,7 +1801,7 @@ onBeforeUnmount(() => {
             aria-hidden="true"
           ></span>
           <button
-            :aria-label="`展开曲线：${trendCurveLabel(row) || '未设置曲线'}`"
+            :aria-label="`展开曲线：${safeTrendCurveLabel(row)}`"
             :data-testid="`curve-marker-${row.id}`"
             class="job-trend-view__curve-marker"
             :style="{ '--curve-color': trendCurveColor(row) }"
@@ -1814,7 +1810,7 @@ onBeforeUnmount(() => {
           >
             <span class="job-trend-view__curve-marker-core" aria-hidden="true"></span>
             <span class="job-trend-view__curve-marker-note" aria-hidden="true">
-              {{ trendCurveLabel(row) || '未设置曲线' }}
+              {{ safeTrendCurveLabel(row) }}
             </span>
           </button>
         </div>
@@ -1882,7 +1878,7 @@ onBeforeUnmount(() => {
                 String(index + 1).padStart(2, '0')
               }}</span>
               <div class="job-trend-view__curve-identity">
-                <strong>{{ trendCurveLabel(row) || '未设置曲线' }}</strong>
+                <strong>{{ safeTrendCurveLabel(row) }}</strong>
               </div>
               <span
                 v-if="highlightIncompleteCurves && !isCurveComplete(row)"

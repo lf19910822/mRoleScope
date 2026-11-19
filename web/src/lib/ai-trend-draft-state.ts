@@ -121,6 +121,9 @@ function mockDraftForQuery(query: string): AITrendDraft {
     status: 'complete',
     curves,
     explanation: '按当前周期岗位平均数量整理候选，曲线应用前仍可修改。',
+    warnings: query.includes('项目')
+      ? ['本地预览的项目候选尚未连接当前正式项目列表，应用时会重新校验。']
+      : undefined,
   }
 }
 

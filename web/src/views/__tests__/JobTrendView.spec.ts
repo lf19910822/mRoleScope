@@ -153,7 +153,7 @@ describe('JobTrendView', () => {
   })
 
   it('makes the curve dimension the visual headline and uses the line color on the card edge', () => {
-    expect(source).toContain("{{ trendCurveLabel(row) || '未设置曲线' }}")
+    expect(source).toContain('{{ safeTrendCurveLabel(row) }}')
     expect(source).toMatch(
       /\.job-trend-view__curve-identity strong \{[\s\S]*?font-size:\s*0\.84rem;[\s\S]*?font-weight:\s*800;/u,
     )
