@@ -1166,7 +1166,9 @@ onBeforeUnmount(() => {
                   class="job-trend-view__ai-match"
                   :class="`is-${curve.match_status}`"
                   :aria-label="aiMatchDescription(curve.match_status)"
-                  :title="aiMatchDescription(curve.match_status)"
+                  :data-tooltip="aiMatchDescription(curve.match_status)"
+                  role="img"
+                  tabindex="0"
                 >{{ aiMatchSymbol(curve.match_status) }}</span>
                 <button
                   class="job-trend-view__ai-remove"
@@ -2648,6 +2650,7 @@ onBeforeUnmount(() => {
 }
 .job-trend-view__ai-match {
   align-items: center;
+  cursor: help;
   display: inline-flex;
   flex: 0 0 20px;
   font-size: 1rem;
@@ -2655,7 +2658,37 @@ onBeforeUnmount(() => {
   height: 20px;
   justify-content: center;
   line-height: 1;
+  position: relative;
   width: 20px;
+}
+.job-trend-view__ai-match::after {
+  background: #173943;
+  border-radius: 7px;
+  bottom: calc(100% + 8px);
+  box-shadow: 0 8px 20px -12px rgba(8, 46, 58, 0.85);
+  color: #fff;
+  content: attr(data-tooltip);
+  font-size: 0.68rem;
+  font-weight: 500;
+  left: 50%;
+  line-height: 1.45;
+  opacity: 0;
+  padding: 7px 9px;
+  pointer-events: none;
+  position: absolute;
+  text-align: left;
+  transform: translate(-50%, 4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  visibility: hidden;
+  white-space: normal;
+  width: 210px;
+  z-index: 30;
+}
+.job-trend-view__ai-match:hover::after,
+.job-trend-view__ai-match:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
 }
 .job-trend-view__ai-match.is-exact {
   color: #14784e;
