@@ -231,10 +231,34 @@ function hideMatchTooltip(): void {
 
 function aiCurveColor(index: number): string {
   const curves = aiTrend.draft?.curves ?? []
+  const curve = curves[index]
+  if (!curve) return trendPalette[0]!
+  const existing = dashboard.rows.find((row) => {
+    const condition = row.appliedCondition ?? row.condition
+    return (
+      condition.dimension === curve.condition.dimension &&
+      condition.value === curve.condition.value &&
+      condition.operator === curve.condition.operator &&
+      condition.includeSecondary === curve.condition.includeSecondary
+    )
+  })
+  if (existing) return trendCurveColor(existing)
+
   const usedIDs = new Set(dashboard.rows.map((row) => row.id))
   let ordinal = 1
   for (let current = 0; current <= index; current += 1) {
-    if (!curves[current]?.selected) continue
+    const candidate = curves[current]
+    if (!candidate?.selected) continue
+    const alreadyExists = dashboard.rows.some((row) => {
+      const condition = row.appliedCondition ?? row.condition
+      return (
+        condition.dimension === candidate.condition.dimension &&
+        condition.value === candidate.condition.value &&
+        condition.operator === candidate.condition.operator &&
+        condition.includeSecondary === candidate.condition.includeSecondary
+      )
+    })
+    if (alreadyExists) continue
     while (usedIDs.has(`trend-${ordinal}`)) ordinal += 1
     if (current === index) return trendPalette[(ordinal - 1) % trendPalette.length] ?? trendPalette[0]!
     usedIDs.add(`trend-${ordinal}`)
