@@ -91,6 +91,22 @@ func TestTrendRunnerUsesServingValuesAndRanksDraft(t *testing.T) {
 	}
 }
 
+func TestAppendAuditOperationCapturesTerminalFailure(t *testing.T) {
+	operations := appendAuditOperation(nil, StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolRankValues)})
+	operations = appendAuditOperation(operations, StreamEvent{
+		Type:   StreamEventOperation,
+		Status: StreamFailed,
+		Tool:   string(ToolRankValues),
+		Error:  &SafeError{Code: ErrorBackendFailure, Message: "safe failure"},
+	})
+	if len(operations) != 1 || operations[0].Status != StreamFailed || operations[0].SafeErrorCode == nil || *operations[0].SafeErrorCode != string(ErrorBackendFailure) {
+		t.Fatalf("operations = %#v", operations)
+	}
+	if operations[0].EndedAt.IsZero() {
+		t.Fatal("terminal operation has no end time")
+	}
+}
+
 func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer test-key" {

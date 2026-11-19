@@ -132,10 +132,11 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 }
 
 type auditOperation struct {
-	Tool      string
-	Status    StreamStatus
-	StartedAt time.Time
-	EndedAt   time.Time
+	Tool          string
+	Status        StreamStatus
+	SafeErrorCode *string
+	StartedAt     time.Time
+	EndedAt       time.Time
 }
 
 func appendAuditOperation(operations []auditOperation, event StreamEvent) []auditOperation {
@@ -146,6 +147,10 @@ func appendAuditOperation(operations []auditOperation, event StreamEvent) []audi
 	for index := len(operations) - 1; index >= 0; index-- {
 		if operations[index].Tool == event.Tool && operations[index].EndedAt.IsZero() {
 			operations[index].Status = event.Status
+			if event.Error != nil && event.Error.Code != "" {
+				code := string(event.Error.Code)
+				operations[index].SafeErrorCode = &code
+			}
 			operations[index].EndedAt = now
 			return operations
 		}
@@ -173,7 +178,7 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 	requestHash := HashRequest([]byte(query))
 	record := AuditRecord{
 		RequestHash: requestHash, ContractVersion: ContractVersionV1, ValidationStatus: "valid",
-		Status: status, AIAttemptCount: result.AIAttempts, ToolCallCount: len(result.ToolResults),
+		Status: status, AIAttemptCount: result.AIAttempts, ToolCallCount: len(operations),
 		InputTokenCount: inputTokens, OutputTokenCount: outputTokens, Duration: completedAt.Sub(createdAt),
 		CreatedAt: createdAt, CompletedAt: &completedAt, ExpiresAt: createdAt.Add(AuditRetention),
 	}
@@ -200,8 +205,8 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 		safe := safeErrorFrom(runErr)
 		record.SafeErrorCode = stringPointer(string(safe.Code))
 	}
-	for _, toolResult := range result.ToolResults {
-		if toolResult.SafeError != nil {
+	for _, operation := range operations {
+		if operation.Status == StreamFailed {
 			record.ToolFailureCount++
 		}
 	}
@@ -225,7 +230,7 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 		} else if statusValue == "" || statusValue == string(StreamRunning) {
 			statusValue = string(StreamFailed)
 		}
-		_ = runner.Audit.InsertTool(ctx, AuditToolRecord{AuditID: auditID, Sequence: index + 1, ToolName: operation.Tool, Status: statusValue, Duration: ended.Sub(operation.StartedAt), StartedAt: operation.StartedAt, CompletedAt: &ended})
+		_ = runner.Audit.InsertTool(ctx, AuditToolRecord{AuditID: auditID, Sequence: index + 1, ToolName: operation.Tool, Status: statusValue, SafeErrorCode: operation.SafeErrorCode, Duration: ended.Sub(operation.StartedAt), StartedAt: operation.StartedAt, CompletedAt: &ended})
 	}
 	_ = runner.Audit.Cleanup(ctx)
 }
