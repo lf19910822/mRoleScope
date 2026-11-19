@@ -40,7 +40,12 @@ import FilterDatePicker from '@/components/FilterDatePicker.vue'
 import JDDetailReadingLayout from '@/components/JDDetailReadingLayout.vue'
 import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
 import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
-import { createTrendChartOption, trendCurveColor, trendCurveLabel } from '@/lib/job-trend-chart'
+import {
+  createTrendChartOption,
+  trendCurveColor,
+  trendCurveLabel,
+  trendPalette,
+} from '@/lib/job-trend-chart'
 import { createAITrendDraftState } from '@/lib/ai-trend-draft-state'
 import { useJobTrendDashboard } from '@/lib/job-trend-dashboard'
 import { createTrendDrilldownState } from '@/lib/job-trend-drilldown-state'
@@ -208,19 +213,34 @@ const aiChatReply = computed(() => {
   if (aiTrend.status === 'stopped') return '分析已停止，已保留目前拿到的结果。'
   return ''
 })
+const matchTooltip = ref<{ text: string; x: number; y: number; below: boolean }>()
+
+function showMatchTooltip(event: MouseEvent | FocusEvent, text: string): void {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  const below = rect.top < 72
+  const edge = Math.max(110, window.innerWidth - 110)
+  const x = Math.min(edge, Math.max(110, rect.left + rect.width / 2))
+  matchTooltip.value = { text, x, y: below ? rect.bottom + 8 : rect.top - 8, below }
+}
+
+function hideMatchTooltip(): void {
+  matchTooltip.value = undefined
+}
 
 function aiCurveColor(index: number): string {
-  const palette = [
-    '#0072B2',
-    '#E69F00',
-    '#009E73',
-    '#D55E00',
-    '#CC79A7',
-    '#56B4E9',
-    '#B79F00',
-    '#332288',
-  ]
-  return palette[index % palette.length] ?? palette[0]!
+  const curves = aiTrend.draft?.curves ?? []
+  const usedIDs = new Set(dashboard.rows.map((row) => row.id))
+  let ordinal = 1
+  for (let current = 0; current <= index; current += 1) {
+    if (!curves[current]?.selected) continue
+    while (usedIDs.has(`trend-${ordinal}`)) ordinal += 1
+    if (current === index) return trendPalette[(ordinal - 1) % trendPalette.length] ?? trendPalette[0]!
+    usedIDs.add(`trend-${ordinal}`)
+    ordinal += 1
+  }
+  return trendPalette[0]!
 }
 
 function aiMatchSymbol(status: AITrendDraftCurve['match_status']): string {
@@ -1169,6 +1189,10 @@ onBeforeUnmount(() => {
                   :data-tooltip="aiMatchDescription(curve.match_status)"
                   role="img"
                   tabindex="0"
+                  @blur="hideMatchTooltip"
+                  @focus="showMatchTooltip($event, aiMatchDescription(curve.match_status))"
+                  @mouseenter="showMatchTooltip($event, aiMatchDescription(curve.match_status))"
+                  @mouseleave="hideMatchTooltip"
                 >{{ aiMatchSymbol(curve.match_status) }}</span>
                 <button
                   class="job-trend-view__ai-remove"
@@ -2050,6 +2074,17 @@ onBeforeUnmount(() => {
       </div>
     </aside>
   </main>
+  <Teleport to="body">
+    <div
+      v-if="matchTooltip"
+      class="job-trend-view__ai-match-tooltip"
+      :class="{ 'is-below': matchTooltip.below }"
+      :style="{ left: `${matchTooltip.x}px`, top: `${matchTooltip.y}px` }"
+      role="tooltip"
+    >
+      {{ matchTooltip.text }}
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -2661,42 +2696,24 @@ onBeforeUnmount(() => {
   position: relative;
   width: 20px;
 }
-.job-trend-view__ai-match::after {
+.job-trend-view__ai-match-tooltip {
   background: #173943;
   border-radius: 7px;
-  top: calc(100% + 8px);
   box-shadow: 0 8px 20px -12px rgba(8, 46, 58, 0.85);
   color: #fff;
-  content: attr(data-tooltip);
   font-size: 0.68rem;
   font-weight: 500;
-  left: 50%;
   line-height: 1.45;
-  opacity: 0;
   padding: 7px 9px;
   pointer-events: none;
-  position: absolute;
+  position: fixed;
   text-align: left;
-  transform: translate(-50%, -4px);
-  transition: opacity 140ms ease, transform 140ms ease;
-  visibility: hidden;
+  transform: translate(-50%, -100%);
   white-space: normal;
   width: 210px;
-  z-index: 30;
+  z-index: 10000;
 }
-.job-trend-view__ai-match:hover::after,
-.job-trend-view__ai-match:focus-visible::after {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  visibility: visible;
-}
-.job-trend-view__ai-curve-row:nth-last-child(-n + 2) .job-trend-view__ai-match::after {
-  bottom: calc(100% + 8px);
-  top: auto;
-  transform: translate(-50%, 4px);
-}
-.job-trend-view__ai-curve-row:nth-last-child(-n + 2) .job-trend-view__ai-match:hover::after,
-.job-trend-view__ai-curve-row:nth-last-child(-n + 2) .job-trend-view__ai-match:focus-visible::after {
+.job-trend-view__ai-match-tooltip.is-below {
   transform: translate(-50%, 0);
 }
 .job-trend-view__ai-match.is-exact {
