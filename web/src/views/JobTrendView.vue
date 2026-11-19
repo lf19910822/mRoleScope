@@ -282,6 +282,17 @@ function updateAIDraftValue(curve: AITrendDraftCurve, value: string | number | n
   if (typeof value === 'string') curve.condition.value = value
 }
 
+function aiTechnologySelection(curve: AITrendDraftCurve): string[] {
+  return curve.condition.value ? [curve.condition.value] : []
+}
+
+function updateAIDraftTechnology(curve: AITrendDraftCurve, values: string[]): void {
+  const value = values[values.length - 1] ?? ''
+  curve.condition.value = value
+  const option = filterOptions.value.technology_keywords.find((item) => item.value === value)
+  if (option) curve.label = option.label
+}
+
 function updateAIDraftOperator(curve: AITrendDraftCurve, value: string | number | null): void {
   if (typeof value === 'string') curve.condition.operator = value as TrendComparison
 }
@@ -1111,7 +1122,15 @@ onBeforeUnmount(() => {
                   @update:value="updateAIDraftDimension(curve, $event)"
                 />
                 <div class="job-trend-view__ai-condition-cell">
+                  <TechnologyKeywordSelect
+                    v-if="curve.condition.dimension === 'technology'"
+                    :model-value="aiTechnologySelection(curve)"
+                    :options="filterOptions.technology_keywords"
+                    placeholder="选择技术关键词"
+                    @update:model-value="updateAIDraftTechnology(curve, $event)"
+                  />
                   <NSelect
+                    v-else
                     :value="curve.condition.value || null"
                     :options="aiDraftValueOptions(curve)"
                     size="small"
@@ -2519,14 +2538,22 @@ onBeforeUnmount(() => {
 .job-trend-view__ai-curve-list {
   display: grid;
   gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
 }
 .job-trend-view__ai-curve-list-head {
+  background: rgba(255, 255, 255, 0.96);
   color: var(--ai-muted);
   display: grid;
   font-size: 0.64rem;
   gap: 10px;
-  grid-template-columns: minmax(160px, 1.1fr) minmax(100px, 0.65fr) minmax(210px, 1.45fr) 74px 20px;
+  grid-template-columns: minmax(170px, 1.1fr) minmax(140px, 0.9fr) minmax(210px, 1.45fr) 74px 20px;
   padding: 0 10px 3px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .job-trend-view__ai-curve-row {
   background: #fbfdfd;
@@ -2556,7 +2583,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   grid-column: 1;
   grid-row: 1;
-  grid-template-columns: minmax(160px, 1.1fr) minmax(100px, 0.65fr) minmax(210px, 1.45fr) 74px 20px;
+  grid-template-columns: minmax(170px, 1.1fr) minmax(140px, 0.9fr) minmax(210px, 1.45fr) 74px 20px;
   min-width: 0;
   padding: 6px 0 6px 20px;
 }
@@ -2617,6 +2644,20 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 5px;
   min-width: 0;
+}
+.job-trend-view__ai-condition-cell :deep(.technology-keyword-select) {
+  min-width: 0;
+  width: 100%;
+}
+.job-trend-view__ai-condition-cell :deep(.technology-keyword-select__trigger) {
+  font-size: 0.76rem;
+  min-height: 30px;
+  overflow: hidden;
+  padding-left: 9px;
+  padding-right: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
 }
 .job-trend-view__ai-condition-cell > :deep(.n-select) {
   flex: 1;
@@ -4048,6 +4089,9 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__ai-curve-list-head {
     display: none;
+  }
+  .job-trend-view__ai-curve-list {
+    max-height: 360px;
   }
   .job-trend-view__ai-curve-main {
     align-items: stretch;
