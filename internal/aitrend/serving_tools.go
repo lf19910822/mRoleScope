@@ -78,6 +78,7 @@ type summaryToolResponse struct {
 	ValidObservationDays   int                              `json:"valid_observation_days"`
 	MissingObservationDays int                              `json:"missing_observation_days"`
 	Events                 map[jdserving.TrendEventType]int `json:"events,omitempty"`
+	Error                  *SafeError                       `json:"error,omitempty"`
 }
 
 func (service ServingToolService) listTechnologyCategories(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
@@ -211,7 +212,11 @@ func (service ServingToolService) batchTrendSummary(ctx context.Context, params 
 	for _, request := range requests {
 		payload, err := service.readTrendSummary(ctx, mustMarshal(request))
 		if err != nil {
-			return nil, err
+			result = append(result, mustMarshal(summaryToolResponse{
+				Curve: jdserving.TrendCurve{Dimension: jdserving.TrendDimension(request.Dimension), Value: request.Value},
+				Error: safeErrorFrom(err),
+			}))
+			continue
 		}
 		result = append(result, payload)
 	}
