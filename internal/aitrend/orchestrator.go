@@ -139,6 +139,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, _ string) (Orchestrati
 			result.Available = false
 			_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: call.Params, Error: result.SafeError})
 		} else {
+			if result.Name == ToolBatchTrendSummary {
+				result.SafeError = batchTrendPayloadFailure(result.Payload)
+			}
 			if orchestrator.TokenCounter(result.Payload) > orchestrator.MaxOutputTokens {
 				partial = true
 				result.SafeError = &SafeError{Code: ErrorLimitExceeded, Field: "tool_output_tokens", Message: "tool output exceeded budget"}
@@ -156,6 +159,19 @@ func (orchestrator Orchestrator) run(ctx context.Context, _ string) (Orchestrati
 		}
 	}
 	return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed, ToolResults: results, Partial: partial}, nil
+}
+
+func batchTrendPayloadFailure(payload json.RawMessage) *SafeError {
+	var summaries []summaryToolResponse
+	if err := json.Unmarshal(payload, &summaries); err != nil {
+		return nil
+	}
+	for _, summary := range summaries {
+		if summary.Error != nil {
+			return summary.Error
+		}
+	}
+	return nil
 }
 
 func (orchestrator Orchestrator) emit(event StreamEvent) error {

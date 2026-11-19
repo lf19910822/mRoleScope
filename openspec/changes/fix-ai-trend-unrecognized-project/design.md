@@ -21,6 +21,8 @@
 
 在 AI 趋势的 `resolverFromOptions` 和 `listAvailableValues` 项目投影处过滤 `unrecognized`。这样模型和确定性候选解析都看不到不可应用值，避免仅在批量读取阶段失败；岗位筛选继续使用完整的 `FilterOptionsResponse`。
 
+批量趋势工具同时改为逐项封装摘要或安全错误。编排器识别带错误项的批量结果，保留可用 payload、标记操作失败并让草稿进入 partial 状态。
+
 ## Risks / Trade-offs
 
 - [用户无法通过 AI 趋势查看未识别项目曲线] → 当前 Serving 没有该曲线的正式数据口径，继续生成会导致不可应用结果；岗位筛选仍可查看这些岗位。

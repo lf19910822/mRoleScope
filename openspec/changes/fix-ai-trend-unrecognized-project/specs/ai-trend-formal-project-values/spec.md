@@ -28,3 +28,12 @@
 
 - **WHEN** 正式项目批量摘要成功
 - **THEN** 草稿候选均为可读取的项目曲线，可继续应用到看板
+
+### Requirement: Batch trend summaries preserve successful items
+
+批量趋势摘要 SHALL 对每个请求独立执行；单项失败时返回该项的安全错误和维度/值，同时保留同批成功摘要，并将整次草稿标记为部分完成。
+
+#### Scenario: One project summary fails
+
+- **WHEN** 批量请求中一个项目趋势返回 `invalid_query` 或后台错误
+- **THEN** 其他成功项目摘要仍进入排序和草稿，失败项被审计并不会使整批数据丢失

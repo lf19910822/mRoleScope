@@ -3,6 +3,7 @@ package aitrend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"mrolescope/internal/jdserving"
@@ -80,5 +81,37 @@ func TestServingToolProjectValuesExcludeUnrecognizedTrendPseudoValue(t *testing.
 		if value.Value == "unrecognized" {
 			t.Fatalf("trend tool returned filter-only pseudo value: %#v", values)
 		}
+	}
+}
+
+type partialBatchSummaryReader struct{}
+
+func (partialBatchSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.TrendQuery) (jdserving.TrendSummary, error) {
+	if query.Condition.Value == "bad" {
+		return jdserving.TrendSummary{}, errors.New("summary unavailable")
+	}
+	value := 12.0
+	return jdserving.TrendSummary{
+		Curve:                  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionProject, Value: query.Condition.Value, Label: query.Condition.Value},
+		AverageDailyActiveJobs: &value,
+	}, nil
+}
+
+func TestServingToolBatchTrendSummaryPreservesSuccessfulItems(t *testing.T) {
+	service := ServingToolService{Summary: partialBatchSummaryReader{}}
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.Call(context.Background(), ToolCall{Name: ToolBatchTrendSummary, Params: json.RawMessage(`[{"dimension":"project","value":"good","range":"all"},{"dimension":"project","value":"bad","range":"all"}]`)})
+	if err != nil || !result.Available {
+		t.Fatalf("batch result err=%v result=%#v", err, result)
+	}
+	var summaries []summaryToolResponse
+	if err := json.Unmarshal(result.Payload, &summaries); err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 || summaries[0].Error != nil || summaries[1].Error == nil {
+		t.Fatalf("summaries = %#v", summaries)
 	}
 }

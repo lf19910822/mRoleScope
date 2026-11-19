@@ -86,6 +86,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		plannedIntent = result.Intent
 	}
 	applySummaryScores(groups, result.ToolResults, plannedIntent)
+	filterFailedSummaryCandidates(groups, result.ToolResults)
 
 	partialFailure := result.Partial
 	warnings := make([]string, 0)
@@ -474,6 +475,9 @@ func applySummaryScores(groups []CandidateGroup, results []ToolCallResult, inten
 			continue
 		}
 		for _, summary := range summaries {
+			if summary.Error != nil {
+				continue
+			}
 			for groupIndex := range groups {
 				for candidateIndex := range groups[groupIndex].Candidates {
 					candidate := &groups[groupIndex].Candidates[candidateIndex]
@@ -502,6 +506,37 @@ func applySummaryScores(groups []CandidateGroup, results []ToolCallResult, inten
 			}
 			return groups[index].Candidates[left].Value < groups[index].Candidates[right].Value
 		})
+	}
+}
+
+func filterFailedSummaryCandidates(groups []CandidateGroup, results []ToolCallResult) {
+	failed := make(map[string]struct{})
+	for _, result := range results {
+		if result.Name != ToolBatchTrendSummary || !result.Available {
+			continue
+		}
+		var summaries []summaryToolResponse
+		if json.Unmarshal(result.Payload, &summaries) != nil {
+			continue
+		}
+		for _, summary := range summaries {
+			if summary.Error != nil {
+				failed[explanationCurveKey(Dimension(summary.Curve.Dimension), summary.Curve.Value, summary.Curve.IncludeSecondary)] = struct{}{}
+			}
+		}
+	}
+	if len(failed) == 0 {
+		return
+	}
+	for groupIndex := range groups {
+		kept := groups[groupIndex].Candidates[:0]
+		for _, candidate := range groups[groupIndex].Candidates {
+			if _, ok := failed[explanationCurveKey(candidate.Dimension, candidate.Value, candidate.IncludeSecondary)]; ok {
+				continue
+			}
+			kept = append(kept, candidate)
+		}
+		groups[groupIndex].Candidates = kept
 	}
 }
 

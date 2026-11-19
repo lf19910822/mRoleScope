@@ -204,6 +204,42 @@ func TestTrendRunnerUsesAllProjectsForEmptyExpression(t *testing.T) {
 	}
 }
 
+func TestTrendRunnerKeepsSuccessfulCurvesWhenBatchItemFails(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{
+		{Value: "good", Label: "Good"},
+		{Value: "bad", Label: "Bad"},
+	}}
+	intent := Intent{
+		ContractVersion: ContractVersionV1,
+		SubQueries: []SubQuery{{
+			ID: "projects", Dimension: DimensionProject, Expressions: []string{"*"},
+			Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: MaxCurves},
+		}},
+		TimeRange: TimeRange{Kind: RangeAll},
+		Output:    OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine},
+	}
+	runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, partialBatchSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	var terminal StreamStatus
+	if err := runner.Run(context.Background(), "哪些项目的岗位最多？", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		if event.Type == StreamEventDone {
+			terminal = event.Status
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != "good" || draft.Status != DraftPartial || terminal != StreamPartial {
+		t.Fatalf("draft=%#v terminal=%s", draft, terminal)
+	}
+}
+
 func TestAppendAuditOperationCapturesTerminalFailure(t *testing.T) {
 	operations := appendAuditOperation(nil, StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolRankValues)})
 	operations = appendAuditOperation(operations, StreamEvent{
