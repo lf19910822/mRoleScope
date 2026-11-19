@@ -129,7 +129,7 @@ resolve_pushed_digest() {
 }
 
 build_and_push() {
-  local image_name="$1" dockerfile="$2" image_tag local_revision
+  local image_name="$1" dockerfile="$2" image_tag local_revision push_log pushed_digest
 
   image_tag="docker.io/${dockerhub_namespace}/${image_name}:${revision}"
   printf 'Building %s…\n' "$image_name" >&2
@@ -143,7 +143,19 @@ build_and_push() {
   [[ "$local_revision" == "$revision" ]] \
     || die "${image_name} is missing the expected immutable source revision label"
   printf 'Pushing %s…\n' "$image_name" >&2
-  docker push "$image_tag" >&2
+  push_log=$(mktemp "${TMPDIR:-/tmp}/mrolescope-push.XXXXXX")
+  if ! docker push "$image_tag" 2>&1 | tee "$push_log" >&2; then
+    rm -f -- "$push_log"
+    die "Docker push failed for ${image_name}"
+  fi
+  pushed_digest=$(sed -nE 's/.*digest: (sha256:[a-f0-9]{64}).*/\1/p' "$push_log" | tail -n 1)
+  rm -f -- "$push_log"
+  if [[ "$pushed_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    printf 'docker.io/%s/%s@%s\n' "$dockerhub_namespace" "$image_name" "$pushed_digest"
+    return 0
+  fi
+  # Older/mock Docker clients may omit the push digest; retain the local
+  # RepoDigests fallback for those clients.
   resolve_pushed_digest "$image_name" "$image_tag"
 }
 

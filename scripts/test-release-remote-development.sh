@@ -56,7 +56,12 @@ set -euo pipefail
 printf 'docker %s\n' "$*" >>"$MROLESCOPE_RELEASE_TEST_LOG"
 case "$1" in
   build|push|version)
-    printf 'simulated docker progress for %s\n' "$1"
+    if [[ "$1" == push ]]; then
+      printf 'simulated docker progress for push\n'
+      printf 'digest: sha256:%s size: 1234\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    else
+      printf 'simulated docker progress for %s\n' "$1"
+    fi
     exit 0
     ;;
   image)
