@@ -5,6 +5,7 @@
 - [x] 1.1 Treat empty, wildcard, and whole-dimension expressions as broad dimension queries and preserve exclusions, expansion labels, and candidate bounds; verify resolver tests.
 - [x] 1.2 Skip `rank_values` for empty, wildcard, or broad expressions while retaining summary-based ranking; verify planner tests contain no invalid rank parameter.
 - [x] 1.3 Verify the runner produces ranked project curves from an empty expression and keeps the existing specific-value behavior; add regression tests.
+- [x] 1.4 State the exact `expressions: ["*"]` representation for broad questions in the intent prompt and verify the provider request contains the guidance.
 
 ## 2. Validation and live verification
 
