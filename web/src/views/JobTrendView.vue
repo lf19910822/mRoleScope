@@ -1003,11 +1003,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section
+        <div class="job-trend-view__ai-analysis-grid">
+          <section
           v-if="aiTrend.operations.length || aiChatReply"
           class="job-trend-view__ai-chat"
           aria-label="AI 对话窗口"
-        >
+          >
           <div class="job-trend-view__ai-chat-scroll">
             <button
               v-if="aiTrend.operations.length"
@@ -1019,11 +1020,6 @@ onBeforeUnmount(() => {
               用时 {{ aiTrend.durationLabel }}
               <span aria-hidden="true">{{ aiTrend.operationsExpanded ? '⌄' : '›' }}</span>
             </button>
-            <div v-if="aiChatReply" class="job-trend-view__ai-chat-reply">
-              <div>
-                <p>{{ aiChatReply }}</p>
-              </div>
-            </div>
             <div
               v-if="aiTrend.operations.length && aiTrend.operationsExpanded"
               class="job-trend-view__ai-chat-details"
@@ -1051,14 +1047,15 @@ onBeforeUnmount(() => {
                 </li>
               </ol>
             </div>
+            <Transition name="ai-chat-message" mode="out-in">
+              <div v-if="aiChatReply" :key="aiChatReply" class="job-trend-view__ai-chat-reply">
+                <p>{{ aiChatReply }}</p>
+              </div>
+            </Transition>
           </div>
-        </section>
+          </section>
 
-        <p v-if="aiTrend.error" class="job-trend-view__ai-error" role="alert">
-          {{ aiTrend.error }}
-        </p>
-
-        <section v-if="aiTrend.draft" class="job-trend-view__ai-result" aria-label="AI 曲线草稿">
+          <section v-if="aiTrend.draft" class="job-trend-view__ai-result" aria-label="AI 曲线草稿">
           <header class="job-trend-view__ai-result-header">
             <div>
               <div class="job-trend-view__ai-result-kicker">待确认草稿</div>
@@ -1188,7 +1185,8 @@ onBeforeUnmount(() => {
               >
             </div>
           </footer>
-        </section>
+          </section>
+        </div>
       </section>
 
       <div class="job-trend-view__range-stage">
@@ -2342,6 +2340,13 @@ onBeforeUnmount(() => {
   scrollbar-width: thin;
 }
 
+.job-trend-view__ai-analysis-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+}
+
 .job-trend-view__ai-chat-reply {
   display: block;
   padding: 0;
@@ -2367,6 +2372,19 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   line-height: 1.5;
   margin: 0;
+}
+
+.ai-chat-message-enter-active,
+.ai-chat-message-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.ai-chat-message-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.ai-chat-message-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 
 .job-trend-view__ai-chat-details {
@@ -2440,7 +2458,7 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   display: grid;
   gap: 14px;
-  max-width: 1000px;
+  max-width: none;
   padding: 16px;
   width: 100%;
 }
@@ -4024,6 +4042,9 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__ai-chat {
     height: 190px;
+  }
+  .job-trend-view__ai-analysis-grid {
+    display: block;
   }
   .job-trend-view__ai-curve-list-head {
     display: none;

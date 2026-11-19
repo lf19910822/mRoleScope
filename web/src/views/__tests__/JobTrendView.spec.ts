@@ -11,6 +11,7 @@ describe('JobTrendView', () => {
     expect(source).toContain('submitAIExample')
     expect(source).toContain('job-trend-view__ai-activity')
     expect(source).toContain('job-trend-view__ai-chat')
+    expect(source).toContain('job-trend-view__ai-analysis-grid')
     expect(source).toContain('用时 {{ aiTrend.durationLabel }}')
     expect(source).toContain('job-trend-view__ai-reason')
     expect(source).toContain('job-trend-view__ai-chat-reply')
