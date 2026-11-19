@@ -40,3 +40,10 @@
 
 - Archive the change only after implementation, strict OpenSpec verification, and review requirements are complete.
 - Start `$openspec-apply-change` explicitly before implementing any tracked task.
+
+## 7. Backend runtime integration follow-up
+
+- [x] 7.1 Add the fixed Qwen Plus intent adapter with the versioned intent schema, bounded response parsing, cancellation, and provider-safe errors; verify credentials and raw provider content never enter the public stream.
+- [x] 7.2 Add the Serving-backed trend runner that resolves current formal values, batches bounded summaries, ranks candidates deterministically, revalidates drafts, and emits the existing NDJSON event contract.
+- [x] 7.3 Inject the runner into the authenticated API, pass the existing root-owned Qwen runtime configuration through the private AI egress network, and keep the route unavailable when provider configuration is absent.
+- [x] 7.4 Remove the frontend local mock path so production and development state consume only the AI draft stream; retain a transport-level NDJSON fixture in unit tests.

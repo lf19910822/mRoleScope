@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"mrolescope/internal/access"
+	"mrolescope/internal/aitrend"
 	"mrolescope/internal/config"
 	"mrolescope/internal/httpserver"
 	"mrolescope/internal/jdserving"
@@ -52,9 +53,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	repository := jdserving.NewRepositoryFromPool(pool)
+	var trendRunner httpserver.AITrendStreamRunner
+	if cfg.TrendAIAPIKey != "" && cfg.TrendAIWorkspaceID != "" {
+		provider, providerErr := aitrend.NewQwenIntentProvider(cfg.TrendAIAPIKey, cfg.TrendAIWorkspaceID, &http.Client{Timeout: 75 * time.Second})
+		if providerErr != nil {
+			slog.Warn("trend AI disabled", "reason", "provider configuration is invalid")
+		} else {
+			trendRunner, providerErr = aitrend.NewTrendRunner(provider, repository, repository, repository)
+			if providerErr != nil {
+				slog.Warn("trend AI disabled", "reason", "trend runner configuration is invalid")
+			}
+		}
+	}
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpserver.NewWithAccess(pool, accessService, jdserving.NewRepositoryFromPool(pool)),
+		Handler:           httpserver.NewWithAccessAndAI(pool, accessService, trendRunner, repository),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

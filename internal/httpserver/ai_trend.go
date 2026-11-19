@@ -91,6 +91,18 @@ func filterAITrendParams(tool string, raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
+	if aitrend.ToolName(tool) == aitrend.ToolBatchTrendSummary || aitrend.ToolName(tool) == aitrend.ToolBatchEventSummary {
+		var requests []json.RawMessage
+		if json.Unmarshal(raw, &requests) != nil {
+			return nil
+		}
+		filtered := make([]json.RawMessage, 0, len(requests))
+		for _, request := range requests {
+			filtered = append(filtered, filterAITrendParams(string(aitrend.ToolReadTrendSummary), request))
+		}
+		data, _ := json.Marshal(filtered)
+		return data
+	}
 	var input map[string]json.RawMessage
 	if json.Unmarshal(raw, &input) != nil {
 		return nil

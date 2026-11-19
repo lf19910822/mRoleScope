@@ -113,6 +113,23 @@ Serving summary readers reuse the current formal release selection and historica
 
 The current trend chart remains a single mixed-dimension岗位数量 chart. Global-scope and expansion explanations remain in the AI answer or draft, while applied chart legends use formal curve names. Existing applied curves are not overwritten by an AI request until the explicit replace/append action.
 
+### 10. Use the existing Qwen runtime configuration for the API runner
+
+The trend route uses a fixed Qwen Plus structured-output adapter. It reuses the
+existing Beijing Workspace endpoint rule and the already approved
+`MROLESCOPE_QWEN_WORKSPACE_ID` / `MROLESCOPE_QWEN_API_KEY` runtime variables;
+the values are read only by the API process and are never logged, persisted, or
+sent to the browser. The API is attached to the private backend, ordinary edge
+connection required by Web Edge, and the dedicated `ai-edge` egress network.
+Without both runtime values the trend route remains unavailable and existing
+read-only trend routes continue to work.
+
+The model returns only the versioned intent. The runner resolves that intent
+against the current Serving filter publication, reads bounded trend summaries,
+and builds the draft locally. The browser has no local curve fixtures or
+development mock branch; unit tests fake the HTTP NDJSON response at the
+transport boundary.
+
 ## Risks / Trade-offs
 
 - **Broad matching can add false positives** → mark possible matches and expansion recommendations, show formal names, keep all rows editable, and require explicit application.

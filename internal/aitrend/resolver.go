@@ -91,8 +91,12 @@ func (resolver Resolver) resolve(dimension Dimension, expression, subQueryID str
 		if candidate.Score == 0 {
 			continue
 		}
-		if candidate.MatchStatus == "" {
-			candidate.MatchStatus = MatchPossible
+		if candidate.MatchStatus == "" || candidate.MatchStatus == MatchExact {
+			if candidate.Score == 100 {
+				candidate.MatchStatus = MatchExact
+			} else {
+				candidate.MatchStatus = MatchPossible
+			}
 		}
 		matched = append(matched, candidate)
 	}

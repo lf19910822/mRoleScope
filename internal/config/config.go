@@ -17,6 +17,8 @@ type Config struct {
 	Environment          string
 	HTTPAddress          string
 	DatabaseURL          string
+	TrendAIAPIKey        string
+	TrendAIWorkspaceID   string
 	InviteBcryptHash     string
 	SessionSigningSecret string
 	CollectorPython      string
@@ -64,6 +66,8 @@ func Load() (Config, error) {
 		Environment:          valueOrDefault("APP_ENV", "development"),
 		HTTPAddress:          valueOrDefault("HTTP_ADDR", ":8080"),
 		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		TrendAIAPIKey:        os.Getenv("MROLESCOPE_QWEN_API_KEY"),
+		TrendAIWorkspaceID:   os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID"),
 		InviteBcryptHash:     os.Getenv("MROLESCOPE_INVITE_BCRYPT_HASH"),
 		SessionSigningSecret: os.Getenv("MROLESCOPE_SESSION_SIGNING_SECRET"),
 		CollectorPython:      valueOrDefault("COLLECTOR_PYTHON", "python3"),

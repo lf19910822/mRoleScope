@@ -36,6 +36,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       MROLESCOPE_INVITE_BCRYPT_HASH: ${MROLESCOPE_INVITE_BCRYPT_HASH:-}
       MROLESCOPE_SESSION_SIGNING_SECRET: ${MROLESCOPE_SESSION_SIGNING_SECRET:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
       COLLECTOR_TIMEOUT: "15m"
       ARCHIVE_LOCAL_DIR: /var/lib/mrolescope/archives
     depends_on:
@@ -50,7 +52,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    networks: [backend, edge]
+    networks: [backend, edge, ai-edge]
 
   # This profile remains deliberately disabled until the separate manual
   # domain/hosting gate is complete. Its configuration comes only from the

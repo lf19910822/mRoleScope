@@ -3,7 +3,6 @@ import { reactive } from 'vue'
 import {
   streamAITrendDraft,
   type AITrendDraft,
-  type AITrendDraftCurve,
   type AITrendStreamEvent,
 } from '@/api/jd-api'
 import type { TrendCondition } from '@/lib/job-trend-dashboard-state'
@@ -27,8 +26,6 @@ export interface AITrendDraftState {
   applySelected(apply: (condition: TrendCondition) => void): void
 }
 
-const mockAITrendEnabled = import.meta.env.DEV && import.meta.env.VITE_AI_TREND_MOCK !== 'false'
-
 function formatElapsed(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000))
   if (seconds < 60) return `${seconds}秒`
@@ -36,131 +33,6 @@ function formatElapsed(milliseconds: number): string {
   const remainder = seconds % 60
   if (minutes < 60) return `${minutes}分${remainder}秒`
   return `${Math.floor(minutes / 60)}小时${minutes % 60}分`
-}
-
-function waitForMockStep(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(resolve, 220)
-    signal.addEventListener(
-      'abort',
-      () => {
-        window.clearTimeout(timer)
-        reject(new DOMException('分析已停止', 'AbortError'))
-      },
-      { once: true },
-    )
-  })
-}
-
-function mockCurve(
-  dimension: AITrendDraftCurve['condition']['dimension'],
-  value: string,
-  label: string,
-  matchStatus: AITrendDraftCurve['match_status'],
-  subQueryID: string,
-  reason: string,
-): AITrendDraftCurve {
-  return {
-    condition: { dimension, value, includeSecondary: false, operator: '' },
-    label,
-    match_status: matchStatus,
-    reason,
-    selected: true,
-    sub_query_ids: [subQueryID],
-  }
-}
-
-function mockDraftForQuery(query: string): AITrendDraft {
-  const curves = query.includes('项目')
-    ? [
-        mockCurve(
-          'project',
-          'game.genshin-impact',
-          '原神',
-          'exact',
-          'projects',
-          '按当前周期岗位平均数量排序。',
-        ),
-        mockCurve(
-          'project',
-          'game.zenless-zone-zero',
-          '绝区零',
-          'possible',
-          'projects',
-          '名称相近，保留供确认。',
-        ),
-        mockCurve(
-          'project',
-          'game.honkai-star-rail',
-          '崩坏：星穹铁道',
-          'exact',
-          'projects',
-          '当前正式项目值。',
-        ),
-      ]
-    : [
-        mockCurve(
-          'technology',
-          'redis',
-          'Redis',
-          'exact',
-          'databases',
-          '正式技术值，当前周期有岗位。',
-        ),
-        mockCurve(
-          'technology',
-          'mysql',
-          'MySQL',
-          'exact',
-          'databases',
-          '正式技术值，当前周期有岗位。',
-        ),
-        mockCurve(
-          'technology',
-          'postgresql',
-          'PostgreSQL',
-          'possible',
-          'databases',
-          '可能匹配，保留供确认。',
-        ),
-        mockCurve('technology', 'mongodb', 'MongoDB', 'alias', 'databases', '按正式别名匹配。'),
-        mockCurve('job_family', 'backend', '后端', 'possible', 'roles', '组合问题中的岗位族候选。'),
-      ]
-  return {
-    contract_version: 'ai-trend-draft-v1',
-    status: 'complete',
-    curves,
-    explanation: '按当前周期岗位平均数量整理候选，曲线应用前仍可修改。',
-    warnings: query.includes('项目')
-      ? ['本地预览未读取当前周期岗位数量，应用时会按正式项目值重新校验。']
-      : undefined,
-  }
-}
-
-async function runMockAITrend(
-  query: string,
-  onEvent: (event: AITrendStreamEvent) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const operations: Array<[string, Record<string, unknown>]> = query.includes('项目')
-    ? [
-        ['list_available_values', { dimension: 'project' }],
-        ['rank_values', { dimension: 'project', metric: 'avg_daily_active_jobs' }],
-        ['batch_trend_summary', { dimension: 'project', limit: 8 }],
-      ]
-    : [
-        ['list_available_categories', {}],
-        ['list_category_values', { category: 'databases-and-storage' }],
-        ['rank_values', { dimension: 'technology', metric: 'avg_daily_active_jobs' }],
-        ['batch_trend_summary', { dimension: 'technology', limit: 8 }],
-      ]
-  for (const [tool, params] of operations) {
-    onEvent({ type: 'operation', status: 'running', tool, params })
-    await waitForMockStep(signal)
-    onEvent({ type: 'operation', status: 'completed', tool, params })
-  }
-  onEvent({ type: 'draft', status: 'completed', draft: mockDraftForQuery(query) })
-  onEvent({ type: 'done', status: 'success' })
 }
 
 export function createAITrendDraftState(): AITrendDraftState {
@@ -250,8 +122,7 @@ export function createAITrendDraftState(): AITrendDraftState {
           }
         }
       }
-      if (mockAITrendEnabled) await runMockAITrend(normalized, handleEvent, controller.signal)
-      else await streamAITrendDraft(normalized, handleEvent, controller.signal)
+      await streamAITrendDraft(normalized, handleEvent, controller.signal)
       if (state.status === 'running') state.status = nextDraft ? 'success' : 'failure'
       if (nextDraft) state.draft = nextDraft
     } catch (error) {

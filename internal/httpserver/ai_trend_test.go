@@ -14,13 +14,7 @@ import (
 type aiTrendRunnerFunc func(context.Context, string, func(aitrend.StreamEvent) error) error
 
 func (function aiTrendRunnerFunc) Run(ctx context.Context, query string, emit func(aitrend.StreamEvent) error) error {
-	if query != "哪些数据库" {
-		return nil
-	}
-	if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolListTechnologyCategories), Params: []byte(`{"category":"databases-and-storage"}`)}); err != nil {
-		return err
-	}
-	return emit(aitrend.StreamEvent{Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess})
+	return function(ctx, query, emit)
 }
 
 func (aiTrendRunnerFunc) ListJobs(context.Context, jdserving.ListJobsQuery) (jdserving.JobListResponse, error) {
@@ -75,5 +69,22 @@ func TestAITrendDraftFiltersUnsafeToolParameters(t *testing.T) {
 	router.ServeHTTP(response, request)
 	if strings.Contains(response.Body.String(), "raw_sql") || strings.Contains(response.Body.String(), "secret") {
 		t.Fatalf("unsafe parameters leaked: %s", response.Body.String())
+	}
+}
+
+func TestAITrendDraftKeepsSafeBatchParameters(t *testing.T) {
+	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
+		return emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolBatchTrendSummary), Params: []byte(`[{"dimension":"technology","value":"redis","range":"month","raw_sql":"secret"}]`)})
+	})
+	router := New(nil, runner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/job-trends/ai-draft", strings.NewReader(`{"query":"哪些数据库"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	body := response.Body.String()
+	if strings.Contains(body, "raw_sql") || strings.Contains(body, "secret") {
+		t.Fatalf("unsafe batch parameters leaked: %s", body)
+	}
+	if !strings.Contains(body, "redis") || !strings.Contains(body, "month") {
+		t.Fatalf("safe batch parameters were removed: %s", body)
 	}
 }
