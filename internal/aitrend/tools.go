@@ -12,7 +12,10 @@ type ToolName string
 const (
 	// ToolAnalyzeIntent is a display-only operation emitted while the model
 	// prepares the structured intent. It is not registered as a Serving tool.
-	ToolAnalyzeIntent            ToolName = "analyze_intent"
+	ToolAnalyzeIntent ToolName = "analyze_intent"
+	// ToolExplainDraft is a display-only operation emitted while the model
+	// explains a completed draft. It is not registered as a Serving tool.
+	ToolExplainDraft             ToolName = "explain_draft"
 	ToolListTechnologyCategories ToolName = "list_available_categories"
 	ToolListCategoryValues       ToolName = "list_category_values"
 	ToolListAvailableValues      ToolName = "list_available_values"

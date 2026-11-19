@@ -97,3 +97,22 @@ func TestAITrendDraftKeepsSafeBatchParameters(t *testing.T) {
 		t.Fatalf("safe batch parameters were removed: %s", body)
 	}
 }
+
+func TestAITrendDraftAllowsExplanationOperation(t *testing.T) {
+	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolExplainDraft)}); err != nil {
+			return err
+		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamCompleted, Tool: string(aitrend.ToolExplainDraft)}); err != nil {
+			return err
+		}
+		return emit(aitrend.StreamEvent{Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess})
+	})
+	router := New(nil, runner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/job-trends/ai-draft", strings.NewReader(`{"query":"哪些项目"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"tool":"explain_draft"`) {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}

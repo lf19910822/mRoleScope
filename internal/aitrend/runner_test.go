@@ -53,6 +53,20 @@ func (provider runnerIntentProvider) AnalyzeIntent(context.Context, string, *Con
 	return json.Marshal(provider.intent)
 }
 
+type runnerExplanationProvider struct {
+	intent  Intent
+	context DraftExplanationContext
+}
+
+func (provider *runnerExplanationProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	return json.Marshal(provider.intent)
+}
+
+func (provider *runnerExplanationProvider) ExplainDraftUsage(_ context.Context, _ string, explanationContext DraftExplanationContext) (string, int, int, error) {
+	provider.context = explanationContext
+	return "模型说明：按岗位数量整理候选。", 7, 11, nil
+}
+
 func TestTrendRunnerUsesServingValuesAndRanksDraft(t *testing.T) {
 	options := jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
 		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "redis", Label: "Redis"},
@@ -100,6 +114,53 @@ func TestTrendRunnerUsesServingValuesAndRanksDraft(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Type != StreamEventDone || last.Status != StreamSuccess {
 		t.Fatalf("last event = %#v", last)
+	}
+}
+
+func TestTrendRunnerEmitsModelExplanationAfterToolResults(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "redis", Label: "Redis"},
+	}}
+	intent := Intent{
+		ContractVersion: ContractVersionV1,
+		SubQueries: []SubQuery{{
+			ID: "database", Dimension: DimensionTechnology, Expressions: []string{"Redis"},
+			Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: MaxCurves},
+		}},
+		TimeRange: TimeRange{Kind: RangeMonth},
+		Output:    OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine},
+	}
+	provider := &runnerExplanationProvider{intent: intent}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{options: options}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := make([]StreamEvent, 0)
+	if err := runner.Run(context.Background(), "哪些数据库正在被使用？", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runningIndex, completedIndex, draftIndex := -1, -1, -1
+	var draft *Draft
+	for index, event := range events {
+		if event.Type == StreamEventOperation && event.Tool == string(ToolExplainDraft) && event.Status == StreamRunning {
+			runningIndex = index
+		}
+		if event.Type == StreamEventOperation && event.Tool == string(ToolExplainDraft) && event.Status == StreamCompleted {
+			completedIndex = index
+		}
+		if event.Type == StreamEventDraft {
+			draftIndex = index
+			draft = event.Draft
+		}
+	}
+	if runningIndex < 0 || completedIndex <= runningIndex || draftIndex <= completedIndex || draft == nil || draft.Explanation != "模型说明：按岗位数量整理候选。" {
+		t.Fatalf("events=%#v draft=%#v", events, draft)
+	}
+	if len(provider.context.Candidates) != 1 || provider.context.Metric != MetricAverageDailyActiveJobs {
+		t.Fatalf("explanation context=%#v", provider.context)
 	}
 }
 
@@ -205,5 +266,36 @@ func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t
 	_, inputTokens, outputTokens, err := provider.AnalyzeIntentUsage(context.Background(), "哪些数据库", nil)
 	if err != nil || inputTokens != 17 || outputTokens != 23 {
 		t.Fatalf("usage = %d/%d err=%v", inputTokens, outputTokens, err)
+	}
+}
+
+func TestQwenIntentProviderGeneratesBoundedDraftExplanation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["max_tokens"] != float64(160) {
+			t.Fatalf("max_tokens = %#v", body["max_tokens"])
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		response := map[string]any{
+			"choices": []any{map[string]any{"message": map[string]string{"content": `{"explanation":"按平均岗位数排序，优先展示岗位最多的项目。"}`}}},
+			"usage":   map[string]int{"prompt_tokens": 31, "completion_tokens": 14, "total_tokens": 45},
+		}
+		_ = json.NewEncoder(writer).Encode(response)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	explanation, inputTokens, outputTokens, err := provider.ExplainDraftUsage(context.Background(), "哪些项目的岗位最多？", DraftExplanationContext{
+		Dimension: DimensionProject,
+		Metric:    MetricAverageDailyActiveJobs,
+		Order:     OrderDescending,
+		Candidates: []DraftExplanationCandidate{{
+			Label: "原神", MatchStatus: MatchExpansion,
+		}},
+	})
+	if err != nil || explanation == "" || inputTokens != 31 || outputTokens != 14 {
+		t.Fatalf("explanation=%q usage=%d/%d err=%v", explanation, inputTokens, outputTokens, err)
 	}
 }

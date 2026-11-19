@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -19,6 +20,7 @@ const (
 	MaxCurves               = 8
 	MaxAIAttempts           = 3
 	MaxExpressionCandidates = 3
+	MaxExplanationRunes     = 100
 )
 
 type Dimension string
@@ -260,6 +262,9 @@ func ValidateDraft(draft Draft) error {
 	}
 	if len(draft.Curves) > MaxCurves {
 		return contractError(ErrorLimitExceeded, "curves", "curve limit exceeded")
+	}
+	if utf8.RuneCountInString(draft.Explanation) > MaxExplanationRunes {
+		return contractError(ErrorLimitExceeded, "explanation", "draft explanation is too long")
 	}
 	for _, curve := range draft.Curves {
 		if err := validateCurve(curve); err != nil {
