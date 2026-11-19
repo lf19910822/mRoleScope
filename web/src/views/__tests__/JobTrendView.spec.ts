@@ -16,6 +16,11 @@ describe('JobTrendView', () => {
     expect(source).toContain('updateAIDraftDimension')
     expect(source).toContain('替换现有曲线')
     expect(source).toContain('添加到当前图表')
+    const exampleHandler = source.slice(
+      source.indexOf('function submitAIExample'),
+      source.indexOf('function preferredDrilldownHeight'),
+    )
+    expect(exampleHandler).not.toContain('aiTrend.submit')
   })
 
   it('uses a compact dashboard title that remains readable in a 390px viewport', () => {

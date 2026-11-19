@@ -184,19 +184,16 @@ const aiPromptExamples = [
   {
     eyebrow: '技术版图',
     title: '哪些数据库正在被使用？',
-    detail: '按当前周期岗位数，比较数据库与存储技术。',
     value: '哪些数据库正在被使用？',
   },
   {
     eyebrow: '项目热度',
     title: '哪些项目的岗位最多？',
-    detail: '用岗位平均数量找出最活跃的项目。',
     value: '哪些项目的岗位最多？',
   },
   {
     eyebrow: '组合观察',
     title: '后台岗位主要用了哪些技术？',
-    detail: '同时查看岗位族与相关技术的趋势。',
     value: '后台岗位主要用了哪些技术？',
   },
 ]
@@ -319,7 +316,6 @@ function removeAIDraftCurve(index: number): void {
 
 function submitAIExample(value: string): void {
   aiTrend.query = value
-  void aiTrend.submit(value)
 }
 
 function preferredDrilldownHeight(maximumHeight: number): number {
@@ -362,10 +358,7 @@ const drilldownPlacement = computed(() => {
     const opensAbove = canOpenAbove || !canOpenBelow
     const top = opensAbove
       ? Math.max(18, drilldownAnchor.value.y - height - arrowReach)
-      : Math.min(
-          drilldownAnchor.value.y + arrowReach,
-          window.innerHeight - height - 18,
-        )
+      : Math.min(drilldownAnchor.value.y + arrowReach, window.innerHeight - height - 18)
     const arrowOffset = Math.max(18, Math.min(drilldownAnchor.value.x - left - 8, width - 34))
 
     return {
@@ -907,10 +900,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    :class="[
-      'job-trend-view',
-      { 'job-trend-view--configuration-expanded': configurationExpanded },
-    ]"
+    :class="['job-trend-view', { 'job-trend-view--configuration-expanded': configurationExpanded }]"
   >
     <section class="job-trend-view__chart-card" aria-labelledby="trend-dashboard-title">
       <header class="job-trend-view__header">
@@ -942,20 +932,8 @@ onBeforeUnmount(() => {
               <span class="job-trend-view__ai-signal" aria-hidden="true"></span>
               AI 趋势工作台
             </div>
-            <h2 id="ai-trend-draft-title">
-              {{
-                aiTrend.status === 'idle' && !aiTrend.draft
-                  ? '把问题变成可编辑的曲线草稿'
-                  : '曲线草稿工作区'
-              }}
-            </h2>
-            <p>
-              {{
-                aiTrend.status === 'running'
-                  ? '正在整理候选、调用工具并校验正式值…'
-                  : 'AI 负责理解问题，数据与曲线仍由看板负责。'
-              }}
-            </p>
+            <h2 id="ai-trend-draft-title">AI 曲线草稿</h2>
+            <p v-if="aiTrend.status === 'running'">正在整理候选、调用工具并校验正式值…</p>
           </div>
           <div
             class="job-trend-view__ai-status"
@@ -1007,10 +985,6 @@ onBeforeUnmount(() => {
         </form>
 
         <div v-if="aiTrend.status === 'idle' && !aiTrend.draft" class="job-trend-view__ai-explore">
-          <div class="job-trend-view__ai-explore-label">
-            <span>从一个完整问题开始</span>
-            <small>选择后会直接进入分析，示例不会保存。</small>
-          </div>
           <div class="job-trend-view__ai-example-grid">
             <button
               v-for="example in aiPromptExamples"
@@ -1021,7 +995,6 @@ onBeforeUnmount(() => {
             >
               <span>{{ example.eyebrow }}</span>
               <strong>{{ example.title }}</strong>
-              <small>{{ example.detail }}</small>
               <i aria-hidden="true">↗</i>
             </button>
           </div>
@@ -1993,7 +1966,10 @@ onBeforeUnmount(() => {
 
             <div class="job-trend-view__curve-actions">
               <span
-                :class="['job-trend-view__curve-state', `job-trend-view__curve-state--${row.status}`]"
+                :class="[
+                  'job-trend-view__curve-state',
+                  `job-trend-view__curve-state--${row.status}`,
+                ]"
               >
                 {{
                   row.status === 'loading'
