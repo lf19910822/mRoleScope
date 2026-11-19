@@ -209,11 +209,6 @@ const aiChatReply = computed(() => {
   return ''
 })
 
-function handleAIChatDetailsToggle(event: Event): void {
-  if (aiTrend.status === 'running') return
-  aiTrend.operationsExpanded = (event.currentTarget as HTMLDetailsElement).open
-}
-
 function aiCurveColor(index: number): string {
   const palette = [
     '#0072B2',
@@ -1014,27 +1009,25 @@ onBeforeUnmount(() => {
           aria-label="AI 对话窗口"
         >
           <div class="job-trend-view__ai-chat-scroll">
+            <button
+              v-if="aiTrend.operations.length"
+              class="job-trend-view__ai-chat-duration"
+              type="button"
+              :aria-expanded="aiTrend.operationsExpanded"
+              @click="aiTrend.operationsExpanded = !aiTrend.operationsExpanded"
+            >
+              用时 {{ aiTrend.durationLabel }}
+              <span aria-hidden="true">{{ aiTrend.operationsExpanded ? '⌄' : '›' }}</span>
+            </button>
             <div v-if="aiChatReply" class="job-trend-view__ai-chat-reply">
-              <span class="job-trend-view__ai-chat-avatar" aria-hidden="true">AI</span>
               <div>
-                <strong>AI 回复</strong>
                 <p>{{ aiChatReply }}</p>
               </div>
             </div>
-            <details
-              v-if="aiTrend.operations.length"
+            <div
+              v-if="aiTrend.operations.length && aiTrend.operationsExpanded"
               class="job-trend-view__ai-chat-details"
-              :open="aiTrend.status === 'running' || aiTrend.operationsExpanded"
-              @toggle="handleAIChatDetailsToggle"
             >
-              <summary>
-                <span>
-                  <span class="job-trend-view__ai-activity-icon" aria-hidden="true">⌁</span>
-                  AI 工作细节
-                  <small>{{ aiTrend.operations.length }} 个操作</small>
-                </span>
-                <em>{{ aiTrend.status === 'running' ? '进行中' : '查看' }}</em>
-              </summary>
               <ol class="job-trend-view__ai-activity-list" aria-live="polite">
                 <li
                   v-for="(operation, index) in aiTrend.operations"
@@ -1057,7 +1050,7 @@ onBeforeUnmount(() => {
                   }}</em>
                 </li>
               </ol>
-            </details>
+            </div>
           </div>
         </section>
 
@@ -2341,8 +2334,8 @@ onBeforeUnmount(() => {
 
 .job-trend-view__ai-chat-scroll {
   display: grid;
-  align-content: space-between;
-  gap: 10px;
+  align-content: start;
+  gap: 9px;
   height: 100%;
   overflow-y: auto;
   padding: 12px 13px 10px;
@@ -2350,13 +2343,8 @@ onBeforeUnmount(() => {
 }
 
 .job-trend-view__ai-chat-reply {
-  align-items: flex-start;
-  background: rgba(255, 255, 255, 0.76);
-  border: 1px solid #d8e9eb;
-  border-radius: 10px;
-  display: flex;
-  gap: 10px;
-  padding: 9px 10px;
+  display: block;
+  padding: 0;
 }
 
 .job-trend-view__ai-chat-avatar {
@@ -2374,23 +2362,37 @@ onBeforeUnmount(() => {
   width: 24px;
 }
 
-.job-trend-view__ai-chat-reply strong {
-  color: var(--ai-ink);
-  display: block;
-  font-size: 0.72rem;
-  margin-bottom: 3px;
-}
-
 .job-trend-view__ai-chat-reply p {
   color: #345761;
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   line-height: 1.5;
   margin: 0;
 }
 
 .job-trend-view__ai-chat-details {
-  border-top: 1px solid var(--ai-rule);
-  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.job-trend-view__ai-chat-duration {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ai-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.72rem;
+  gap: 5px;
+  padding: 0;
+  text-align: left;
+}
+.job-trend-view__ai-chat-duration:hover,
+.job-trend-view__ai-chat-duration:focus-visible {
+  color: var(--ai-ink);
+  outline: none;
+}
+.job-trend-view__ai-chat-duration span {
+  font-size: 1rem;
+  line-height: 0.8;
 }
 
 .job-trend-view__ai-chat-details summary {

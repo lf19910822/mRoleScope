@@ -16,6 +16,7 @@ export interface AITrendOperation {
 
 export interface AITrendDraftState {
   draft?: AITrendDraft
+  durationLabel: string
   error: string
   operations: AITrendOperation[]
   operationsExpanded: boolean
@@ -27,6 +28,15 @@ export interface AITrendDraftState {
 }
 
 const mockAITrendEnabled = import.meta.env.DEV && import.meta.env.VITE_AI_TREND_MOCK !== 'false'
+
+function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000))
+  if (seconds < 60) return `${seconds}秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  if (minutes < 60) return `${minutes}分${remainder}秒`
+  return `${Math.floor(minutes / 60)}小时${minutes % 60}分`
+}
 
 function waitForMockStep(signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -155,6 +165,7 @@ async function runMockAITrend(
 
 export function createAITrendDraftState(): AITrendDraftState {
   const state = reactive<AITrendDraftState>({
+    durationLabel: '0秒',
     error: '',
     operations: [],
     operationsExpanded: false,
@@ -166,6 +177,14 @@ export function createAITrendDraftState(): AITrendDraftState {
   })
   let controller: AbortController | undefined
   let requestID = 0
+  let durationTimer: number | undefined
+  let startedAt = 0
+
+  const stopDurationTimer = () => {
+    if (durationTimer !== undefined) window.clearInterval(durationTimer)
+    durationTimer = undefined
+    if (startedAt > 0) state.durationLabel = formatElapsed(Date.now() - startedAt)
+  }
 
   state.stop = () => {
     controller?.abort()
@@ -180,6 +199,11 @@ export function createAITrendDraftState(): AITrendDraftState {
     controller?.abort()
     controller = new AbortController()
     state.query = normalized
+    startedAt = Date.now()
+    state.durationLabel = '0秒'
+    durationTimer = window.setInterval(() => {
+      state.durationLabel = formatElapsed(Date.now() - startedAt)
+    }, 1000)
     state.operations = []
     state.operationsExpanded = true
     state.error = ''
@@ -240,6 +264,7 @@ export function createAITrendDraftState(): AITrendDraftState {
         state.error = error instanceof Error ? error.message : '分析失败'
       }
     } finally {
+      stopDurationTimer()
       if (currentRequest === requestID) controller = undefined
     }
   }
