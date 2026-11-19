@@ -12,7 +12,7 @@
 
 ## 3. Validation and live verification
 
-- [ ] 3.1 Run full Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and run a real request confirming model explanation ordering and length.
+- [x] 3.1 Run full Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and run a real request confirming model explanation ordering and length. Revision `f2938f3` returned `explain_draft/running` and `completed` after tool events and before the draft; the model explanation was 59 Unicode characters and the draft contained 8 curves.
 
 ## Workflow follow-up
 
