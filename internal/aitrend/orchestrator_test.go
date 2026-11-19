@@ -113,7 +113,50 @@ func TestOrchestratorEmitsValidationAndOperationEvents(t *testing.T) {
 	if _, err := orchestrator.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(steps) != 3 || steps[0].Type != StreamEventValidation || steps[1].Type != StreamEventOperation || steps[2].Status != StreamCompleted {
+	if len(steps) != 7 {
 		t.Fatalf("events = %#v", steps)
+	}
+	if steps[0].Tool != string(ToolAnalyzeIntent) || steps[0].Status != StreamRunning ||
+		steps[1].Tool != string(ToolAnalyzeIntent) || steps[1].Status != StreamCompleted ||
+		steps[2].Type != StreamEventValidation ||
+		steps[3].Tool != string(ToolAnalyzeIntent) || steps[3].Status != StreamRunning ||
+		steps[4].Tool != string(ToolAnalyzeIntent) || steps[4].Status != StreamCompleted ||
+		steps[5].Tool != string(ToolListAvailableValues) || steps[5].Status != StreamRunning ||
+		steps[6].Tool != string(ToolListAvailableValues) || steps[6].Status != StreamCompleted {
+		t.Fatalf("events = %#v", steps)
+	}
+}
+
+func TestOrchestratorEmitsModelOperationBeforeSlowAnalyzer(t *testing.T) {
+	valid, err := json.Marshal(validIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewToolRegistry([]ToolDefinition{{Name: ToolListAvailableValues, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return []byte(`[]`), nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := make([]StreamEvent, 0)
+	orchestrator := Orchestrator{
+		Analyzer: func(context.Context, *ContractError) ([]byte, error) {
+			time.Sleep(10 * time.Millisecond)
+			return valid, nil
+		},
+		Planner: func(context.Context, Intent, []ToolCallResult) ([]ToolCall, error) {
+			return []ToolCall{{Name: ToolListAvailableValues}}, nil
+		},
+		Registry: registry,
+		Emit:     func(event StreamEvent) error { steps = append(steps, event); return nil },
+	}
+	if _, err := orchestrator.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) < 2 || steps[0].Type != StreamEventOperation || steps[0].Tool != string(ToolAnalyzeIntent) || steps[0].Status != StreamRunning {
+		t.Fatalf("first events = %#v", steps)
+	}
+	if steps[1].Type != StreamEventOperation || steps[1].Tool != string(ToolAnalyzeIntent) || steps[1].Status != StreamCompleted {
+		t.Fatalf("model completion event = %#v", steps[1])
 	}
 }

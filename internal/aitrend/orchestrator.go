@@ -71,15 +71,35 @@ func (orchestrator Orchestrator) run(ctx context.Context, _ string) (Orchestrati
 	attemptsUsed := 0
 	for attempt := 1; attempt <= MaxAIAttempts; attempt++ {
 		attemptsUsed = attempt
+		modelOperation := string(ToolAnalyzeIntent)
+		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: modelOperation}); err != nil {
+			return OrchestrationResult{AIAttempts: attempt}, err
+		}
 		encoded, err := orchestrator.Analyzer(ctx, correction)
 		if err != nil {
+			_ = orchestrator.emit(StreamEvent{
+				Type:   StreamEventOperation,
+				Status: StreamFailed,
+				Tool:   modelOperation,
+				Error:  safeErrorFrom(err),
+			})
 			if ctx.Err() != nil {
 				return OrchestrationResult{AIAttempts: attempt, Stopped: true}, ctx.Err()
 			}
 			return OrchestrationResult{AIAttempts: attempt}, err
 		}
 		if orchestrator.TokenCounter(encoded) > orchestrator.MaxOutputTokens {
-			return OrchestrationResult{AIAttempts: attempt}, &ContractError{Code: ErrorLimitExceeded, Field: "ai_output_tokens", Message: "AI output token budget exceeded"}
+			limitErr := &ContractError{Code: ErrorLimitExceeded, Field: "ai_output_tokens", Message: "AI output token budget exceeded"}
+			_ = orchestrator.emit(StreamEvent{
+				Type:   StreamEventOperation,
+				Status: StreamFailed,
+				Tool:   modelOperation,
+				Error:  safeErrorFrom(limitErr),
+			})
+			return OrchestrationResult{AIAttempts: attempt}, limitErr
+		}
+		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: modelOperation}); err != nil {
+			return OrchestrationResult{AIAttempts: attempt}, err
 		}
 		intent, err = DecodeIntent(encoded)
 		if err == nil {

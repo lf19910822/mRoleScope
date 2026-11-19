@@ -140,6 +140,12 @@ type auditOperation struct {
 }
 
 func appendAuditOperation(operations []auditOperation, event StreamEvent) []auditOperation {
+	if event.Tool == string(ToolAnalyzeIntent) {
+		// Model progress is user-visible but is not a Serving tool call. Keep it
+		// out of the tool audit so the 20-call budget and tool metrics remain
+		// comparable with previous requests.
+		return operations
+	}
 	now := time.Now()
 	if event.Status == StreamRunning {
 		return append(operations, auditOperation{Tool: event.Tool, Status: event.Status, StartedAt: now})
