@@ -47,3 +47,4 @@
 - [x] 7.2 Add the Serving-backed trend runner that resolves current formal values, batches bounded summaries, ranks candidates deterministically, revalidates drafts, and emits the existing NDJSON event contract.
 - [x] 7.3 Inject the runner into the authenticated API, pass the existing root-owned Qwen runtime configuration through the private AI egress network, and keep the route unavailable when provider configuration is absent.
 - [x] 7.4 Remove the frontend local mock path so production and development state consume only the AI draft stream; retain a transport-level NDJSON fixture in unit tests.
+- [x] 7.5 Read Qwen prompt/completion usage and persist it with the live runner's bounded trend-audit summary, including tool-call status and duration, without storing raw requests, responses, credentials, or tool payloads.

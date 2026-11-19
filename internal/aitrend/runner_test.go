@@ -106,6 +106,7 @@ func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t
 		writer.Header().Set("Content-Type", "application/json")
 		response := map[string]any{
 			"choices": []any{map[string]any{"message": map[string]string{"content": `{"contract_version":"ai-trend-draft-v1","sub_queries":[],"time_range":{"kind":"month"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`}}},
+			"usage":   map[string]int{"prompt_tokens": 17, "completion_tokens": 23, "total_tokens": 40},
 		}
 		_ = json.NewEncoder(writer).Encode(response)
 	}))
@@ -117,5 +118,9 @@ func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t
 	}
 	if !strings.Contains(string(content), ContractVersionV1) || strings.Contains(string(content), "test-key") {
 		t.Fatalf("unexpected provider content: %s", content)
+	}
+	_, inputTokens, outputTokens, err := provider.AnalyzeIntentUsage(context.Background(), "哪些数据库", nil)
+	if err != nil || inputTokens != 17 || outputTokens != 23 {
+		t.Fatalf("usage = %d/%d err=%v", inputTokens, outputTokens, err)
 	}
 }

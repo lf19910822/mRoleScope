@@ -18,6 +18,7 @@ import (
 type TrendRunner struct {
 	Provider    IntentProvider
 	Tools       ServingToolService
+	Audit       *AuditStore
 	MaxDuration time.Duration
 }
 
@@ -46,8 +47,23 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 
 	var groups []CandidateGroup
 	var plannedIntent Intent
+	inputTokens, outputTokens := 0, 0
+	auditOperations := make([]auditOperation, 0, MaxToolCalls+1)
+	auditStarted := time.Now()
+	streamEmit := func(event StreamEvent) error {
+		if event.Type == StreamEventOperation {
+			auditOperations = appendAuditOperation(auditOperations, event)
+		}
+		return emit(event)
+	}
 	orchestrator := Orchestrator{
 		Analyzer: func(analyzeContext context.Context, correction *ContractError) ([]byte, error) {
+			if usageProvider, ok := runner.Provider.(IntentUsageProvider); ok {
+				content, input, output, providerErr := usageProvider.AnalyzeIntentUsage(analyzeContext, query, correction)
+				inputTokens += input
+				outputTokens += output
+				return content, providerErr
+			}
 			return runner.Provider.AnalyzeIntent(analyzeContext, query, correction)
 		},
 		Planner: func(_ context.Context, intent Intent, _ []ToolCallResult) ([]ToolCall, error) {
@@ -59,10 +75,11 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		MaxDuration:     runner.MaxDuration,
 		MaxInputTokens:  12_000,
 		MaxOutputTokens: 16_000,
-		Emit:            emit,
+		Emit:            streamEmit,
 	}
 	result, err := orchestrator.RunWithInput(ctx, query)
 	if err != nil {
+		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
 	if plannedIntent.ContractVersion == "" {
@@ -92,7 +109,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		return err
 	}
 	if len(draft.Curves) > 0 {
-		if err := emitValidatedDraft(ctx, registry, draft, emit); err != nil {
+		if err := emitValidatedDraft(ctx, registry, draft, streamEmit); err != nil {
 			return err
 		}
 	}
@@ -105,11 +122,115 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		draftStatus = StreamPartial
 		terminalStatus = StreamPartial
 	}
-	if err := emit(StreamEvent{Type: StreamEventDraft, Status: draftStatus, Draft: &draft}); err != nil {
+	if err := streamEmit(StreamEvent{Type: StreamEventDraft, Status: draftStatus, Draft: &draft}); err != nil {
+		runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
-	return emit(StreamEvent{Type: StreamEventDone, Status: terminalStatus})
+	err = streamEmit(StreamEvent{Type: StreamEventDone, Status: terminalStatus})
+	runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+	return err
 }
+
+type auditOperation struct {
+	Tool      string
+	Status    StreamStatus
+	StartedAt time.Time
+	EndedAt   time.Time
+}
+
+func appendAuditOperation(operations []auditOperation, event StreamEvent) []auditOperation {
+	now := time.Now()
+	if event.Status == StreamRunning {
+		return append(operations, auditOperation{Tool: event.Tool, Status: event.Status, StartedAt: now})
+	}
+	for index := len(operations) - 1; index >= 0; index-- {
+		if operations[index].Tool == event.Tool && operations[index].EndedAt.IsZero() {
+			operations[index].Status = event.Status
+			operations[index].EndedAt = now
+			return operations
+		}
+	}
+	return operations
+}
+
+func (runner *TrendRunner) persistAudit(ctx context.Context, query string, result OrchestrationResult, draft *Draft, inputTokens, outputTokens int, operations []auditOperation, startedAt time.Time, runErr error) {
+	if runner == nil || runner.Audit == nil {
+		return
+	}
+	if inputTokens == 0 {
+		inputTokens = (len([]byte(query)) + 3) / 4
+	}
+	status := string(StreamSuccess)
+	if result.Stopped {
+		status = string(StreamStopped)
+	} else if result.Partial {
+		status = string(StreamPartial)
+	} else if runErr != nil {
+		status = string(StreamFailure)
+	}
+	createdAt := startedAt
+	completedAt := time.Now()
+	requestHash := HashRequest([]byte(query))
+	record := AuditRecord{
+		RequestHash: requestHash, ContractVersion: ContractVersionV1, ValidationStatus: "valid",
+		Status: status, AIAttemptCount: result.AIAttempts, ToolCallCount: len(result.ToolResults),
+		InputTokenCount: inputTokens, OutputTokenCount: outputTokens, Duration: completedAt.Sub(createdAt),
+		CreatedAt: createdAt, CompletedAt: &completedAt, ExpiresAt: createdAt.Add(AuditRetention),
+	}
+	if result.Intent.ContractVersion != "" {
+		if data, err := MarshalIntent(result.Intent); err == nil {
+			hash := HashRequest(data)
+			record.IntentHash = &hash
+		}
+	}
+	if draft != nil {
+		if data, err := json.Marshal(draft); err == nil {
+			hash := HashRequest(data)
+			record.DraftHash = &hash
+		}
+		record.DraftCurveCount = len(draft.Curves)
+		for _, curve := range draft.Curves {
+			if curve.Selected {
+				record.DraftSelectedCount++
+			}
+		}
+		record.DraftWarningCount = len(draft.Warnings)
+	}
+	if runErr != nil {
+		safe := safeErrorFrom(runErr)
+		record.SafeErrorCode = stringPointer(string(safe.Code))
+	}
+	for _, toolResult := range result.ToolResults {
+		if toolResult.SafeError != nil {
+			record.ToolFailureCount++
+		}
+	}
+	auditID, err := runner.Audit.Insert(ctx, record)
+	if err != nil {
+		return
+	}
+	for index, operation := range operations {
+		if index >= MaxToolCalls || operation.Tool == "" {
+			break
+		}
+		ended := operation.EndedAt
+		statusValue := string(operation.Status)
+		if ended.IsZero() {
+			// An operation can still be open when the client cancels or the
+			// stream callback fails. PostgreSQL requires a terminal timestamp
+			// for every status except running, so record that interrupted work
+			// as skipped rather than creating an invalid audit row.
+			statusValue = "skipped"
+			ended = completedAt
+		} else if statusValue == "" || statusValue == string(StreamRunning) {
+			statusValue = string(StreamFailed)
+		}
+		_ = runner.Audit.InsertTool(ctx, AuditToolRecord{AuditID: auditID, Sequence: index + 1, ToolName: operation.Tool, Status: statusValue, Duration: ended.Sub(operation.StartedAt), StartedAt: operation.StartedAt, CompletedAt: &ended})
+	}
+	_ = runner.Audit.Cleanup(ctx)
+}
+
+func stringPointer(value string) *string { return &value }
 
 func resolverFromOptions(options jdserving.FilterOptionsResponse) Resolver {
 	values := map[Dimension][]Candidate{

@@ -63,6 +63,8 @@ func main() {
 			trendRunner, providerErr = aitrend.NewTrendRunner(provider, repository, repository, repository)
 			if providerErr != nil {
 				slog.Warn("trend AI disabled", "reason", "trend runner configuration is invalid")
+			} else if concreteRunner, ok := trendRunner.(*aitrend.TrendRunner); ok {
+				concreteRunner.Audit = aitrend.NewAuditStore(pool)
 			}
 		}
 	}
