@@ -2345,7 +2345,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, rgba(247, 252, 252, 0.96), rgba(241, 249, 250, 0.88));
   border: 1px solid #cfe3e7;
   border-radius: 14px;
-  height: 176px;
+  height: 360px;
   overflow: hidden;
 }
 
@@ -4082,7 +4082,7 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
   .job-trend-view__ai-chat {
-    height: 190px;
+    height: 380px;
   }
   .job-trend-view__ai-analysis-grid {
     display: block;
