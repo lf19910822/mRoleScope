@@ -276,7 +276,12 @@ func (service ServingToolService) optionsForDimension(options jdserving.FilterOp
 			result = append(result, FilterOption{Dimension: dimension, Value: option.Value, Label: option.Label})
 		}
 	case DimensionProject:
-		appendOptions(options.Projects)
+		for _, option := range options.Projects {
+			if option.Value == "unrecognized" {
+				continue
+			}
+			result = append(result, FilterOption{Dimension: dimension, Value: option.Value, Label: option.Label})
+		}
 	case DimensionJobFamily:
 		appendOptions(options.JobFamilies)
 	case DimensionLocation:
