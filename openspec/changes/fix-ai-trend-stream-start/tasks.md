@@ -9,7 +9,7 @@
 ## 2. Consumer and live verification
 
 - [x] 2.1 Verify the existing frontend operation window renders model operations and keeps tool, draft, stop, and terminal behavior unchanged with frontend tests.
-- [ ] 2.2 Run Go tests, frontend tests, OpenSpec strict validation, and `git diff --check`; deploy the change and verify a real request receives `analyze_intent/running` before the first tool event.
+- [x] 2.2 Run Go tests, frontend tests, OpenSpec strict validation, and `git diff --check`; deploy the change and verify a real request receives `analyze_intent/running` before the first tool event. Live request on revision `f911f15` received the first event in 0.145s, the first Serving tool at 30.654s, completed in 35.228s, returned 39 events, and produced 8 curves successfully.
 
 ## Workflow follow-up
 
