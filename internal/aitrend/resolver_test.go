@@ -108,6 +108,14 @@ func TestResolverTreatsEmptyExpressionAsBroadDimension(t *testing.T) {
 	}
 }
 
+func TestBroadExpressionRecognizesWildcardAndWholeDimensionPhrases(t *testing.T) {
+	for _, expression := range []string{"*", "all", "全部项目", "所有岗位族"} {
+		if !isBroadExpression(expression) {
+			t.Fatalf("isBroadExpression(%q) = false", expression)
+		}
+	}
+}
+
 func TestPlanServingToolsSkipsBroadRankExpression(t *testing.T) {
 	intent := Intent{SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{""}}}}
 	calls := planServingTools(intent, []CandidateGroup{{SubQueryID: "projects", Candidates: []Candidate{{Dimension: DimensionProject, Value: "alpha"}}}})
