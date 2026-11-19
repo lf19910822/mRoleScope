@@ -223,16 +223,21 @@ function aiCurveColor(index: number): string {
   return palette[index % palette.length] ?? palette[0]!
 }
 
-function aiMatchLabel(status: AITrendDraftCurve['match_status']): string {
+function aiMatchSymbol(status: AITrendDraftCurve['match_status']): string {
   switch (status) {
-    case 'exact':
-      return '精确匹配'
-    case 'alias':
-      return '别名匹配'
-    case 'expansion':
-      return '扩展推荐'
-    default:
-      return '可能匹配'
+    case 'exact': return '✓'
+    case 'alias': return '≈'
+    case 'expansion': return '+'
+    default: return '?'
+  }
+}
+
+function aiMatchDescription(status: AITrendDraftCurve['match_status']): string {
+  switch (status) {
+    case 'exact': return '精确匹配：用户表达与正式值一致。'
+    case 'alias': return '别名匹配：用户表达通过已知别名映射到正式值。'
+    case 'expansion': return '扩展推荐：不是精确匹配，但来自更宽的正式类别。'
+    default: return '可能匹配：根据相似度保留，建议确认。'
   }
 }
 
@@ -1160,9 +1165,12 @@ onBeforeUnmount(() => {
                     @update:value="updateAIDraftOperator(curve, $event)"
                   />
                 </div>
-                <span class="job-trend-view__ai-match" :class="`is-${curve.match_status}`">{{
-                  aiMatchLabel(curve.match_status)
-                }}</span>
+                <span
+                  class="job-trend-view__ai-match"
+                  :class="`is-${curve.match_status}`"
+                  :aria-label="aiMatchDescription(curve.match_status)"
+                  :title="aiMatchDescription(curve.match_status)"
+                >{{ aiMatchSymbol(curve.match_status) }}</span>
                 <button
                   class="job-trend-view__ai-remove"
                   type="button"
@@ -2342,9 +2350,9 @@ onBeforeUnmount(() => {
 }
 
 .job-trend-view__ai-chat {
-  background: linear-gradient(180deg, rgba(247, 252, 252, 0.96), rgba(241, 249, 250, 0.88));
-  border: 1px solid #cfe3e7;
-  border-radius: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   height: 360px;
   overflow: hidden;
 }
@@ -2355,7 +2363,7 @@ onBeforeUnmount(() => {
   gap: 9px;
   height: 100%;
   overflow-y: auto;
-  padding: 12px 13px 10px;
+  padding: 0;
   scrollbar-width: thin;
 }
 
@@ -2472,13 +2480,13 @@ onBeforeUnmount(() => {
 }
 
 .job-trend-view__ai-result {
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid #cfe3e7;
-  border-radius: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: grid;
   gap: 14px;
   max-width: none;
-  padding: 16px;
+  padding: 0;
   width: 100%;
 }
 
@@ -2664,26 +2672,26 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .job-trend-view__ai-match {
-  border-radius: 999px;
-  flex: 0 0 auto;
-  font-size: 0.64rem;
-  font-weight: 750;
-  padding: 4px 7px;
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 20px;
+  font-size: 1rem;
+  font-weight: 850;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  width: 20px;
 }
 .job-trend-view__ai-match.is-exact {
-  background: #e7f6ef;
   color: #14784e;
 }
 .job-trend-view__ai-match.is-alias {
-  background: #eef4ff;
   color: #4268a1;
 }
 .job-trend-view__ai-match.is-possible {
-  background: #fff5df;
   color: #94600d;
 }
 .job-trend-view__ai-match.is-expansion {
-  background: #f3eefe;
   color: #7250a4;
 }
 .job-trend-view__ai-remove {
@@ -3947,13 +3955,11 @@ onBeforeUnmount(() => {
     linear-gradient(135deg, #173943 0%, #102d37 100%);
   border-color: #31515b;
 }
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-example),
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-result) {
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-example) {
   background: rgba(18, 48, 58, 0.86);
   border-color: #31515b;
 }
 :global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-activity),
-:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-chat),
 :global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-curve-row) {
   background: rgba(16, 43, 53, 0.86);
   border-color: #31515b;

@@ -18,6 +18,8 @@ describe('JobTrendView', () => {
     expect(source).toContain('job-trend-view__ai-curve-list-head')
     expect(source).toContain('job-trend-view__ai-curve-list')
     expect(source).toContain('job-trend-view__ai-curve-line')
+    expect(source).toContain('aiMatchSymbol')
+    expect(source).toContain("return '≈'")
     expect(source).toContain('updateAIDraftDimension')
     expect(source).toContain('替换现有曲线')
     expect(source).toContain('添加到当前图表')
