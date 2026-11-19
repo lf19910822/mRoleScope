@@ -5,6 +5,19 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/views/JobTrendView.vue'), 'utf8')
 
 describe('JobTrendView', () => {
+  it('gives the AI workbench room for examples, operations, reasons, and editable curve rows', () => {
+    expect(source).toContain('job-trend-view__ai-workbench')
+    expect(source).toContain('job-trend-view__ai-example-grid')
+    expect(source).toContain('submitAIExample')
+    expect(source).toContain('job-trend-view__ai-activity')
+    expect(source).toContain('job-trend-view__ai-reason')
+    expect(source).toContain('job-trend-view__ai-curve-list')
+    expect(source).toContain('job-trend-view__ai-curve-line')
+    expect(source).toContain('updateAIDraftDimension')
+    expect(source).toContain('替换现有曲线')
+    expect(source).toContain('添加到当前图表')
+  })
+
   it('uses a compact dashboard title that remains readable in a 390px viewport', () => {
     expect(source).toContain('岗位需求变化趋势')
     expect(source).not.toContain('需求变化，看见时间的方向')
