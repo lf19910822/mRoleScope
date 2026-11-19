@@ -33,6 +33,18 @@ func (runnerSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.T
 	}, nil
 }
 
+type runnerProjectSummaryReader struct{}
+
+func (runnerProjectSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.TrendQuery) (jdserving.TrendSummary, error) {
+	counts := map[string]float64{"alpha": 30, "beta": 20, "gamma": 10}
+	average := counts[query.Condition.Value]
+	return jdserving.TrendSummary{
+		Curve:                  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionProject, Value: query.Condition.Value, Label: query.Condition.Value},
+		AverageDailyActiveJobs: &average,
+		ValidObservationDays:   1,
+	}, nil
+}
+
 type runnerIntentProvider struct {
 	intent Intent
 }
@@ -88,6 +100,46 @@ func TestTrendRunnerUsesServingValuesAndRanksDraft(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Type != StreamEventDone || last.Status != StreamSuccess {
 		t.Fatalf("last event = %#v", last)
+	}
+}
+
+func TestTrendRunnerUsesAllProjectsForEmptyExpression(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{
+		{Value: "alpha", Label: "Alpha"},
+		{Value: "beta", Label: "Beta"},
+		{Value: "gamma", Label: "Gamma"},
+	}}
+	intent := Intent{
+		ContractVersion: ContractVersionV1,
+		SubQueries: []SubQuery{{
+			ID: "projects", Dimension: DimensionProject, Expressions: []string{""},
+			Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: MaxCurves},
+		}},
+		TimeRange: TimeRange{Kind: RangeMonth},
+		Output:    OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine},
+	}
+	runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, runnerProjectSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "哪些项目的岗位最多？", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	for _, event := range events {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		if event.Type == StreamEventOperation && event.Tool == string(ToolRankValues) && strings.Contains(string(event.Params), `"expression":""`) {
+			t.Fatalf("empty rank operation emitted: %#v", event)
+		}
+	}
+	if draft == nil || len(draft.Curves) != 3 || draft.Curves[0].Condition.Value != "alpha" || draft.Curves[1].Condition.Value != "beta" || draft.Curves[2].Condition.Value != "gamma" {
+		t.Fatalf("draft = %#v", draft)
 	}
 }
 
