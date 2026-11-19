@@ -174,6 +174,67 @@ export interface FilterOptionsResponse {
   urgent_options: FilterOption[]
 }
 
+export interface AITrendDraftCurve {
+  condition: TrendRequest['condition']
+  label: string
+  match_status: 'exact' | 'alias' | 'possible' | 'expansion'
+  reason: string
+  scope?: string
+  selected: boolean
+  sub_query_ids: string[]
+}
+
+export interface AITrendDraft {
+  contract_version: string
+  status: 'complete' | 'partial' | 'stopped'
+  curves: AITrendDraftCurve[]
+  warnings?: string[]
+  explanation?: string
+}
+
+export interface AITrendStreamEvent {
+  type: 'operation' | 'validation' | 'draft' | 'done'
+  status: 'running' | 'completed' | 'failed' | 'success' | 'partial' | 'failure' | 'user_stopped'
+  tool?: string
+  params?: Record<string, unknown>
+  draft?: AITrendDraft
+  error?: { code: string; field?: string; message: string }
+}
+
+export async function streamAITrendDraft(
+  query: string,
+  onEvent: (event: AITrendStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const settle = requestActivity.begin()
+  try {
+    const response = await fetch('/api/v1/job-trends/ai-draft', {
+      method: 'POST',
+      headers: { Accept: 'application/x-ndjson', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+      signal,
+    })
+    if (!response.ok) throw new JDAPIError(`生成曲线草稿失败（${response.status}）`, response.status)
+    if (response.body === null) throw new JDAPIError('服务器没有返回操作流', response.status)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let pending = ''
+    while (true) {
+      const chunk = await reader.read()
+      pending += decoder.decode(chunk.value ?? new Uint8Array(), { stream: !chunk.done })
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.trim() !== '') onEvent(JSON.parse(line) as AITrendStreamEvent)
+      }
+      if (chunk.done) break
+    }
+    if (pending.trim() !== '') onEvent(JSON.parse(pending) as AITrendStreamEvent)
+  } finally {
+    settle()
+  }
+}
+
 export class JDAPIError extends Error {
   constructor(
     message: string,

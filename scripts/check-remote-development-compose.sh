@@ -14,8 +14,8 @@ die() {
 
 [[ -f "$compose_file" ]] || die "Compose file does not exist: $compose_file"
 
-grep -Fqx '    networks: [backend, edge]' "$compose_file" \
-  || die 'API must be attached to backend and edge networks'
+grep -Fqx '    networks: [backend, edge, ai-edge]' "$compose_file" \
+  || die 'API must be attached to backend, edge, and the dedicated AI egress network'
 
 [[ "$(grep -Fxc '    networks: [backend]' "$compose_file")" -eq 36 ]] \
   || die 'only PostgreSQL, internal one-shots, fixed lifecycle services, and terminal audits may use backend alone'
@@ -65,8 +65,8 @@ grep -Fqx '    profiles: [candidate-analysis-v0.4]' "$compose_file" \
 [[ "$(grep -Fxc '    profiles: [dictionary]' "$compose_file")" -eq 15 ]] \
   || die 'the fixed dictionary lifecycle services must remain explicitly requested'
 
-[[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 2 ]] \
-  || die 'only API and no-port worker may attach to the ordinary edge network'
+[[ "$(grep -Fxc '    networks: [backend, edge]' "$compose_file")" -eq 1 ]] \
+  || die 'only the no-port worker may attach to the ordinary edge network without dedicated AI egress'
 
 [[ "$(grep -Fxc '    ports:' "$compose_file")" -eq 1 ]] \
   || die 'only Web Edge may publish host ports'
@@ -129,6 +129,15 @@ check_web_edge() {
 }
 
 check_web_edge
+
+api_block=$(service_block api)
+[[ -n "$api_block" ]] || die 'API service was not found'
+grep -Fqx '    networks: [backend, edge, ai-edge]' <<<"$api_block" \
+  || die 'API must use the dedicated AI egress network for trend intent requests'
+grep -Fqx '      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}' <<<"$api_block" \
+  || die 'API must receive the reviewed Qwen Workspace ID through root-owned runtime configuration'
+grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$api_block" \
+  || die 'API must receive the reviewed Qwen key through root-owned runtime configuration'
 
 check_private_one_shot() {
   local service="$1" profile="$2" command="$3" block
@@ -300,8 +309,8 @@ for service in ai-plus-trial; do
     die "${service} must not receive COS, a host port, raw-data volumes, or the ordinary edge network"
   fi
 done
-[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 2 ]] \
-  || die 'the Qwen key variable must appear only in the Plus trial and five-body diagnostic caller'
+[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 3 ]] \
+  || die 'the Qwen key variable must appear only in the API, Plus trial, and five-body diagnostic caller'
 
 for service in \
   ai-plus-output-audit-diagnostic \

@@ -140,13 +140,22 @@ service_block() {
   ' "$compose_file"
 }
 
-for service in postgres migrate api worker analysis candidate-analysis dictionary-seed dictionary-approve dictionary-prepare backfill; do
+for service in postgres migrate worker analysis candidate-analysis dictionary-seed dictionary-approve dictionary-prepare backfill; do
   block=$(service_block "$service")
   [[ -n "$block" ]] || die "${service} Compose service was not found"
   if grep -Fq 'MROLESCOPE_QWEN_WORKSPACE_ID' <<<"$block"; then
     die "${service} must not receive the AI Workspace ID"
   fi
 done
+
+api_block=$(service_block api)
+[[ -n "$api_block" ]] || die 'api Compose service was not found'
+grep -Fqx '    networks: [backend, edge, ai-edge]' <<<"$api_block" \
+  || die 'api must use backend, edge, and the dedicated AI egress network'
+grep -Fqx '      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}' <<<"$api_block" \
+  || die 'api must receive the Qwen Workspace ID for trend intent analysis'
+grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$api_block" \
+  || die 'api must receive the Qwen key for trend intent analysis'
 
 for service in ai-trial-prepare ai-plus-expand ai-plus-publish ai-status; do
   block=$(service_block "$service")

@@ -13,6 +13,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import {
   NButton,
   NEmpty,
+  NInput,
   NPagination,
   NPopover,
   NSelect,
@@ -29,6 +30,7 @@ import {
   getJobHistoryDetail,
   getJobTrendDrilldown,
   getJobTrendEvents,
+  type AITrendDraftCurve,
   type FilterOptionsResponse,
   type JobDetailResponse,
   type TrendDrilldownItem,
@@ -38,7 +40,13 @@ import FilterDatePicker from '@/components/FilterDatePicker.vue'
 import JDDetailReadingLayout from '@/components/JDDetailReadingLayout.vue'
 import JobDetailSkeleton from '@/components/JobDetailSkeleton.vue'
 import TechnologyKeywordSelect from '@/components/TechnologyKeywordSelect.vue'
-import { createTrendChartOption, trendCurveColor, trendCurveLabel } from '@/lib/job-trend-chart'
+import {
+  createTrendChartOption,
+  trendCurveColor,
+  trendCurveLabel,
+  trendPalette,
+} from '@/lib/job-trend-chart'
+import { createAITrendDraftState } from '@/lib/ai-trend-draft-state'
 import { useJobTrendDashboard } from '@/lib/job-trend-dashboard'
 import { createTrendDrilldownState } from '@/lib/job-trend-drilldown-state'
 import {
@@ -66,6 +74,7 @@ use([
 ])
 
 const dashboard = useJobTrendDashboard()
+const aiTrend = createAITrendDraftState()
 const drilldown = createTrendDrilldownState({ readTrendDrilldown: getJobTrendDrilldown })
 const eventStats = createTrendEventState({ readTrendEvents: getJobTrendEvents })
 const eventPopoverThemeOverrides = { boxShadow: 'none' }
@@ -157,7 +166,7 @@ const eventCurveRows = computed(() =>
 )
 const eventCurveOptions = computed<SelectOption[]>(() =>
   eventCurveRows.value.slice(0, 8).map((row) => ({
-    label: trendCurveLabel(row),
+    label: safeTrendCurveLabel(row),
     value: row.id,
   })),
 )
@@ -168,9 +177,186 @@ const selectedEventRow = computed(() =>
   eventCurveRows.value.find((row) => row.id === eventStats.selectedCurveId),
 )
 const selectedEventCurveLabel = computed(() =>
-  selectedEventRow.value ? trendCurveLabel(selectedEventRow.value) : '',
+  selectedEventRow.value ? safeTrendCurveLabel(selectedEventRow.value) : '',
 )
 const eventStatsRows = computed(() => eventStats.response?.rows ?? [])
+
+const aiDimensionOptions = dimensionOptions.filter(
+  ({ value }) =>
+    value === 'technology' || value === 'project' || value === 'job_family' || value === 'location',
+)
+const aiPromptExamples = [
+  {
+    eyebrow: '技术版图',
+    title: '哪些数据库正在被使用？',
+    value: '哪些数据库正在被使用？',
+  },
+  {
+    eyebrow: '项目热度',
+    title: '哪些项目的岗位最多？',
+    value: '哪些项目的岗位最多？',
+  },
+  {
+    eyebrow: '组合观察',
+    title: '后台岗位主要用了哪些技术？',
+    value: '后台岗位主要用了哪些技术？',
+  },
+]
+const aiDraftSelectedCount = computed(
+  () => aiTrend.draft?.curves.filter((curve) => curve.selected).length ?? 0,
+)
+const aiDraftCanApply = computed(() => aiDraftSelectedCount.value > 0 && !isRefreshing.value)
+const aiChatReply = computed(() => {
+  if (aiTrend.draft?.explanation) return aiTrend.draft.explanation
+  if (aiTrend.error) return aiTrend.error
+  if (aiTrend.status === 'running') return `正在分析：${aiTrend.query}`
+  if (aiTrend.status === 'stopped') return '分析已停止，已保留目前拿到的结果。'
+  return ''
+})
+const matchTooltip = ref<{ text: string; x: number; y: number; below: boolean }>()
+
+function showMatchTooltip(event: MouseEvent | FocusEvent, text: string): void {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  const below = rect.top < 72
+  const edge = Math.max(110, window.innerWidth - 110)
+  const x = Math.min(edge, Math.max(110, rect.left + rect.width / 2))
+  matchTooltip.value = { text, x, y: below ? rect.bottom + 8 : rect.top - 8, below }
+}
+
+function hideMatchTooltip(): void {
+  matchTooltip.value = undefined
+}
+
+function aiCurveColor(index: number): string {
+  const curves = aiTrend.draft?.curves ?? []
+  const curve = curves[index]
+  if (!curve) return trendPalette[0]!
+  const existing = dashboard.rows.find((row) => {
+    const condition = row.appliedCondition ?? row.condition
+    return (
+      condition.dimension === curve.condition.dimension &&
+      condition.value === curve.condition.value &&
+      condition.operator === curve.condition.operator &&
+      condition.includeSecondary === curve.condition.includeSecondary
+    )
+  })
+  if (existing) return trendCurveColor(existing)
+
+  const usedIDs = new Set(dashboard.rows.map((row) => row.id))
+  let ordinal = 1
+  for (let current = 0; current <= index; current += 1) {
+    const candidate = curves[current]
+    if (!candidate?.selected) continue
+    const alreadyExists = dashboard.rows.some((row) => {
+      const condition = row.appliedCondition ?? row.condition
+      return (
+        condition.dimension === candidate.condition.dimension &&
+        condition.value === candidate.condition.value &&
+        condition.operator === candidate.condition.operator &&
+        condition.includeSecondary === candidate.condition.includeSecondary
+      )
+    })
+    if (alreadyExists) continue
+    while (usedIDs.has(`trend-${ordinal}`)) ordinal += 1
+    if (current === index) return trendPalette[(ordinal - 1) % trendPalette.length] ?? trendPalette[0]!
+    usedIDs.add(`trend-${ordinal}`)
+    ordinal += 1
+  }
+  return trendPalette[0]!
+}
+
+function aiMatchSymbol(status: AITrendDraftCurve['match_status']): string {
+  switch (status) {
+    case 'exact': return '✓'
+    case 'alias': return '≈'
+    case 'expansion': return '+'
+    default: return '?'
+  }
+}
+
+function aiMatchDescription(status: AITrendDraftCurve['match_status']): string {
+  switch (status) {
+    case 'exact': return '精确匹配：用户表达与正式值一致。'
+    case 'alias': return '别名匹配：用户表达通过已知别名映射到正式值。'
+    case 'expansion': return '扩展推荐：不是精确匹配，但来自更宽的正式类别。'
+    default: return '可能匹配：根据相似度保留，建议确认。'
+  }
+}
+
+function aiDraftValueOptions(curve: AITrendDraftCurve): SelectOption[] {
+  let options: SelectOption[] = []
+  switch (curve.condition.dimension) {
+    case 'technology':
+      options = filterOptions.value.technology_keywords.map((option) => ({
+        label: option.label,
+        value: option.value,
+      }))
+      break
+    case 'project':
+      options = filterOptions.value.projects.map((option) => ({
+        label: option.label,
+        value: option.value,
+      }))
+      break
+    case 'job_family':
+      options = filterOptions.value.job_families.map((option) => ({
+        label: option.label,
+        value: option.value,
+      }))
+      break
+    case 'location':
+      options = filterOptions.value.locations.map((option) => ({
+        label: option.label,
+        value: option.value,
+      }))
+      break
+  }
+  if (curve.condition.value && !options.some((option) => option.value === curve.condition.value)) {
+    options = [{ label: `${curve.label || '当前条件'}（当前不可用）`, value: curve.condition.value }, ...options]
+  }
+  return options
+}
+
+function updateAIDraftDimension(curve: AITrendDraftCurve, value: string | number | null): void {
+  if (typeof value !== 'string') return
+  curve.condition.dimension = value as TrendDimension
+  curve.condition.value = ''
+  curve.condition.operator = ''
+  curve.condition.includeSecondary = false
+}
+
+function updateAIDraftValue(curve: AITrendDraftCurve, value: string | number | null): void {
+  if (typeof value === 'string') curve.condition.value = value
+}
+
+function aiTechnologySelection(curve: AITrendDraftCurve): string[] {
+  return curve.condition.value ? [curve.condition.value] : []
+}
+
+function updateAIDraftTechnology(curve: AITrendDraftCurve, values: string[]): void {
+  const value = values[values.length - 1] ?? ''
+  curve.condition.value = value
+  const option = filterOptions.value.technology_keywords.find((item) => item.value === value)
+  if (option) curve.label = option.label
+}
+
+function updateAIDraftOperator(curve: AITrendDraftCurve, value: string | number | null): void {
+  if (typeof value === 'string') curve.condition.operator = value as TrendComparison
+}
+
+function updateAIDraftSecondary(curve: AITrendDraftCurve, value: boolean): void {
+  curve.condition.includeSecondary = value
+}
+
+function removeAIDraftCurve(index: number): void {
+  aiTrend.draft?.curves.splice(index, 1)
+}
+
+function submitAIExample(value: string): void {
+  aiTrend.query = value
+}
 
 function preferredDrilldownHeight(maximumHeight: number): number {
   const rowCount = drilldown.response?.items.length ?? drilldown.node?.count ?? 1
@@ -212,10 +398,7 @@ const drilldownPlacement = computed(() => {
     const opensAbove = canOpenAbove || !canOpenBelow
     const top = opensAbove
       ? Math.max(18, drilldownAnchor.value.y - height - arrowReach)
-      : Math.min(
-          drilldownAnchor.value.y + arrowReach,
-          window.innerHeight - height - 18,
-        )
+      : Math.min(drilldownAnchor.value.y + arrowReach, window.innerHeight - height - 18)
     const arrowOffset = Math.max(18, Math.min(drilldownAnchor.value.x - left - 8, width - 34))
 
     return {
@@ -308,9 +491,32 @@ function curveValueOptions(row: TrendCurveRow): SelectOption[] {
       break
   }
   if (row.condition.value && !options.some((option) => option.value === row.condition.value)) {
-    return [{ label: `当前不可用：${row.condition.value}`, value: row.condition.value }, ...options]
+    return [{ label: '当前条件不可用', value: row.condition.value }, ...options]
   }
   return options
+}
+
+function isCurrentCurveValueAvailable(row: TrendCurveRow): boolean {
+  return curveValueOptions(row).some(
+    (option) => option.value === row.condition.value && option.label !== '当前条件不可用',
+  )
+}
+
+function safeTrendCurveLabel(row: TrendCurveRow): string {
+  if (row.series !== undefined || !row.condition.value || isCurrentCurveValueAvailable(row)) {
+    return trendCurveLabel(row) || '未设置曲线'
+  }
+  const draftCurve = aiTrend.draft?.curves.find(
+    (curve) =>
+      curve.condition.dimension === row.condition.dimension &&
+      curve.condition.value === row.condition.value &&
+      curve.condition.includeSecondary === row.condition.includeSecondary,
+  )
+  const safeValue = draftCurve?.label || '当前条件不可用'
+  return trendCurveLabel({
+    ...row,
+    condition: { ...row.condition, value: safeValue },
+  }) || '当前条件不可用'
 }
 
 function addCurve(): void {
@@ -457,6 +663,19 @@ function clearAllCurves(): void {
   highlightIncompleteCurves.value = false
   focusedCurveId.value = ''
   curveFeedback.value = ''
+}
+
+function applyAITrendDraft(mode: 'append' | 'replace' = 'append'): void {
+  if (!aiDraftCanApply.value) return
+  if (mode === 'replace') clearAllCurves()
+  aiTrend.applySelected((condition) => {
+    const row = dashboard.addCurve(condition)
+    if (row) void dashboard.applyCurve(row.id)
+  })
+}
+
+function formatAITrendOperationParams(params?: Record<string, unknown>): string {
+  return params ? JSON.stringify(params) : ''
 }
 
 async function refreshAll(): Promise<void> {
@@ -744,10 +963,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    :class="[
-      'job-trend-view',
-      { 'job-trend-view--configuration-expanded': configurationExpanded },
-    ]"
+    :class="['job-trend-view', { 'job-trend-view--configuration-expanded': configurationExpanded }]"
   >
     <section class="job-trend-view__chart-card" aria-labelledby="trend-dashboard-title">
       <header class="job-trend-view__header">
@@ -771,6 +987,281 @@ onBeforeUnmount(() => {
           </NButton>
         </div>
       </header>
+
+      <section class="job-trend-view__ai-workbench" aria-labelledby="ai-trend-draft-title">
+        <header class="job-trend-view__ai-header">
+          <div class="job-trend-view__ai-heading">
+            <div class="job-trend-view__ai-kicker">
+              <span class="job-trend-view__ai-signal" aria-hidden="true"></span>
+              AI 趋势工作台
+            </div>
+            <h2 id="ai-trend-draft-title">AI 曲线草稿</h2>
+            <p v-if="aiTrend.status === 'running'">正在整理候选、调用工具并校验正式值…</p>
+          </div>
+          <div
+            class="job-trend-view__ai-status"
+            :class="`job-trend-view__ai-status--${aiTrend.status}`"
+          >
+            <span class="job-trend-view__ai-status-dot" aria-hidden="true"></span>
+            {{
+              aiTrend.status === 'running'
+                ? '分析中'
+                : aiTrend.status === 'success'
+                  ? '草稿待确认'
+                  : aiTrend.status === 'partial'
+                    ? '部分完成'
+                    : aiTrend.status === 'stopped'
+                      ? '已停止'
+                      : aiTrend.status === 'failure'
+                        ? '需要修改问题'
+                        : '等待提问'
+            }}
+          </div>
+        </header>
+
+        <form class="job-trend-view__ai-composer" @submit.prevent="void aiTrend.submit()">
+          <NInput
+            v-model:value="aiTrend.query"
+            :disabled="aiTrend.status === 'running'"
+            aria-label="输入趋势问题"
+            class="job-trend-view__ai-input"
+            placeholder="例如：哪些数据库正在被使用？"
+          />
+          <NButton
+            v-if="aiTrend.status === 'running'"
+            attr-type="button"
+            class="job-trend-view__ai-stop"
+            size="large"
+            @click="aiTrend.stop"
+          >
+            停止分析
+          </NButton>
+          <NButton
+            v-else
+            class="job-trend-view__ai-submit"
+            size="large"
+            type="primary"
+            attr-type="submit"
+          >
+            {{ aiTrend.draft ? '重新生成草稿' : '生成草稿' }}
+          </NButton>
+        </form>
+
+        <div v-if="aiTrend.status === 'idle' && !aiTrend.draft" class="job-trend-view__ai-explore">
+          <div class="job-trend-view__ai-example-grid">
+            <button
+              v-for="example in aiPromptExamples"
+              :key="example.value"
+              class="job-trend-view__ai-example"
+              type="button"
+              @click="submitAIExample(example.value)"
+            >
+              <span>{{ example.eyebrow }}</span>
+              <strong>{{ example.title }}</strong>
+              <i aria-hidden="true">↗</i>
+            </button>
+          </div>
+        </div>
+
+        <div class="job-trend-view__ai-analysis-grid">
+          <section
+          v-if="aiTrend.operations.length || aiChatReply"
+          class="job-trend-view__ai-chat"
+          aria-label="AI 对话窗口"
+          >
+          <div class="job-trend-view__ai-chat-scroll">
+            <button
+              v-if="aiTrend.operations.length"
+              class="job-trend-view__ai-chat-duration"
+              type="button"
+              :aria-expanded="aiTrend.operationsExpanded"
+              @click="aiTrend.operationsExpanded = !aiTrend.operationsExpanded"
+            >
+              用时 {{ aiTrend.durationLabel }}
+              <span aria-hidden="true">{{ aiTrend.operationsExpanded ? '⌄' : '›' }}</span>
+            </button>
+            <div
+              v-if="aiTrend.operations.length && aiTrend.operationsExpanded"
+              class="job-trend-view__ai-chat-details"
+            >
+              <ol class="job-trend-view__ai-activity-list" aria-live="polite">
+                <li
+                  v-for="(operation, index) in aiTrend.operations"
+                  :key="`${index}-${operation.tool}`"
+                  :class="`is-${operation.status}`"
+                >
+                  <span class="job-trend-view__ai-activity-dot" aria-hidden="true"></span>
+                  <span class="job-trend-view__ai-activity-copy">
+                    <strong>{{ operation.tool }}</strong>
+                    <code v-if="operation.params">{{
+                      formatAITrendOperationParams(operation.params)
+                    }}</code>
+                  </span>
+                  <em>{{
+                    operation.status === 'failed'
+                      ? '失败'
+                      : operation.status === 'completed'
+                        ? '完成'
+                        : '进行中'
+                  }}</em>
+                </li>
+              </ol>
+            </div>
+            <Transition name="ai-chat-message" mode="out-in">
+              <div v-if="aiChatReply" :key="aiChatReply" class="job-trend-view__ai-chat-reply">
+                <p>{{ aiChatReply }}</p>
+              </div>
+            </Transition>
+          </div>
+          </section>
+
+          <section v-if="aiTrend.draft" class="job-trend-view__ai-result" aria-label="AI 曲线草稿">
+          <header class="job-trend-view__ai-result-header">
+            <div>
+              <div class="job-trend-view__ai-result-kicker">待确认草稿</div>
+              <h3>{{ aiTrend.draft.curves.length }} / 8 条曲线</h3>
+            </div>
+            <span
+              v-if="aiTrend.draft.status === 'stopped'"
+              class="job-trend-view__ai-result-state is-stopped"
+              >结果可能不完整</span
+            >
+            <span
+              v-else-if="aiTrend.draft.status === 'partial'"
+              class="job-trend-view__ai-result-state is-partial"
+              >部分结果</span
+            >
+          </header>
+          <div v-if="aiTrend.draft.warnings?.length" class="job-trend-view__ai-warnings">
+            <p v-for="warning in aiTrend.draft.warnings" :key="warning">{{ warning }}</p>
+          </div>
+          <div v-if="aiTrend.draft.curves.length" class="job-trend-view__ai-curve-list">
+            <article
+              v-for="(curve, index) in aiTrend.draft.curves"
+              :key="`${curve.condition.dimension}-${curve.condition.value}-${curve.condition.includeSecondary}`"
+              class="job-trend-view__ai-curve-row"
+              :class="{ 'is-selected': curve.selected }"
+            >
+              <span
+                class="job-trend-view__ai-curve-line"
+                :style="{ '--ai-curve-color': aiCurveColor(index) }"
+                aria-hidden="true"
+              ></span>
+              <div class="job-trend-view__ai-curve-main">
+                <label
+                  class="job-trend-view__ai-check job-trend-view__ai-curve-name"
+                  :aria-label="`选择第 ${index + 1} 条曲线`"
+                >
+                  <input v-model="curve.selected" type="checkbox" />
+                  <span class="job-trend-view__ai-checkbox" aria-hidden="true"></span>
+                  <span
+                    class="job-trend-view__ai-curve-color"
+                    :style="{ '--ai-curve-color': aiCurveColor(index) }"
+                    aria-hidden="true"
+                  ></span>
+                </label>
+                <NSelect
+                  :value="curve.condition.dimension"
+                  :options="aiDimensionOptions"
+                  size="small"
+                  aria-label="修改统计维度"
+                  @update:value="updateAIDraftDimension(curve, $event)"
+                />
+                <div class="job-trend-view__ai-condition-cell">
+                  <TechnologyKeywordSelect
+                    v-if="curve.condition.dimension === 'technology'"
+                    :model-value="aiTechnologySelection(curve)"
+                    :options="filterOptions.technology_keywords"
+                    placeholder="选择技术关键词"
+                    @update:model-value="updateAIDraftTechnology(curve, $event)"
+                  />
+                  <NSelect
+                    v-else
+                    :value="curve.condition.value || null"
+                    :options="aiDraftValueOptions(curve)"
+                    size="small"
+                    filterable
+                    clearable
+                    aria-label="修改统计条件"
+                    placeholder="选择统计条件"
+                    @update:value="updateAIDraftValue(curve, $event)"
+                  />
+                  <NSelect
+                    v-if="curve.condition.dimension === 'job_family'"
+                    :value="curve.condition.includeSecondary ? 'secondary' : 'primary'"
+                    :options="[
+                      { label: '仅主岗位族', value: 'primary' },
+                      { label: '含副岗位族', value: 'secondary' },
+                    ]"
+                    size="small"
+                    aria-label="修改岗位族统计口径"
+                    @update:value="updateAIDraftSecondary(curve, $event === 'secondary')"
+                  />
+                  <NSelect
+                    v-else-if="curve.condition.operator"
+                    :value="curve.condition.operator"
+                    :options="comparisonOptions"
+                    size="small"
+                    aria-label="修改比较条件"
+                    @update:value="updateAIDraftOperator(curve, $event)"
+                  />
+                </div>
+                <span
+                  class="job-trend-view__ai-match"
+                  :class="`is-${curve.match_status}`"
+                  :aria-label="aiMatchDescription(curve.match_status)"
+                  :data-tooltip="aiMatchDescription(curve.match_status)"
+                  role="img"
+                  tabindex="0"
+                  @blur="hideMatchTooltip"
+                  @focus="showMatchTooltip($event, aiMatchDescription(curve.match_status))"
+                  @mouseenter="showMatchTooltip($event, aiMatchDescription(curve.match_status))"
+                  @mouseleave="hideMatchTooltip"
+                >{{ aiMatchSymbol(curve.match_status) }}</span>
+                <button
+                  class="job-trend-view__ai-remove"
+                  type="button"
+                  aria-label="移除这条草稿曲线"
+                  @click="removeAIDraftCurve(index)"
+                >
+                  ×
+                </button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="job-trend-view__ai-no-result">
+            <strong>还没有可用曲线</strong>
+            <span>可以换一个更具体的技术、项目或岗位族名称。</span>
+            <div>
+              <NButton size="small" @click="aiTrend.query = '哪些数据库正在被使用？'"
+                >哪些数据库正在被使用？</NButton
+              >
+              <NButton size="small" @click="aiTrend.query = '哪些项目的岗位最多？'"
+                >哪些项目的岗位最多？</NButton
+              >
+            </div>
+          </div>
+          <footer v-if="aiTrend.draft.curves.length" class="job-trend-view__ai-result-actions">
+            <span>已选 {{ aiDraftSelectedCount }} 条 · 应用后仍可在右侧继续修改</span>
+            <div>
+              <NButton
+                size="small"
+                :disabled="!aiDraftCanApply"
+                @click="applyAITrendDraft('replace')"
+                >替换现有曲线</NButton
+              >
+              <NButton
+                size="small"
+                type="primary"
+                :disabled="!aiDraftCanApply"
+                @click="applyAITrendDraft('append')"
+                >添加到当前图表</NButton
+              >
+            </div>
+          </footer>
+          </section>
+        </div>
+      </section>
 
       <div class="job-trend-view__range-stage">
         <nav class="job-trend-view__ranges" aria-label="时间范围">
@@ -1385,7 +1876,7 @@ onBeforeUnmount(() => {
             aria-hidden="true"
           ></span>
           <button
-            :aria-label="`展开曲线：${trendCurveLabel(row) || '未设置曲线'}`"
+            :aria-label="`展开曲线：${safeTrendCurveLabel(row)}`"
             :data-testid="`curve-marker-${row.id}`"
             class="job-trend-view__curve-marker"
             :style="{ '--curve-color': trendCurveColor(row) }"
@@ -1394,7 +1885,7 @@ onBeforeUnmount(() => {
           >
             <span class="job-trend-view__curve-marker-core" aria-hidden="true"></span>
             <span class="job-trend-view__curve-marker-note" aria-hidden="true">
-              {{ trendCurveLabel(row) || '未设置曲线' }}
+              {{ safeTrendCurveLabel(row) }}
             </span>
           </button>
         </div>
@@ -1441,64 +1932,92 @@ onBeforeUnmount(() => {
         </p>
 
         <ol v-if="dashboard.rows.length" class="job-trend-view__curve-list">
-        <li
-          v-for="(row, index) in dashboard.rows"
-          :key="row.id"
-          :class="[
-            'job-trend-view__curve-row',
-            {
-              'job-trend-view__curve-row--incomplete':
-                highlightIncompleteCurves && !isCurveComplete(row),
-              'job-trend-view__curve-row--focused': focusedCurveId === row.id,
-            },
-          ]"
-          :data-testid="`curve-card-${row.id}`"
-          :style="{ '--curve-color': trendCurveColor(row) }"
-          tabindex="-1"
-          @click="selectEventCurve(row)"
-        >
-          <header>
-            <span class="job-trend-view__curve-index">{{
-              String(index + 1).padStart(2, '0')
-            }}</span>
-            <div class="job-trend-view__curve-identity">
-              <strong>{{ trendCurveLabel(row) || '未设置曲线' }}</strong>
-            </div>
-            <span
-              v-if="highlightIncompleteCurves && !isCurveComplete(row)"
-              class="job-trend-view__curve-pending"
-            >
-              待配置
-            </span>
-            <button type="button" aria-label="删除曲线" @click.stop="removeCurve(row)">×</button>
-          </header>
-
-          <label class="job-trend-view__curve-field">
-            <span>统计维度</span>
-            <NSelect
-              :value="row.condition.dimension"
-              :options="dimensionOptions"
-              size="small"
-              @update:value="changeCurveDimension(row, $event)"
-            />
-          </label>
-
-          <div
-            v-if="isComparableDimension(row.condition.dimension)"
-            class="job-trend-view__curve-pair"
+          <li
+            v-for="(row, index) in dashboard.rows"
+            :key="row.id"
+            :class="[
+              'job-trend-view__curve-row',
+              {
+                'job-trend-view__curve-row--incomplete':
+                  highlightIncompleteCurves && !isCurveComplete(row),
+                'job-trend-view__curve-row--focused': focusedCurveId === row.id,
+              },
+            ]"
+            :data-testid="`curve-card-${row.id}`"
+            :style="{ '--curve-color': trendCurveColor(row) }"
+            tabindex="-1"
+            @click="selectEventCurve(row)"
           >
+            <header>
+              <span class="job-trend-view__curve-index">{{
+                String(index + 1).padStart(2, '0')
+              }}</span>
+              <div class="job-trend-view__curve-identity">
+                <strong>{{ safeTrendCurveLabel(row) }}</strong>
+              </div>
+              <span
+                v-if="highlightIncompleteCurves && !isCurveComplete(row)"
+                class="job-trend-view__curve-pending"
+              >
+                待配置
+              </span>
+              <button type="button" aria-label="删除曲线" @click.stop="removeCurve(row)">×</button>
+            </header>
+
             <label class="job-trend-view__curve-field">
-              <span>比较方式</span>
+              <span>统计维度</span>
               <NSelect
-                :value="row.condition.operator || null"
-                :options="comparisonOptions"
-                placeholder="选择"
+                :value="row.condition.dimension"
+                :options="dimensionOptions"
                 size="small"
-                @update:value="changeCurveOperator(row, $event)"
+                @update:value="changeCurveDimension(row, $event)"
               />
             </label>
-            <label class="job-trend-view__curve-field">
-              <span>{{ row.condition.dimension === 'education' ? '学历门槛' : '最低年限' }}</span>
+
+            <div
+              v-if="isComparableDimension(row.condition.dimension)"
+              class="job-trend-view__curve-pair"
+            >
+              <label class="job-trend-view__curve-field">
+                <span>比较方式</span>
+                <NSelect
+                  :value="row.condition.operator || null"
+                  :options="comparisonOptions"
+                  placeholder="选择"
+                  size="small"
+                  @update:value="changeCurveOperator(row, $event)"
+                />
+              </label>
+              <label class="job-trend-view__curve-field">
+                <span>{{ row.condition.dimension === 'education' ? '学历门槛' : '最低年限' }}</span>
+                <NSelect
+                  :value="row.condition.value || null"
+                  :options="curveValueOptions(row)"
+                  filterable
+                  placeholder="选择"
+                  size="small"
+                  @update:value="changeCurveValue(row, $event)"
+                />
+              </label>
+            </div>
+
+            <label
+              v-else-if="row.condition.dimension === 'technology'"
+              class="job-trend-view__curve-field"
+            >
+              <span>统计条件</span>
+              <div class="job-trend-view__technology-select">
+                <TechnologyKeywordSelect
+                  :model-value="technologySelection(row)"
+                  :options="filterOptions.technology_keywords"
+                  placeholder="选择技术关键词"
+                  @update:model-value="changeCurveTechnology(row, $event)"
+                />
+              </div>
+            </label>
+
+            <label v-else class="job-trend-view__curve-field">
+              <span>统计条件</span>
               <NSelect
                 :value="row.condition.value || null"
                 :options="curveValueOptions(row)"
@@ -1508,71 +2027,46 @@ onBeforeUnmount(() => {
                 @update:value="changeCurveValue(row, $event)"
               />
             </label>
-          </div>
 
-          <label
-            v-else-if="row.condition.dimension === 'technology'"
-            class="job-trend-view__curve-field"
-          >
-            <span>统计条件</span>
-            <div class="job-trend-view__technology-select">
-              <TechnologyKeywordSelect
-                :model-value="technologySelection(row)"
-                :options="filterOptions.technology_keywords"
-                placeholder="选择技术关键词"
-                @update:model-value="changeCurveTechnology(row, $event)"
+            <label
+              v-if="row.condition.dimension === 'job_family'"
+              class="job-trend-view__secondary-switch"
+            >
+              <span>包含副岗位族</span>
+              <NSwitch
+                :value="row.condition.includeSecondary"
+                size="small"
+                @update:value="changeIncludeSecondary(row, $event)"
               />
+            </label>
+
+            <div class="job-trend-view__curve-actions">
+              <span
+                :class="[
+                  'job-trend-view__curve-state',
+                  `job-trend-view__curve-state--${row.status}`,
+                ]"
+              >
+                {{
+                  row.status === 'loading'
+                    ? '更新中'
+                    : row.status === 'error'
+                      ? '未更新'
+                      : row.status === 'idle' && row.condition.value
+                        ? '待应用'
+                        : ''
+                }}
+              </span>
+              <NButton
+                size="small"
+                type="primary"
+                :disabled="!isCurveComplete(row) || row.status === 'loading'"
+                @click="applyCurve(row)"
+                >应用</NButton
+              >
             </div>
-          </label>
-
-          <label v-else class="job-trend-view__curve-field">
-            <span>统计条件</span>
-            <NSelect
-              :value="row.condition.value || null"
-              :options="curveValueOptions(row)"
-              filterable
-              placeholder="选择"
-              size="small"
-              @update:value="changeCurveValue(row, $event)"
-            />
-          </label>
-
-          <label
-            v-if="row.condition.dimension === 'job_family'"
-            class="job-trend-view__secondary-switch"
-          >
-            <span>包含副岗位族</span>
-            <NSwitch
-              :value="row.condition.includeSecondary"
-              size="small"
-              @update:value="changeIncludeSecondary(row, $event)"
-            />
-          </label>
-
-          <div class="job-trend-view__curve-actions">
-            <span
-              :class="['job-trend-view__curve-state', `job-trend-view__curve-state--${row.status}`]"
-            >
-              {{
-                row.status === 'loading'
-                  ? '更新中'
-                  : row.status === 'error'
-                    ? '未更新'
-                    : row.status === 'idle' && row.condition.value
-                      ? '待应用'
-                      : ''
-              }}
-            </span>
-            <NButton
-              size="small"
-              type="primary"
-              :disabled="!isCurveComplete(row) || row.status === 'loading'"
-              @click="applyCurve(row)"
-              >应用</NButton
-            >
-          </div>
-          <p v-if="row.error" class="job-trend-view__curve-error" role="alert">{{ row.error }}</p>
-        </li>
+            <p v-if="row.error" class="job-trend-view__curve-error" role="alert">{{ row.error }}</p>
+          </li>
         </ol>
 
         <div class="job-trend-view__rail-footer" data-testid="curve-rail-footer">
@@ -1604,9 +2098,712 @@ onBeforeUnmount(() => {
       </div>
     </aside>
   </main>
+  <Teleport to="body">
+    <div
+      v-if="matchTooltip"
+      class="job-trend-view__ai-match-tooltip"
+      :class="{ 'is-below': matchTooltip.below }"
+      :style="{ left: `${matchTooltip.x}px`, top: `${matchTooltip.y}px` }"
+      role="tooltip"
+    >
+      {{ matchTooltip.text }}
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
+.job-trend-view__ai-workbench {
+  --ai-ink: #102f3b;
+  --ai-muted: #6a8089;
+  --ai-rule: #d9e7eb;
+  --ai-wash: #f3fafb;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(40, 181, 167, 0.14), transparent 33%),
+    linear-gradient(135deg, #ffffff 0%, #f8fcfc 100%);
+  border: 1px solid #cfe3e7;
+  border-radius: 22px;
+  box-shadow: 0 22px 44px -36px rgba(9, 78, 91, 0.52);
+  display: grid;
+  gap: 18px;
+  margin: 4px 28px 24px;
+  overflow: hidden;
+  padding: 24px;
+  position: relative;
+}
+
+.job-trend-view__ai-workbench::before {
+  background: linear-gradient(90deg, #0072b2, #00a98f 48%, #e69f00);
+  content: '';
+  height: 3px;
+  inset: 0 0 auto;
+  position: absolute;
+}
+
+.job-trend-view__ai-header,
+.job-trend-view__ai-result-header,
+.job-trend-view__ai-result-actions,
+.job-trend-view__ai-activity-toggle {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.job-trend-view__ai-heading h2,
+.job-trend-view__ai-result-header h3 {
+  color: var(--ai-ink);
+  letter-spacing: -0.045em;
+  margin: 4px 0 0;
+}
+
+.job-trend-view__ai-heading h2 {
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+}
+
+.job-trend-view__ai-heading p,
+.job-trend-view__ai-result-actions > span,
+.job-trend-view__ai-explore-label small {
+  color: var(--ai-muted);
+  font-size: 0.78rem;
+  margin: 7px 0 0;
+}
+
+.job-trend-view__ai-kicker,
+.job-trend-view__ai-result-kicker,
+.job-trend-view__ai-explore-label span {
+  color: #008287;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.job-trend-view__ai-kicker {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.job-trend-view__ai-signal {
+  background: #00a98f;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(0, 169, 143, 0.13);
+  height: 8px;
+  width: 8px;
+}
+
+.job-trend-view__ai-status {
+  align-items: center;
+  background: rgba(0, 114, 178, 0.08);
+  border: 1px solid rgba(0, 114, 178, 0.18);
+  border-radius: 999px;
+  color: #00649d;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 750;
+  gap: 7px;
+  padding: 6px 10px;
+}
+
+.job-trend-view__ai-status-dot {
+  background: currentColor;
+  border-radius: 50%;
+  height: 6px;
+  width: 6px;
+}
+
+.job-trend-view__ai-status--running {
+  color: #d55e00;
+}
+.job-trend-view__ai-status--partial,
+.job-trend-view__ai-status--stopped {
+  color: #9a6810;
+}
+.job-trend-view__ai-status--failure {
+  color: #ae4651;
+}
+
+.job-trend-view__ai-composer {
+  align-items: stretch;
+  display: flex;
+  gap: 10px;
+}
+
+.job-trend-view__ai-input {
+  flex: 1;
+}
+
+.job-trend-view__ai-input :deep(.n-input__input-el) {
+  font-size: 0.94rem;
+  font-weight: 560;
+}
+
+.job-trend-view__ai-submit,
+.job-trend-view__ai-stop {
+  min-width: 116px;
+}
+
+.job-trend-view__ai-stop {
+  color: #a8424d;
+}
+
+.job-trend-view__ai-explore {
+  display: grid;
+  gap: 11px;
+}
+
+.job-trend-view__ai-example-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.job-trend-view__ai-example {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--ai-rule);
+  border-radius: 14px;
+  color: var(--ai-ink);
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 14px;
+  position: relative;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.job-trend-view__ai-example:hover,
+.job-trend-view__ai-example:focus-visible {
+  border-color: #69b9bd;
+  box-shadow: 0 12px 22px -18px rgba(0, 108, 130, 0.7);
+  outline: none;
+  transform: translateY(-2px);
+}
+
+.job-trend-view__ai-example > span {
+  color: #008287;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.job-trend-view__ai-example strong {
+  font-size: 0.87rem;
+}
+.job-trend-view__ai-example small {
+  color: var(--ai-muted);
+  line-height: 1.45;
+}
+.job-trend-view__ai-example i {
+  color: #0072b2;
+  font-size: 1.05rem;
+  font-style: normal;
+  position: absolute;
+  right: 12px;
+  top: 11px;
+}
+
+.job-trend-view__ai-activity {
+  background: rgba(245, 251, 251, 0.8);
+  border: 1px solid var(--ai-rule);
+  border-radius: 13px;
+  overflow: hidden;
+}
+
+.job-trend-view__ai-activity-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--ai-ink);
+  cursor: pointer;
+  padding: 10px 13px;
+  text-align: left;
+  width: 100%;
+}
+
+.job-trend-view__ai-activity-toggle > span:last-child {
+  color: var(--ai-muted);
+  font-size: 0.73rem;
+}
+.job-trend-view__ai-activity-toggle b {
+  font-size: 1rem;
+  font-weight: 400;
+}
+.job-trend-view__ai-activity-title {
+  align-items: center;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 760;
+  gap: 8px;
+}
+.job-trend-view__ai-activity-title small {
+  color: var(--ai-muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+.job-trend-view__ai-activity-icon {
+  color: #0072b2;
+  font-size: 1.1rem;
+}
+
+.job-trend-view__ai-activity-list {
+  border-top: 1px solid var(--ai-rule);
+  display: grid;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  max-height: 190px;
+  overflow: auto;
+  padding: 4px 13px;
+}
+
+.job-trend-view__ai-activity-list li {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  min-height: 32px;
+}
+.job-trend-view__ai-activity-dot {
+  background: #9cb7bd;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 6px;
+  width: 6px;
+}
+.job-trend-view__ai-activity-list li.is-running .job-trend-view__ai-activity-dot {
+  background: #e69f00;
+  box-shadow: 0 0 0 4px rgba(230, 159, 0, 0.12);
+}
+.job-trend-view__ai-activity-list li.is-failed .job-trend-view__ai-activity-dot {
+  background: #d55e00;
+}
+.job-trend-view__ai-activity-copy {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.job-trend-view__ai-activity-copy strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+.job-trend-view__ai-activity-copy code {
+  color: var(--ai-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.65rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-trend-view__ai-activity-list em {
+  color: var(--ai-muted);
+  font-size: 0.68rem;
+  font-style: normal;
+}
+
+.job-trend-view__ai-chat {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  height: 360px;
+  overflow: hidden;
+}
+
+.job-trend-view__ai-chat-scroll {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0;
+  scrollbar-width: thin;
+}
+
+.job-trend-view__ai-analysis-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+}
+
+.job-trend-view__ai-chat-reply {
+  display: block;
+  padding: 0;
+}
+
+.job-trend-view__ai-chat-avatar {
+  align-items: center;
+  background: #0072b2;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.58rem;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  width: 24px;
+}
+
+.job-trend-view__ai-chat-reply p {
+  color: #345761;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.ai-chat-message-enter-active,
+.ai-chat-message-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.ai-chat-message-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.ai-chat-message-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.job-trend-view__ai-chat-details {
+  margin-top: 2px;
+}
+
+.job-trend-view__ai-chat-duration {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ai-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.72rem;
+  gap: 5px;
+  padding: 0;
+  text-align: left;
+}
+.job-trend-view__ai-chat-duration:hover,
+.job-trend-view__ai-chat-duration:focus-visible {
+  color: var(--ai-ink);
+  outline: none;
+}
+.job-trend-view__ai-chat-duration span {
+  font-size: 1rem;
+  line-height: 0.8;
+}
+
+.job-trend-view__ai-chat-details summary {
+  align-items: center;
+  color: var(--ai-ink);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 750;
+  justify-content: space-between;
+  list-style: none;
+}
+
+.job-trend-view__ai-chat-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.job-trend-view__ai-chat-details summary > span {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.job-trend-view__ai-chat-details summary small,
+.job-trend-view__ai-chat-details summary em {
+  color: var(--ai-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.job-trend-view__ai-chat-details[open] summary {
+  margin-bottom: 7px;
+}
+
+.job-trend-view__ai-chat-details .job-trend-view__ai-activity-list {
+  border: 0;
+  max-height: none;
+  padding: 0;
+}
+
+.job-trend-view__ai-result {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  display: grid;
+  gap: 14px;
+  max-width: none;
+  padding: 0;
+  width: 100%;
+}
+
+.job-trend-view__ai-result-header h3 {
+  font-size: 1.05rem;
+}
+.job-trend-view__ai-result-state {
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 750;
+  padding: 5px 9px;
+}
+.job-trend-view__ai-result-state.is-stopped {
+  background: #fff5df;
+  color: #94600d;
+}
+.job-trend-view__ai-result-state.is-partial {
+  background: #eef7ff;
+  color: #00649d;
+}
+
+.job-trend-view__ai-reason {
+  align-items: flex-start;
+  background: #eff9f7;
+  border-left: 3px solid #00a98f;
+  border-radius: 0 9px 9px 0;
+  display: flex;
+  gap: 9px;
+  padding: 10px 12px;
+}
+
+.job-trend-view__ai-reason-mark {
+  color: #008f7a;
+  font-size: 1rem;
+}
+.job-trend-view__ai-reason strong {
+  color: #14784e;
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+.job-trend-view__ai-reason p {
+  color: #345761;
+  font-size: 0.79rem;
+  line-height: 1.55;
+  margin: 0;
+}
+.job-trend-view__ai-warnings {
+  color: #94600d;
+  font-size: 0.76rem;
+}
+.job-trend-view__ai-warnings p {
+  margin: 0;
+}
+
+.job-trend-view__ai-curve-list {
+  display: grid;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.job-trend-view__ai-curve-row {
+  background: #fbfdfd;
+  border: 1px solid var(--ai-rule);
+  border-radius: 12px;
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  overflow: visible;
+  padding: 0 10px 0 0;
+}
+.job-trend-view__ai-curve-row.is-selected {
+  border-color: #b7d8dc;
+  box-shadow: 0 8px 18px -18px rgba(0, 90, 105, 0.7);
+}
+.job-trend-view__ai-curve-line {
+  background: var(--ai-curve-color);
+  border-radius: 0 4px 4px 0;
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 50px;
+  width: 4px;
+}
+.job-trend-view__ai-curve-main {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-columns: 32px minmax(140px, 0.85fr) minmax(250px, 2fr) 24px 20px;
+  min-width: 0;
+  padding: 6px 0 6px 20px;
+}
+.job-trend-view__ai-check {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.job-trend-view__ai-check input {
+  opacity: 0;
+  position: absolute;
+}
+.job-trend-view__ai-checkbox {
+  border: 1px solid #9bb7be;
+  border-radius: 4px;
+  height: 16px;
+  position: relative;
+  width: 16px;
+}
+.job-trend-view__ai-check input:checked + .job-trend-view__ai-checkbox {
+  background: #0072b2;
+  border-color: #0072b2;
+}
+.job-trend-view__ai-check input:checked + .job-trend-view__ai-checkbox::after {
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  content: '';
+  height: 8px;
+  left: 5px;
+  position: absolute;
+  top: 2px;
+  transform: rotate(45deg);
+  width: 4px;
+}
+.job-trend-view__ai-curve-color {
+  background: var(--ai-curve-color);
+  border-radius: 999px;
+  display: inline-block;
+  height: 18px;
+  width: 5px;
+}
+.job-trend-view__ai-curve-main > :deep(.n-select) {
+  min-width: 0;
+}
+.job-trend-view__ai-condition-cell {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+.job-trend-view__ai-condition-cell :deep(.technology-keyword-select) {
+  min-width: 0;
+  width: 100%;
+}
+.job-trend-view__ai-condition-cell :deep(.technology-keyword-select__trigger) {
+  font-size: 0.76rem;
+  min-height: 30px;
+  overflow: hidden;
+  padding-left: 9px;
+  padding-right: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+.job-trend-view__ai-condition-cell > :deep(.n-select) {
+  flex: 1;
+  min-width: 0;
+}
+.job-trend-view__ai-match {
+  align-items: center;
+  cursor: help;
+  display: inline-flex;
+  flex: 0 0 20px;
+  font-size: 1rem;
+  font-weight: 850;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  position: relative;
+  width: 20px;
+}
+.job-trend-view__ai-match-tooltip {
+  background: #173943;
+  border-radius: 7px;
+  box-shadow: 0 8px 20px -12px rgba(8, 46, 58, 0.85);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.45;
+  padding: 7px 9px;
+  pointer-events: none;
+  position: fixed;
+  text-align: left;
+  transform: translate(-50%, -100%);
+  white-space: normal;
+  width: 210px;
+  z-index: 10000;
+}
+.job-trend-view__ai-match-tooltip.is-below {
+  transform: translate(-50%, 0);
+}
+.job-trend-view__ai-match.is-exact {
+  color: #14784e;
+}
+.job-trend-view__ai-match.is-alias {
+  color: #4268a1;
+}
+.job-trend-view__ai-match.is-possible {
+  color: #94600d;
+}
+.job-trend-view__ai-match.is-expansion {
+  color: #7250a4;
+}
+.job-trend-view__ai-remove {
+  background: transparent;
+  border: 0;
+  color: #91a4aa;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px;
+}
+.job-trend-view__ai-remove:hover {
+  color: #a8424d;
+}
+.job-trend-view__ai-result-actions {
+  border-top: 1px solid var(--ai-rule);
+  padding-top: 13px;
+}
+.job-trend-view__ai-result-actions > span {
+  margin: 0;
+}
+.job-trend-view__ai-result-actions > div {
+  display: flex;
+  gap: 7px;
+}
+.job-trend-view__ai-no-result {
+  display: grid;
+  gap: 6px;
+  padding: 10px 2px 2px;
+}
+.job-trend-view__ai-no-result strong {
+  color: var(--ai-ink);
+  font-size: 0.88rem;
+}
+.job-trend-view__ai-no-result > span {
+  color: var(--ai-muted);
+  font-size: 0.76rem;
+}
+.job-trend-view__ai-no-result > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 4px;
+}
+.job-trend-view__ai-error {
+  background: #fff1f2;
+  border-left: 3px solid #c65e66;
+  border-radius: 0 8px 8px 0;
+  color: #a8424d;
+  font-size: 0.78rem;
+  margin: 0;
+  padding: 9px 11px;
+}
+
 .job-trend-view {
   --trend-card-surface: rgba(255, 255, 255, 0.96);
   --trend-curve-border: #e1ebef;
@@ -2806,6 +4003,35 @@ onBeforeUnmount(() => {
   --trend-surface-shadow: 0 20px 44px -38px rgba(0, 0, 0, 0.86);
   --trend-rail-shadow: -18px 0 42px -38px rgba(0, 0, 0, 0.86);
 }
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-workbench) {
+  --ai-ink: #edf7f8;
+  --ai-muted: #a8c3ca;
+  --ai-rule: #31515b;
+  --ai-wash: #102b35;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(0, 169, 143, 0.16), transparent 33%),
+    linear-gradient(135deg, #173943 0%, #102d37 100%);
+  border-color: #31515b;
+}
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-example) {
+  background: rgba(18, 48, 58, 0.86);
+  border-color: #31515b;
+}
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-activity),
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-curve-row) {
+  background: rgba(16, 43, 53, 0.86);
+  border-color: #31515b;
+}
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-curve-meta span) {
+  background: #23434d;
+}
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-reason) {
+  background: rgba(0, 169, 143, 0.12);
+}
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-reason p),
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-curve-reason) {
+  color: #bfd4d8;
+}
 :global(.app-shell[data-color-scheme='dark'] .job-trend-view__drilldown--event) {
   --drilldown-event-success-bg: color-mix(in srgb, #56c596, transparent 78%);
   --drilldown-event-success-ink: #b5efd6;
@@ -2888,6 +4114,72 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__chart-card {
     min-height: 0;
+  }
+  .job-trend-view__ai-workbench {
+    border-radius: 18px;
+    gap: 14px;
+    margin: 2px 16px 18px;
+    padding: 18px 16px;
+  }
+  .job-trend-view__ai-header {
+    align-items: flex-start;
+  }
+  .job-trend-view__ai-status {
+    font-size: 0.66rem;
+    padding: 5px 8px;
+  }
+  .job-trend-view__ai-composer {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+  .job-trend-view__ai-input {
+    grid-column: 1 / -1;
+  }
+  .job-trend-view__ai-submit,
+  .job-trend-view__ai-stop {
+    justify-self: end;
+  }
+  .job-trend-view__ai-example-grid {
+    grid-template-columns: 1fr;
+  }
+  .job-trend-view__ai-example {
+    min-height: 0;
+  }
+  .job-trend-view__ai-chat {
+    height: 380px;
+  }
+  .job-trend-view__ai-analysis-grid {
+    display: block;
+  }
+  .job-trend-view__ai-curve-list-head {
+    display: none;
+  }
+  .job-trend-view__ai-curve-list {
+    max-height: 360px;
+  }
+  .job-trend-view__ai-curve-main {
+    align-items: stretch;
+    gap: 6px;
+    grid-template-columns: 1fr;
+    padding-left: 18px;
+  }
+  .job-trend-view__ai-curve-main > :deep(.n-select),
+  .job-trend-view__ai-condition-cell {
+    grid-column: 1;
+  }
+  .job-trend-view__ai-condition-cell {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .job-trend-view__ai-result-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .job-trend-view__ai-result-actions > div {
+    width: 100%;
+  }
+  .job-trend-view__ai-result-actions > div :deep(.n-button) {
+    flex: 1;
   }
   .job-trend-view__header {
     padding: 24px 22px 16px;

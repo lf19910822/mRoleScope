@@ -89,19 +89,28 @@ type Router struct {
 	jdDrilldown        JDTrendDrilldownReader
 	jdTrend            JDTrendReader
 	jdTrendEvents      JDTrendEventReader
+	aiTrend            AITrendStreamRunner
 	access             *access.Service
 	verificationLimits *verificationLimiter
 }
 
 func New(readiness ReadinessChecker, readers ...JDListReader) *gin.Engine {
-	return newRouter(readiness, nil, readers...)
+	return newRouter(readiness, nil, nil, readers...)
 }
 
 func NewWithAccess(readiness ReadinessChecker, accessService *access.Service, readers ...JDListReader) *gin.Engine {
-	return newRouter(readiness, accessService, readers...)
+	return newRouter(readiness, accessService, nil, readers...)
 }
 
-func newRouter(readiness ReadinessChecker, accessService *access.Service, readers ...JDListReader) *gin.Engine {
+// NewWithAccessAndAI wires the authenticated trend stream to a concrete
+// runner while preserving the narrow Serving reader passed to the other
+// routes. The AI runner is optional so deployments without provider
+// configuration retain a safe 503 response for this feature only.
+func NewWithAccessAndAI(readiness ReadinessChecker, accessService *access.Service, aiRunner AITrendStreamRunner, readers ...JDListReader) *gin.Engine {
+	return newRouter(readiness, accessService, aiRunner, readers...)
+}
+
+func newRouter(readiness ReadinessChecker, accessService *access.Service, aiRunner AITrendStreamRunner, readers ...JDListReader) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		return fmt.Sprintf("method=%s path=%s status=%d latency=%s\n", param.Method, param.Path, param.StatusCode, param.Latency)
@@ -109,6 +118,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 	server := Router{
 		readiness:          readiness,
 		access:             accessService,
+		aiTrend:            aiRunner,
 		verificationLimits: newVerificationLimiter(),
 	}
 	if len(readers) > 0 {
@@ -120,6 +130,9 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 		server.jdDrilldown, _ = readers[0].(JDTrendDrilldownReader)
 		server.jdTrend, _ = readers[0].(JDTrendReader)
 		server.jdTrendEvents, _ = readers[0].(JDTrendEventReader)
+		if server.aiTrend == nil {
+			server.aiTrend, _ = readers[0].(AITrendStreamRunner)
+		}
 	}
 	router.GET("/healthz", server.health)
 	router.GET("/readyz", server.ready)
@@ -135,6 +148,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, reader
 	business.GET("/job-trends", server.jobTrend)
 	business.GET("/job-trends/events", server.jobTrendEvents)
 	business.GET("/job-trends/drilldown", server.jobTrendDrilldown)
+	business.POST("/job-trends/ai-draft", server.aiTrendDraft)
 	return router
 }
 

@@ -5,6 +5,33 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/views/JobTrendView.vue'), 'utf8')
 
 describe('JobTrendView', () => {
+  it('gives the AI workbench room for examples, operations, reasons, and editable curve rows', () => {
+    expect(source).toContain('job-trend-view__ai-workbench')
+    expect(source).toContain('job-trend-view__ai-example-grid')
+    expect(source).toContain('submitAIExample')
+    expect(source).toContain('job-trend-view__ai-activity')
+    expect(source).toContain('job-trend-view__ai-chat')
+    expect(source).toContain('job-trend-view__ai-analysis-grid')
+    expect(source).toContain('用时 {{ aiTrend.durationLabel }}')
+    expect(source).toContain('job-trend-view__ai-reason')
+    expect(source).toContain('job-trend-view__ai-chat-reply')
+    expect(source).toContain('job-trend-view__ai-curve-list')
+    expect(source).toContain('job-trend-view__ai-curve-color')
+    expect(source).toContain('job-trend-view__ai-curve-line')
+    expect(source).toContain('aiMatchSymbol')
+    expect(source).toContain("return '≈'")
+    expect(source).toContain('data-tooltip')
+    expect(source).not.toContain(':title="aiMatchDescription')
+    expect(source).toContain('updateAIDraftDimension')
+    expect(source).toContain('替换现有曲线')
+    expect(source).toContain('添加到当前图表')
+    const exampleHandler = source.slice(
+      source.indexOf('function submitAIExample'),
+      source.indexOf('function preferredDrilldownHeight'),
+    )
+    expect(exampleHandler).not.toContain('aiTrend.submit')
+  })
+
   it('uses a compact dashboard title that remains readable in a 390px viewport', () => {
     expect(source).toContain('岗位需求变化趋势')
     expect(source).not.toContain('需求变化，看见时间的方向')
@@ -133,7 +160,7 @@ describe('JobTrendView', () => {
   })
 
   it('makes the curve dimension the visual headline and uses the line color on the card edge', () => {
-    expect(source).toContain("{{ trendCurveLabel(row) || '未设置曲线' }}")
+    expect(source).toContain('{{ safeTrendCurveLabel(row) }}')
     expect(source).toMatch(
       /\.job-trend-view__curve-identity strong \{[\s\S]*?font-size:\s*0\.84rem;[\s\S]*?font-weight:\s*800;/u,
     )
