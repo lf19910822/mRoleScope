@@ -2557,7 +2557,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   padding: 0 10px 0 0;
 }
 .job-trend-view__ai-curve-row.is-selected {
@@ -2664,7 +2664,7 @@ onBeforeUnmount(() => {
 .job-trend-view__ai-match::after {
   background: #173943;
   border-radius: 7px;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   box-shadow: 0 8px 20px -12px rgba(8, 46, 58, 0.85);
   color: #fff;
   content: attr(data-tooltip);
@@ -2677,7 +2677,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
   position: absolute;
   text-align: left;
-  transform: translate(-50%, 4px);
+  transform: translate(-50%, -4px);
   transition: opacity 140ms ease, transform 140ms ease;
   visibility: hidden;
   white-space: normal;
@@ -2689,6 +2689,15 @@ onBeforeUnmount(() => {
   opacity: 1;
   transform: translate(-50%, 0);
   visibility: visible;
+}
+.job-trend-view__ai-curve-row:nth-last-child(-n + 2) .job-trend-view__ai-match::after {
+  bottom: calc(100% + 8px);
+  top: auto;
+  transform: translate(-50%, 4px);
+}
+.job-trend-view__ai-curve-row:nth-last-child(-n + 2) .job-trend-view__ai-match:hover::after,
+.job-trend-view__ai-curve-row:nth-last-child(-n + 2) .job-trend-view__ai-match:focus-visible::after {
+  transform: translate(-50%, 0);
 }
 .job-trend-view__ai-match.is-exact {
   color: #14784e;
