@@ -201,6 +201,18 @@ const aiDraftSelectedCount = computed(
   () => aiTrend.draft?.curves.filter((curve) => curve.selected).length ?? 0,
 )
 const aiDraftCanApply = computed(() => aiDraftSelectedCount.value > 0 && !isRefreshing.value)
+const aiChatReply = computed(() => {
+  if (aiTrend.draft?.explanation) return aiTrend.draft.explanation
+  if (aiTrend.error) return aiTrend.error
+  if (aiTrend.status === 'running') return `正在分析：${aiTrend.query}`
+  if (aiTrend.status === 'stopped') return '分析已停止，已保留目前拿到的结果。'
+  return ''
+})
+
+function handleAIChatDetailsToggle(event: Event): void {
+  if (aiTrend.status === 'running') return
+  aiTrend.operationsExpanded = (event.currentTarget as HTMLDetailsElement).open
+}
 
 function aiCurveColor(index: number): string {
   const palette = [
@@ -997,51 +1009,56 @@ onBeforeUnmount(() => {
         </div>
 
         <section
-          v-if="aiTrend.operations.length"
-          class="job-trend-view__ai-activity"
-          aria-label="AI 工具调用记录"
+          v-if="aiTrend.operations.length || aiChatReply"
+          class="job-trend-view__ai-chat"
+          aria-label="AI 对话窗口"
         >
-          <button
-            class="job-trend-view__ai-activity-toggle"
-            type="button"
-            @click="aiTrend.operationsExpanded = !aiTrend.operationsExpanded"
-          >
-            <span class="job-trend-view__ai-activity-title">
-              <span class="job-trend-view__ai-activity-icon" aria-hidden="true">⌁</span>
-              AI 工作记录
-              <small>{{ aiTrend.operations.length }} 个操作</small>
-            </span>
-            <span
-              >{{ aiTrend.operationsExpanded ? '收起' : '查看' }}
-              <b aria-hidden="true">{{ aiTrend.operationsExpanded ? '−' : '+' }}</b></span
+          <div class="job-trend-view__ai-chat-scroll">
+            <div v-if="aiChatReply" class="job-trend-view__ai-chat-reply">
+              <span class="job-trend-view__ai-chat-avatar" aria-hidden="true">AI</span>
+              <div>
+                <strong>AI</strong>
+                <p>{{ aiChatReply }}</p>
+              </div>
+            </div>
+            <details
+              v-if="aiTrend.operations.length"
+              class="job-trend-view__ai-chat-details"
+              :open="aiTrend.status === 'running' || aiTrend.operationsExpanded"
+              @toggle="handleAIChatDetailsToggle"
             >
-          </button>
-          <ol
-            v-if="aiTrend.operationsExpanded || aiTrend.status === 'running'"
-            class="job-trend-view__ai-activity-list"
-            aria-live="polite"
-          >
-            <li
-              v-for="(operation, index) in aiTrend.operations"
-              :key="`${index}-${operation.tool}`"
-              :class="`is-${operation.status}`"
-            >
-              <span class="job-trend-view__ai-activity-dot" aria-hidden="true"></span>
-              <span class="job-trend-view__ai-activity-copy">
-                <strong>{{ operation.tool }}</strong>
-                <code v-if="operation.params">{{
-                  formatAITrendOperationParams(operation.params)
-                }}</code>
-              </span>
-              <em>{{
-                operation.status === 'failed'
-                  ? '失败'
-                  : operation.status === 'completed'
-                    ? '完成'
-                    : '进行中'
-              }}</em>
-            </li>
-          </ol>
+              <summary>
+                <span>
+                  <span class="job-trend-view__ai-activity-icon" aria-hidden="true">⌁</span>
+                  AI 工作细节
+                  <small>{{ aiTrend.operations.length }} 个操作</small>
+                </span>
+                <em>{{ aiTrend.status === 'running' ? '进行中' : '查看' }}</em>
+              </summary>
+              <ol class="job-trend-view__ai-activity-list" aria-live="polite">
+                <li
+                  v-for="(operation, index) in aiTrend.operations"
+                  :key="`${index}-${operation.tool}`"
+                  :class="`is-${operation.status}`"
+                >
+                  <span class="job-trend-view__ai-activity-dot" aria-hidden="true"></span>
+                  <span class="job-trend-view__ai-activity-copy">
+                    <strong>{{ operation.tool }}</strong>
+                    <code v-if="operation.params">{{
+                      formatAITrendOperationParams(operation.params)
+                    }}</code>
+                  </span>
+                  <em>{{
+                    operation.status === 'failed'
+                      ? '失败'
+                      : operation.status === 'completed'
+                        ? '完成'
+                        : '进行中'
+                  }}</em>
+                </li>
+              </ol>
+            </details>
+          </div>
         </section>
 
         <p v-if="aiTrend.error" class="job-trend-view__ai-error" role="alert">
@@ -1065,13 +1082,6 @@ onBeforeUnmount(() => {
               >部分结果</span
             >
           </header>
-          <div v-if="aiTrend.draft.explanation" class="job-trend-view__ai-reason">
-            <span class="job-trend-view__ai-reason-mark" aria-hidden="true">✦</span>
-            <div>
-              <strong>AI 选择理由</strong>
-              <p>{{ aiTrend.draft.explanation }}</p>
-            </div>
-          </div>
           <div v-if="aiTrend.draft.warnings?.length" class="job-trend-view__ai-warnings">
             <p v-for="warning in aiTrend.draft.warnings" :key="warning">{{ warning }}</p>
           </div>
@@ -2319,6 +2329,102 @@ onBeforeUnmount(() => {
   color: var(--ai-muted);
   font-size: 0.68rem;
   font-style: normal;
+}
+
+.job-trend-view__ai-chat {
+  background: rgba(245, 251, 251, 0.86);
+  border: 1px solid var(--ai-rule);
+  border-radius: 14px;
+  height: 236px;
+  overflow: hidden;
+}
+
+.job-trend-view__ai-chat-scroll {
+  display: grid;
+  gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 13px;
+  scrollbar-width: thin;
+}
+
+.job-trend-view__ai-chat-reply {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.job-trend-view__ai-chat-avatar {
+  align-items: center;
+  background: #0072b2;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.58rem;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  width: 24px;
+}
+
+.job-trend-view__ai-chat-reply strong {
+  color: var(--ai-ink);
+  display: block;
+  font-size: 0.72rem;
+  margin-bottom: 3px;
+}
+
+.job-trend-view__ai-chat-reply p {
+  color: #345761;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.job-trend-view__ai-chat-details {
+  border-top: 1px solid var(--ai-rule);
+  padding-top: 9px;
+}
+
+.job-trend-view__ai-chat-details summary {
+  align-items: center;
+  color: var(--ai-ink);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.74rem;
+  font-weight: 750;
+  justify-content: space-between;
+  list-style: none;
+}
+
+.job-trend-view__ai-chat-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.job-trend-view__ai-chat-details summary > span {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.job-trend-view__ai-chat-details summary small,
+.job-trend-view__ai-chat-details summary em {
+  color: var(--ai-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.job-trend-view__ai-chat-details[open] summary {
+  margin-bottom: 7px;
+}
+
+.job-trend-view__ai-chat-details .job-trend-view__ai-activity-list {
+  border: 0;
+  max-height: none;
+  padding: 0;
 }
 
 .job-trend-view__ai-result {
@@ -3781,6 +3887,7 @@ onBeforeUnmount(() => {
   border-color: #31515b;
 }
 :global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-activity),
+:global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-chat),
 :global(.app-shell[data-color-scheme='dark'] .job-trend-view__ai-curve-row) {
   background: rgba(16, 43, 53, 0.86);
   border-color: #31515b;
@@ -3907,6 +4014,9 @@ onBeforeUnmount(() => {
   }
   .job-trend-view__ai-example {
     min-height: 0;
+  }
+  .job-trend-view__ai-chat {
+    height: 220px;
   }
   .job-trend-view__ai-curve-list-head {
     display: none;

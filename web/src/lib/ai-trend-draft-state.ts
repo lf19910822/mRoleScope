@@ -189,16 +189,21 @@ export function createAITrendDraftState(): AITrendDraftState {
       const handleEvent = (event: AITrendStreamEvent) => {
         if (currentRequest !== requestID) return
         if (event.type === 'operation' && event.tool) {
-          state.operations.push({
-            tool: event.tool,
-            params: event.params,
-            status:
-              event.status === 'failed'
-                ? 'failed'
-                : event.status === 'completed'
-                  ? 'completed'
-                  : 'running',
-          })
+          const status =
+            event.status === 'failed'
+              ? 'failed'
+              : event.status === 'completed'
+                ? 'completed'
+                : 'running'
+          const runningOperation = [...state.operations].reverse().find(
+            (operation) => operation.tool === event.tool && operation.status === 'running',
+          )
+          if (runningOperation && status !== 'running') {
+            runningOperation.status = status
+            runningOperation.params = event.params
+          } else {
+            state.operations.push({ tool: event.tool, params: event.params, status })
+          }
         }
         if (event.type === 'draft' && event.draft) nextDraft = event.draft
         if (event.type === 'done') {
