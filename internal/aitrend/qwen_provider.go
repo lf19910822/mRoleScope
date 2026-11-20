@@ -241,7 +241,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	// prompt's JSON instruction. Some Qwen-compatible endpoints reject any
 	// response_format alongside assistant/tool history; DecodeIntent remains
 	// the strict local schema boundary for the final Intent.
-	if hasTrendSummary || !allowTools {
+	if hasTrendSummary || !allowTools || correction != nil {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: &qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
