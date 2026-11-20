@@ -314,6 +314,10 @@ func TestQwenIntentProviderGeneratesBoundedDraftExplanation(t *testing.T) {
 		if body["max_tokens"] != float64(160) {
 			t.Fatalf("max_tokens = %#v", body["max_tokens"])
 		}
+		messages, ok := body["messages"].([]any)
+		if !ok || len(messages) == 0 || !strings.Contains(messages[0].(map[string]any)["content"].(string), "简体中文") {
+			t.Fatalf("explanation prompt is not Chinese: %#v", body["messages"])
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		response := map[string]any{
 			"choices": []any{map[string]any{"message": map[string]string{"content": `{"explanation":"按平均岗位数排序，优先展示岗位最多的项目。"}`}}},
