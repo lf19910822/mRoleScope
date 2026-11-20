@@ -278,6 +278,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	if content == "" || len(content) > MaxToolOutputBytes {
 		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 返回内容无效"}
 	}
+	content = string(unwrapIntentEnvelope([]byte(content)))
 	return IntentToolTurn{Intent: []byte(content), InputTokens: payload.Usage.PromptTokens, OutputTokens: payload.Usage.CompletionTokens}, nil
 }
 
@@ -296,6 +297,16 @@ func toolLoopUserPrompt(query string, correction *ContractError) string {
 		return value
 	}
 	return value + "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
+}
+
+func unwrapIntentEnvelope(content []byte) []byte {
+	var envelope struct {
+		Intent json.RawMessage `json:"intent"`
+	}
+	if err := json.Unmarshal(content, &envelope); err != nil || len(envelope.Intent) == 0 || string(envelope.Intent) == "null" {
+		return content
+	}
+	return bytes.TrimSpace(envelope.Intent)
 }
 
 func marshalToolResultForModel(result ToolCallResult) []byte {
