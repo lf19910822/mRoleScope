@@ -16,7 +16,7 @@ const intentPromptV1 = `你是趋势查询规划器。将用户趋势问题转�
 
 如果工具目录返回正式值和显示名称，最终 Intent 使用正式值。expressions 只承载匹配对象，不放指标名、数据库字段或工具名。需要比较多个明确值时不得添加相邻或相关值。
 
-未指定时间时使用产品默认范围 month；用户明确给出的时间范围必须保留。日期表达只决定时间范围，不自动改变排名指标。未指定比较口径时使用 avg_daily_active_jobs；明确比较最新观测日使用 period_end_active_jobs；明确比较期间单日峰值使用 peak_daily_active_jobs；明确询问期间去重岗位数使用 period_unique_jobs；明确询问进入、修改、下线或重上线数量时使用对应事件指标。
+未指定时间时使用产品默认范围 month；用户明确给出的时间范围必须保留。日期表达只决定时间范围，不自动改变排名指标。time_range.kind 为 week、month、quarter、year 或 all 时，禁止填写 start_date 和 end_date；只有 kind 为 custom 时才允许同时填写这两个日期。未指定时间时只能输出 {"kind":"month"}，不得从工具结果或其他上下文自行补充日期。未指定比较口径时使用 avg_daily_active_jobs；明确比较最新观测日使用 period_end_active_jobs；明确比较期间单日峰值使用 peak_daily_active_jobs；明确询问期间去重岗位数使用 period_unique_jobs；明确询问进入、修改、下线或重上线数量时使用对应事件指标。
 
 “哪一个”“谁第一”“使用最多的 X 是什么”将 ranking.limit 设为 1；“前 N 个”最多取 N 项；“有哪些”“看看趋势”且未指定数量时使用产品默认数量；用户明确要求全部时保留全量意图，但最终仍受系统曲线容量限制。排名顺序必须与用户问题一致。
 
