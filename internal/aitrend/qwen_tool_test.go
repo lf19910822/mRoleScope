@@ -85,3 +85,14 @@ func TestMarshalToolResultForModelOmitsInternalCallMetadata(t *testing.T) {
 		t.Fatalf("model tool result leaked or dropped safe data: %s", data)
 	}
 }
+
+func TestUnwrapIntentEnvelopeAcceptsProviderWrapper(t *testing.T) {
+	content := []byte(`{"intent":{"contract_version":"ai-trend-draft-v1"}}`)
+	if got := string(unwrapIntentEnvelope(content)); got != `{"contract_version":"ai-trend-draft-v1"}` {
+		t.Fatalf("unwrapped intent = %s", got)
+	}
+	plain := []byte(`{"contract_version":"ai-trend-draft-v1"}`)
+	if got := string(unwrapIntentEnvelope(plain)); got != string(plain) {
+		t.Fatalf("plain intent changed = %s", got)
+	}
+}
