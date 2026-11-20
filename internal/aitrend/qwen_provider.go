@@ -241,7 +241,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	// prompt's JSON instruction. Some Qwen-compatible endpoints reject any
 	// response_format alongside assistant/tool history; DecodeIntent remains
 	// the strict local schema boundary for the final Intent.
-	if hasTrendSummary || !allowTools || correction != nil {
+	if hasTrendSummary || !allowTools || (correction != nil && len(history) > 0) {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: &qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
@@ -313,6 +313,9 @@ func toolLoopUserPrompt(query string, correction *ContractError, history []ToolC
 	value := strings.TrimSpace(query)
 	if correction != nil {
 		value += "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
+	}
+	if correction != nil && len(history) == 0 {
+		return value + "\n\n上一版意图校验失败，当前还没有任何工具结果。请先调用必要的正式值或趋势摘要工具核对用户点名内容，完成 batch_trend_summary 后再返回最终 Intent；不要在没有工具结果时直接返回 Intent。"
 	}
 	if historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary) {
 		return value + "\n\n已收到趋势摘要结果。现在只返回符合 Schema 的最终 Intent 对象，不要再调用工具。"
