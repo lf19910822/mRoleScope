@@ -7,7 +7,7 @@
 
 ## 2. Validation and live verification
 
-- [ ] 2.1 Run full Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and verify the real programming-language query.
+- [x] 2.1 Run full Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and verify the real programming-language query. Revision `8b5f0d2` returned only C++/C#/Go, no non-language technologies, and a complete 71-character Chinese explanation.
 
 ## Workflow follow-up
 
