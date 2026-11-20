@@ -63,7 +63,7 @@ type qwenTrendRequest struct {
 
 type qwenTrendMessage struct {
 	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
+	Content    string         `json:"content"`
 	ToolCalls  []qwenToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	Name       string         `json:"name,omitempty"`
@@ -212,7 +212,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 			}
 			result := exchange.Results[index]
 			content := marshalToolResultForModel(result)
-			messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Name: string(call.Name), Content: string(content)})
+			messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Content: string(content)})
 		}
 	}
 	requestBody := qwenTrendRequest{
