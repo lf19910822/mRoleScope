@@ -195,7 +195,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	}
 	messages := []qwenTrendMessage{
 		{Role: "system", Content: IntentPromptV1()},
-		{Role: "user", Content: toolLoopUserPrompt(query, correction)},
+		{Role: "user", Content: toolLoopUserPrompt(query, correction, history)},
 	}
 	for _, exchange := range history {
 		assistant := qwenTrendMessage{Role: "assistant"}
@@ -215,6 +215,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 			messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Content: string(content)})
 		}
 	}
+	hasTrendSummary := historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary)
 	requestBody := qwenTrendRequest{
 		EnableThinking: false,
 		MaxTokens:      1200,
@@ -222,14 +223,13 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		Model:          "qwen-plus",
 		Temperature:    0,
 	}
-	if allowTools {
+	if allowTools && !hasTrendSummary {
 		requestBody.Tools = qwenModelTools()
 	}
 	// Keep discovery turns free to emit tool calls. Once the model has
-	// received the results of two discovery exchanges, constrain the next
-	// response to the Intent schema so provider-specific envelopes cannot
-	// leak into validation.
-	if !allowTools || len(history) >= 2 {
+	// received a trend summary, constrain the next response to the Intent
+	// schema so provider-specific envelopes cannot leak into validation.
+	if !allowTools || hasTrendSummary {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
@@ -296,12 +296,29 @@ func qwenModelTools() []qwenTool {
 	return tools
 }
 
-func toolLoopUserPrompt(query string, correction *ContractError) string {
+func toolLoopUserPrompt(query string, correction *ContractError, history []ToolConversation) string {
 	value := strings.TrimSpace(query)
-	if correction == nil {
-		return value
+	if correction != nil {
+		value += "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
 	}
-	return value + "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
+	if historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary) {
+		return value + "\n\n已收到趋势摘要结果。现在只返回符合 Schema 的最终 Intent 对象，不要再调用工具。"
+	}
+	if len(history) > 0 {
+		return value + "\n\n候选范围已经通过工具确认。返回最终 Intent 前，必须先调用 batch_trend_summary 获取这些候选的每日活跃岗位数量摘要，用于按用户要求排序；工具调用阶段不要输出最终 Intent。"
+	}
+	return value
+}
+
+func historyContainsTool(history []ToolConversation, name ToolName) bool {
+	for _, exchange := range history {
+		for _, call := range exchange.Calls {
+			if call.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func unwrapIntentEnvelope(content []byte) []byte {
