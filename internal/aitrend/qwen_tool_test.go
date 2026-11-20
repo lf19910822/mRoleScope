@@ -95,4 +95,12 @@ func TestUnwrapIntentEnvelopeAcceptsProviderWrapper(t *testing.T) {
 	if got := string(unwrapIntentEnvelope(plain)); got != string(plain) {
 		t.Fatalf("plain intent changed = %s", got)
 	}
+	stringEnvelope := []byte(`{"type":"final","intent":"{\"contract_version\":\"ai-trend-draft-v1\"}"}`)
+	if got := string(unwrapIntentEnvelope(stringEnvelope)); got != `{"contract_version":"ai-trend-draft-v1"}` {
+		t.Fatalf("string intent envelope = %s", got)
+	}
+	typeEnvelope := []byte(`{"type":"final","contract_version":"ai-trend-draft-v1"}`)
+	if got := string(unwrapIntentEnvelope(typeEnvelope)); got != `{"contract_version":"ai-trend-draft-v1"}` {
+		t.Fatalf("type intent envelope = %s", got)
+	}
 }
