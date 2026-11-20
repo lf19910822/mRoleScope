@@ -92,8 +92,8 @@ type qwenToolCallPayload struct {
 }
 
 type qwenTrendResponseFormat struct {
-	Type       string              `json:"type"`
-	JSONSchema qwenTrendJSONSchema `json:"json_schema"`
+	Type       string               `json:"type"`
+	JSONSchema *qwenTrendJSONSchema `json:"json_schema,omitempty"`
 }
 
 type qwenTrendJSONSchema struct {
@@ -147,7 +147,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentUsage(ctx context.Context, quer
 		Model: "qwen-plus",
 		ResponseFormat: &qwenTrendResponseFormat{
 			Type:       "json_schema",
-			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
+			JSONSchema: &qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
 		},
 		Temperature: 0,
 	})
@@ -227,12 +227,15 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		requestBody.Tools = qwenModelTools()
 	}
 	// Keep discovery turns free to emit tool calls. Once the model has
-	// received a trend summary, constrain the next response to the Intent
-	// schema so provider-specific envelopes cannot leak into validation.
-	if !allowTools || hasTrendSummary {
+	// received a trend summary, request a JSON object without Qwen's
+	// json_schema/tool-history combination, which some compatible endpoints
+	// reject. DecodeIntent still enforces the complete Intent schema locally.
+	if hasTrendSummary {
+		requestBody.ResponseFormat = &qwenTrendResponseFormat{Type: "json_object"}
+	} else if !allowTools {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
-			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
+			JSONSchema: &qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
 		}
 	}
 	body, err := json.Marshal(requestBody)
@@ -389,7 +392,7 @@ func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query
 		Model: "qwen-plus",
 		ResponseFormat: &qwenTrendResponseFormat{
 			Type:       "json_schema",
-			JSONSchema: qwenTrendJSONSchema{Name: "ai-trend-explanation-v1", Strict: true, Schema: intentExplanationSchema},
+			JSONSchema: &qwenTrendJSONSchema{Name: "ai-trend-explanation-v1", Strict: true, Schema: intentExplanationSchema},
 		},
 		Temperature: 0,
 	})

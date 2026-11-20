@@ -72,8 +72,8 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			}, 21, 13)
 			return
 		}
-		if len(body.Format) == 0 {
-			t.Fatal("final turn did not request the Intent response schema")
+		if !strings.Contains(string(body.Format), `"type":"json_object"`) {
+			t.Fatalf("final turn did not request JSON object output: %s", body.Format)
 		}
 		if len(body.Messages) != 8 || body.Messages[6].Role != "assistant" || body.Messages[7].Role != "tool" || !strings.Contains(body.Messages[7].Content, "average_daily_active_jobs") {
 			t.Fatalf("continued messages = %#v", body.Messages)
