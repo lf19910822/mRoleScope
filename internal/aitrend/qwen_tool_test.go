@@ -76,8 +76,8 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			}, 21, 13)
 			return
 		}
-		if !strings.Contains(string(body.Format), `"type":"json_object"`) {
-			t.Fatalf("final turn did not request JSON object output: %s", body.Format)
+		if len(body.Format) != 0 {
+			t.Fatalf("final tool-history turn unexpectedly forced response format: %s", body.Format)
 		}
 		if len(body.Tools) == 0 {
 			t.Fatal("final turn dropped tool declarations from tool history")
