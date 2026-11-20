@@ -216,7 +216,6 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 			messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Content: string(content)})
 		}
 	}
-	hasTrendSummary := historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary)
 	requestBody := qwenTrendRequest{
 		EnableThinking: false,
 		MaxTokens:      1200,
@@ -228,13 +227,11 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	if allowTools {
 		requestBody.Tools = qwenModelTools()
 	}
-	// Keep discovery turns free to emit tool calls. Once the model has
-	// received a trend summary, request a JSON object without Qwen's
-	// json_schema/tool-history combination, which some compatible endpoints
-	// reject. DecodeIntent still enforces the complete Intent schema locally.
-	if hasTrendSummary {
-		requestBody.ResponseFormat = &qwenTrendResponseFormat{Type: "json_object"}
-	} else if !allowTools {
+	// Tool-history turns use the provider's message result format and the
+	// prompt's JSON instruction. Some Qwen-compatible endpoints reject any
+	// response_format alongside assistant/tool history; DecodeIntent remains
+	// the strict local schema boundary for the final Intent.
+	if !allowTools {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: &qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
