@@ -56,6 +56,7 @@ type qwenTrendRequest struct {
 	MaxTokens      int                      `json:"max_tokens"`
 	Messages       []qwenTrendMessage       `json:"messages"`
 	Model          string                   `json:"model"`
+	ResultFormat   string                   `json:"result_format,omitempty"`
 	ResponseFormat *qwenTrendResponseFormat `json:"response_format,omitempty"`
 	Tools          []qwenTool               `json:"tools,omitempty"`
 	Temperature    float64                  `json:"temperature"`
@@ -221,6 +222,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		MaxTokens:      1200,
 		Messages:       messages,
 		Model:          "qwen-plus",
+		ResultFormat:   "message",
 		Temperature:    0,
 	}
 	if allowTools {
