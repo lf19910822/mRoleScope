@@ -194,26 +194,36 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	if provider == nil || provider.apiKey == "" || provider.httpClient == nil || strings.TrimSpace(query) == "" {
 		return IntentToolTurn{}, &ContractError{Code: ErrorConfigurationFailure, Message: "AI provider is not configured"}
 	}
+	hasTrendSummary := historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary)
 	messages := []qwenTrendMessage{
 		{Role: "system", Content: IntentPromptV1()},
 		{Role: "user", Content: toolLoopUserPrompt(query, correction, history)},
 	}
-	for _, exchange := range history {
-		assistant := qwenTrendMessage{Role: "assistant"}
-		for _, call := range exchange.Calls {
-			assistant.ToolCalls = append(assistant.ToolCalls, qwenToolCall{
-				ID: call.ID, Type: "function",
-				Function: qwenToolCallPayload{Name: string(call.Name), Arguments: string(call.Params)},
-			})
-		}
-		messages = append(messages, assistant)
-		for index, call := range exchange.Calls {
-			if index >= len(exchange.Results) {
-				continue
+	if hasTrendSummary {
+		// Qwen-compatible endpoints vary in their support for replaying a
+		// complete assistant/tool history. Once the model has produced the
+		// required trend summary, pass the bounded safe results as one final
+		// user context and let the strict Intent response format close the
+		// conversation without replaying provider-specific tool messages.
+		messages = append(messages, qwenTrendMessage{Role: "user", Content: string(marshalToolEvidence(history))})
+	} else {
+		for _, exchange := range history {
+			assistant := qwenTrendMessage{Role: "assistant"}
+			for _, call := range exchange.Calls {
+				assistant.ToolCalls = append(assistant.ToolCalls, qwenToolCall{
+					ID: call.ID, Type: "function",
+					Function: qwenToolCallPayload{Name: string(call.Name), Arguments: string(call.Params)},
+				})
 			}
-			result := exchange.Results[index]
-			content := marshalToolResultForModel(result)
-			messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Content: string(content)})
+			messages = append(messages, assistant)
+			for index, call := range exchange.Calls {
+				if index >= len(exchange.Results) {
+					continue
+				}
+				result := exchange.Results[index]
+				content := marshalToolResultForModel(result)
+				messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Content: string(content)})
+			}
 		}
 	}
 	requestBody := qwenTrendRequest{
@@ -224,18 +234,19 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		ResultFormat:   "message",
 		Temperature:    0,
 	}
-	if allowTools {
+	if allowTools && !hasTrendSummary {
 		requestBody.Tools = qwenModelTools()
 	}
 	// Tool-history turns use the provider's message result format and the
 	// prompt's JSON instruction. Some Qwen-compatible endpoints reject any
 	// response_format alongside assistant/tool history; DecodeIntent remains
 	// the strict local schema boundary for the final Intent.
-	if !allowTools {
+	if hasTrendSummary || !allowTools {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: &qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
 		}
+		requestBody.ResultFormat = ""
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {
@@ -321,6 +332,33 @@ func historyContainsTool(history []ToolConversation, name ToolName) bool {
 		}
 	}
 	return false
+}
+
+func marshalToolEvidence(history []ToolConversation) []byte {
+	type evidenceItem struct {
+		Tool   ToolName        `json:"tool"`
+		Result json.RawMessage `json:"result"`
+	}
+	evidence := make([]evidenceItem, 0)
+	for _, exchange := range history {
+		for index, call := range exchange.Calls {
+			if index >= len(exchange.Results) {
+				continue
+			}
+			evidence = append(evidence, evidenceItem{Tool: call.Name, Result: marshalToolResultForModel(exchange.Results[index])})
+		}
+	}
+	data, err := json.Marshal(struct {
+		Instruction string         `json:"instruction"`
+		Results     []evidenceItem `json:"results"`
+	}{
+		Instruction: "以下是已完成工具调用返回的安全结果。仅依据这些结果和用户问题生成最终 Intent JSON。",
+		Results:     evidence,
+	})
+	if err != nil {
+		return []byte(`{"results":[]}`)
+	}
+	return data
 }
 
 func unwrapIntentEnvelope(content []byte) []byte {
