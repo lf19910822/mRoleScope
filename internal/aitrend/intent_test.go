@@ -1,6 +1,9 @@
 package aitrend
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMetricFromPhraseUsesDeterministicMappings(t *testing.T) {
 	tests := []struct {
@@ -27,5 +30,14 @@ func TestHasConflictingRanges(t *testing.T) {
 	}
 	if !HasConflictingRanges([]RangeKind{RangeMonth, RangeYear}) {
 		t.Fatal("different ranges not reported as conflicting")
+	}
+}
+
+func TestIntentPromptDefinesGenericScopeAndRankingRules(t *testing.T) {
+	prompt := IntentPromptV1()
+	for _, phrase := range []string{"具体正式值或已确认别名", "已登记类别", "[\"*\"]", "ranking.limit", "产品默认范围 month", "日期表达只决定时间范围", "avg_daily_active_jobs"} {
+		if !strings.Contains(prompt, phrase) {
+			t.Fatalf("intent prompt missing %q", phrase)
+		}
 	}
 }

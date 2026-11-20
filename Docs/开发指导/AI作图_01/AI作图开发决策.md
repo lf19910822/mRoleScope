@@ -2443,3 +2443,11 @@ AI 生成 MySQL、Redis 草稿后，用户又输入：
 - 后端已接入固定 Qwen Plus 意图适配器：API 只读取 CVM root-owned 运行时的 `MROLESCOPE_QWEN_WORKSPACE_ID` 与 `MROLESCOPE_QWEN_API_KEY`，通过专用 `ai-edge` 网络调用模型；缺少配置时仅 AI 草稿路由不可用，不影响既有趋势接口。
 - Serving runner 使用当前正式筛选值和有界趋势摘要生成草稿并完成校验；前端已移除本地曲线 mock，只消费 `/api/v1/job-trends/ai-draft` 的 NDJSON 流，单元测试仅在传输层伪造事件。
 - Qwen 返回的 prompt/completion token 用量已进入趋势审计汇总；API Runner 已接入 AuditStore，只保存哈希、计数、状态和工具耗时，不保存原问题、模型输出、凭证或工具返回内容。未提供 usage 的兼容 provider 仅使用有界输入估算用于运维可见性，不冒充供应商计费数据。
+
+## 实现落地记录（2026-11-20：自主工具规划）
+
+- OpenSpec change：`add-ai-trend-autonomous-tool-planning`。
+- Qwen 趋势会话支持受限的模型—工具循环：AI 可按需发现技术类别、读取类别值、读取正式值和趋势摘要，最后返回 `ai-trend-draft-v1` Intent。
+- 技术类别使用当前 Serving 快照映射，具体值、已登记类别、整个维度依次扩大范围；未知类别不得退化为 `*`。
+- `ranking.limit` 在服务端候选分配中生效；单次请求仍最多 20 次工具调用、批量最多 8 条、最终最多 8 条曲线。
+- 工具参数非法才反馈 AI 修正；合法参数导致的 Serving 或数据库失败只标记失败并继续最大努力结果。工具事件不包含 SQL、凭据、JD 正文、原始每日点位或模型逐字推理。

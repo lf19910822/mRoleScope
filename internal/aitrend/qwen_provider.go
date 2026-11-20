@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -51,17 +52,43 @@ func NewQwenIntentProvider(apiKey, workspaceID string, httpClient *http.Client) 
 }
 
 type qwenTrendRequest struct {
-	EnableThinking bool                    `json:"enable_thinking"`
-	MaxTokens      int                     `json:"max_tokens"`
-	Messages       []qwenTrendMessage      `json:"messages"`
-	Model          string                  `json:"model"`
-	ResponseFormat qwenTrendResponseFormat `json:"response_format"`
-	Temperature    float64                 `json:"temperature"`
+	EnableThinking bool                     `json:"enable_thinking"`
+	MaxTokens      int                      `json:"max_tokens"`
+	Messages       []qwenTrendMessage       `json:"messages"`
+	Model          string                   `json:"model"`
+	ResponseFormat *qwenTrendResponseFormat `json:"response_format,omitempty"`
+	Tools          []qwenTool               `json:"tools,omitempty"`
+	Temperature    float64                  `json:"temperature"`
 }
 
 type qwenTrendMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string         `json:"role"`
+	Content    string         `json:"content,omitempty"`
+	ToolCalls  []qwenToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Name       string         `json:"name,omitempty"`
+}
+
+type qwenTool struct {
+	Type     string         `json:"type"`
+	Function qwenToolSchema `json:"function"`
+}
+
+type qwenToolSchema struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type qwenToolCall struct {
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
+	Function qwenToolCallPayload `json:"function"`
+}
+
+type qwenToolCallPayload struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type qwenTrendResponseFormat struct {
@@ -78,7 +105,8 @@ type qwenTrendJSONSchema struct {
 type qwenTrendResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content   string         `json:"content"`
+			ToolCalls []qwenToolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
@@ -117,7 +145,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentUsage(ctx context.Context, quer
 			{Role: "user", Content: userPrompt},
 		},
 		Model: "qwen-plus",
-		ResponseFormat: qwenTrendResponseFormat{
+		ResponseFormat: &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
 		},
@@ -158,6 +186,138 @@ func (provider *QwenIntentProvider) AnalyzeIntentUsage(ctx context.Context, quer
 	return []byte(content), payload.Usage.PromptTokens, payload.Usage.CompletionTokens, nil
 }
 
+// AnalyzeIntentTurn supports the bounded model-tool loop used by production
+// trend analysis. The provider returns either function calls or the final
+// structured Intent; the orchestrator executes and validates the calls.
+func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query string, correction *ContractError, history []ToolConversation, allowTools bool) (IntentToolTurn, error) {
+	if provider == nil || provider.apiKey == "" || provider.httpClient == nil || strings.TrimSpace(query) == "" {
+		return IntentToolTurn{}, &ContractError{Code: ErrorConfigurationFailure, Message: "AI provider is not configured"}
+	}
+	messages := []qwenTrendMessage{
+		{Role: "system", Content: IntentPromptV1()},
+		{Role: "user", Content: toolLoopUserPrompt(query, correction)},
+	}
+	for _, exchange := range history {
+		assistant := qwenTrendMessage{Role: "assistant"}
+		for _, call := range exchange.Calls {
+			assistant.ToolCalls = append(assistant.ToolCalls, qwenToolCall{
+				ID: call.ID, Type: "function",
+				Function: qwenToolCallPayload{Name: string(call.Name), Arguments: string(call.Params)},
+			})
+		}
+		messages = append(messages, assistant)
+		for index, call := range exchange.Calls {
+			if index >= len(exchange.Results) {
+				continue
+			}
+			result := exchange.Results[index]
+			content := marshalToolResultForModel(result)
+			messages = append(messages, qwenTrendMessage{Role: "tool", ToolCallID: call.ID, Name: string(call.Name), Content: string(content)})
+		}
+	}
+	requestBody := qwenTrendRequest{
+		EnableThinking: false,
+		MaxTokens:      1200,
+		Messages:       messages,
+		Model:          "qwen-plus",
+		Temperature:    0,
+	}
+	if allowTools {
+		requestBody.Tools = qwenModelTools()
+	} else {
+		requestBody.ResponseFormat = &qwenTrendResponseFormat{
+			Type:       "json_schema",
+			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
+		}
+	}
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 请求未能生成"}
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, provider.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 请求未能生成"}
+	}
+	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := provider.httpClient.Do(request)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return IntentToolTurn{}, err
+		}
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 服务暂时不可用"}
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 服务暂时不可用"}
+	}
+	var payload qwenTrendResponse
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
+	if err := decoder.Decode(&payload); err != nil || len(payload.Choices) != 1 {
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 返回内容无效"}
+	}
+	if payload.Usage.PromptTokens < 0 || payload.Usage.CompletionTokens < 0 || payload.Usage.TotalTokens < 0 {
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 返回用量无效"}
+	}
+	message := payload.Choices[0].Message
+	if len(message.ToolCalls) > 0 {
+		if strings.TrimSpace(message.Content) != "" {
+			return IntentToolTurn{}, &ContractError{Code: ErrorInvalidCombination, Field: "model_response", Message: "AI 同时返回了工具调用和最终内容"}
+		}
+		calls := make([]ToolCall, 0, len(message.ToolCalls))
+		for index, toolCall := range message.ToolCalls {
+			callID := strings.TrimSpace(toolCall.ID)
+			if callID == "" {
+				callID = fmt.Sprintf("tool-call-%d", index+1)
+			}
+			calls = append(calls, ToolCall{ID: callID, Name: ToolName(strings.TrimSpace(toolCall.Function.Name)), Params: json.RawMessage(toolCall.Function.Arguments)})
+		}
+		return IntentToolTurn{ToolCalls: calls, InputTokens: payload.Usage.PromptTokens, OutputTokens: payload.Usage.CompletionTokens}, nil
+	}
+	content := strings.TrimSpace(message.Content)
+	if content == "" || len(content) > MaxToolOutputBytes {
+		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 返回内容无效"}
+	}
+	return IntentToolTurn{Intent: []byte(content), InputTokens: payload.Usage.PromptTokens, OutputTokens: payload.Usage.CompletionTokens}, nil
+}
+
+func qwenModelTools() []qwenTool {
+	descriptors := trendToolDescriptors()
+	tools := make([]qwenTool, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		tools = append(tools, qwenTool{Type: "function", Function: qwenToolSchema{Name: string(descriptor.Name), Description: descriptor.Description, Parameters: descriptor.Parameters}})
+	}
+	return tools
+}
+
+func toolLoopUserPrompt(query string, correction *ContractError) string {
+	value := strings.TrimSpace(query)
+	if correction == nil {
+		return value
+	}
+	return value + "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
+}
+
+func marshalToolResultForModel(result ToolCallResult) []byte {
+	if result.SafeError != nil && len(result.Payload) == 0 {
+		data, _ := json.Marshal(struct {
+			Error *SafeError `json:"error"`
+		}{Error: result.SafeError})
+		return data
+	}
+	if result.SafeError != nil {
+		data, _ := json.Marshal(struct {
+			Result json.RawMessage `json:"result"`
+			Error  *SafeError      `json:"error"`
+		}{Result: result.Payload, Error: result.SafeError})
+		return data
+	}
+	if len(result.Payload) == 0 {
+		return []byte(`{"error":{"code":"backend_failure","message":"tool returned no result"}}`)
+	}
+	return result.Payload
+}
+
 func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query string, explanationContext DraftExplanationContext) (string, int, int, error) {
 	if provider == nil || provider.apiKey == "" || provider.httpClient == nil || strings.TrimSpace(query) == "" {
 		return "", 0, 0, &ContractError{Code: ErrorConfigurationFailure, Message: "AI provider is not configured"}
@@ -177,7 +337,7 @@ func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query
 			{Role: "user", Content: string(input)},
 		},
 		Model: "qwen-plus",
-		ResponseFormat: qwenTrendResponseFormat{
+		ResponseFormat: &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: qwenTrendJSONSchema{Name: "ai-trend-explanation-v1", Strict: true, Schema: intentExplanationSchema},
 		},

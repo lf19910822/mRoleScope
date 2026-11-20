@@ -160,3 +160,136 @@ func TestOrchestratorEmitsModelOperationBeforeSlowAnalyzer(t *testing.T) {
 		t.Fatalf("model completion event = %#v", steps[1])
 	}
 }
+
+type scriptedToolProvider struct {
+	turns   []IntentToolTurn
+	history [][]ToolConversation
+}
+
+func (provider *scriptedToolProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	return nil, errors.New("scripted provider uses tool turns")
+}
+
+func (provider *scriptedToolProvider) AnalyzeIntentTurn(_ context.Context, _ string, _ *ContractError, history []ToolConversation, _ bool) (IntentToolTurn, error) {
+	provider.history = append(provider.history, history)
+	if len(provider.turns) == 0 {
+		return IntentToolTurn{}, errors.New("scripted provider exhausted")
+	}
+	turn := provider.turns[0]
+	provider.turns = provider.turns[1:]
+	return turn, nil
+}
+
+func TestOrchestratorRunsBoundedModelToolLoop(t *testing.T) {
+	valid, err := json.Marshal(validIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewToolRegistry([]ToolDefinition{
+		{Name: ToolListTechnologyCategories, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return []byte(`[{"value":"programming-languages","label":"编程语言"}]`), nil
+		}},
+		{Name: ToolBatchTrendSummary, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return []byte(`[]`), nil
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "categories", Name: ToolListTechnologyCategories, Params: []byte(`{}`)}}, InputTokens: 3, OutputTokens: 2},
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"cpp","range":"month"}]`)}}, InputTokens: 5, OutputTokens: 4},
+		{Intent: valid, InputTokens: 7, OutputTokens: 6},
+	}}
+	steps := make([]StreamEvent, 0)
+	orchestrator := Orchestrator{
+		ToolAnalyzer: provider,
+		Registry:     registry,
+		MaxDuration:  time.Second,
+		Emit:         func(event StreamEvent) error { steps = append(steps, event); return nil },
+	}
+	result, err := orchestrator.RunWithInput(context.Background(), "使用最多的编程语言是什么")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Intent.ContractVersion != ContractVersionV1 || result.AIAttempts != 3 || len(result.ToolResults) != 2 || result.InputTokens != 15 || result.OutputTokens != 12 {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(provider.history) != 3 || len(provider.history[2]) != 2 {
+		t.Fatalf("provider history = %#v", provider.history)
+	}
+	if len(steps) < 8 {
+		t.Fatalf("steps = %#v", steps)
+	}
+}
+
+type budgetToolProvider struct {
+	final       []byte
+	toolTurns   int
+	toolsClosed bool
+}
+
+func (provider *budgetToolProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	return nil, errors.New("budget provider uses tool turns")
+}
+
+func (provider *budgetToolProvider) AnalyzeIntentTurn(_ context.Context, _ string, _ *ContractError, _ []ToolConversation, allowTools bool) (IntentToolTurn, error) {
+	if !allowTools {
+		provider.toolsClosed = true
+		return IntentToolTurn{Intent: provider.final}, nil
+	}
+	provider.toolTurns++
+	return IntentToolTurn{ToolCalls: []ToolCall{{ID: "budget", Name: ToolListTechnologyCategories, Params: []byte(`{}`)}}, InputTokens: 1, OutputTokens: 1}, nil
+}
+
+func TestOrchestratorClosesToolsAtBudgetBeforeFinalIntent(t *testing.T) {
+	final, _ := json.Marshal(validIntent())
+	provider := &budgetToolProvider{final: final}
+	registry, err := NewToolRegistry([]ToolDefinition{{Name: ToolListTechnologyCategories, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return []byte(`[]`), nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{ToolAnalyzer: provider, Registry: registry}
+	result, err := orchestrator.RunWithInput(context.Background(), "哪些技术？")
+	if err != nil || result.Intent.ContractVersion != ContractVersionV1 || len(result.ToolResults) != MaxToolCalls-1 || !provider.toolsClosed {
+		t.Fatalf("result=%#v err=%v provider=%#v", result, err, provider)
+	}
+}
+
+func TestOrchestratorToolLoopStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{{ToolCalls: []ToolCall{{ID: "cancel", Name: ToolRankValues, Params: []byte(`{"dimension":"technology","expression":"Go","sub_query_id":"q1"}`)}}}}}
+	registry, err := NewToolRegistry([]ToolDefinition{{Name: ToolRankValues, Handler: func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		cancel()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{ToolAnalyzer: provider, Registry: registry, MaxDuration: time.Second}
+	result, err := orchestrator.RunWithInput(ctx, "比较 Go")
+	if err == nil || !result.Stopped || !result.Partial {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestOrchestratorFeedsInvalidToolArgumentsBackToModel(t *testing.T) {
+	final, _ := json.Marshal(validIntent())
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "invalid", Name: "read_sql", Params: []byte(`{}`)}}},
+		{Intent: final},
+	}}
+	registry, err := NewToolRegistry(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{ToolAnalyzer: provider, Registry: registry}
+	result, err := orchestrator.RunWithInput(context.Background(), "哪些技术？")
+	if err != nil || result.Intent.ContractVersion != ContractVersionV1 || result.Partial || len(result.ToolResults) != 1 || result.ToolResults[0].SafeError == nil || result.ToolResults[0].SafeError.Code != ErrorInvalidEnum {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}

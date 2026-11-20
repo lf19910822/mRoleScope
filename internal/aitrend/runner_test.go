@@ -48,13 +48,45 @@ func (runnerProjectSummaryReader) ReadTrendSummary(_ context.Context, query jdse
 type languageSummaryReader struct{}
 
 func (languageSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.TrendQuery) (jdserving.TrendSummary, error) {
-	counts := map[string]float64{"cpp": 30, "python": 20, "unreal-engine": 40}
+	counts := map[string]float64{"cpp": 30, "python": 20, "go": 10, "unreal-engine": 40}
 	average := counts[query.Condition.Value]
 	return jdserving.TrendSummary{
 		Curve:                  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionTechnology, Value: query.Condition.Value, Label: query.Condition.Value},
 		AverageDailyActiveJobs: &average,
 		ValidObservationDays:   1,
 	}, nil
+}
+
+func TestTrendRunnerUsesModelCategoryDiscoveryAndRankingLimit(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "cpp", Label: "C++"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "python", Label: "Python"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "go", Label: "Go"},
+		{Category: jdserving.FilterOption{Value: "game-engines", Label: "游戏引擎"}, Value: "unreal-engine", Label: "Unreal Engine"},
+	}}
+	finalIntent := []byte(`{"contract_version":"ai-trend-draft-v1","sub_queries":[{"id":"languages","dimension":"technology","expressions":["cpp","python","go"],"ranking":{"metric":"avg_daily_active_jobs","order":"desc","limit":1}}],"time_range":{"kind":"month"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`)
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "categories", Name: ToolListTechnologyCategories, Params: []byte(`{}`)}}, InputTokens: 2, OutputTokens: 2},
+		{ToolCalls: []ToolCall{{ID: "language-values", Name: ToolListCategoryValues, Params: []byte(`{"category":"编程语言"}`)}}, InputTokens: 2, OutputTokens: 2},
+		{ToolCalls: []ToolCall{{ID: "language-summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"cpp","range":"month"},{"dimension":"technology","value":"python","range":"month"},{"dimension":"technology","value":"go","range":"month"}]`)}}, InputTokens: 2, OutputTokens: 2},
+		{Intent: finalIntent, InputTokens: 2, OutputTokens: 2},
+	}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{options: options}, languageSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	if err := runner.Run(context.Background(), "使用最多的编程语言是什么", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != "cpp" {
+		t.Fatalf("draft = %#v", draft)
+	}
 }
 
 type runnerIntentProvider struct {
@@ -210,6 +242,44 @@ func TestTrendRunnerLimitsProgrammingLanguageCategory(t *testing.T) {
 	for _, curve := range draft.Curves {
 		if curve.Condition.Value != "cpp" && curve.Condition.Value != "python" {
 			t.Fatalf("non-language curve returned: %#v", curve)
+		}
+	}
+}
+
+func TestTrendRunnerResolvesUnlistedCategoryFromServingCatalog(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "container-orchestration", Label: "容器编排"}, Value: "kubernetes", Label: "Kubernetes"},
+		{Category: jdserving.FilterOption{Value: "container-orchestration", Label: "容器编排"}, Value: "docker-swarm", Label: "Docker Swarm"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "mysql", Label: "MySQL"},
+	}}
+	intent := Intent{
+		ContractVersion: ContractVersionV1,
+		SubQueries: []SubQuery{{
+			ID: "containers", Dimension: DimensionTechnology, Expressions: []string{"*"},
+			Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: MaxCurves},
+		}},
+		TimeRange: TimeRange{Kind: RangeMonth},
+		Output:    OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine},
+	}
+	runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	if err := runner.Run(context.Background(), "哪些容器编排技术的岗位最多？", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 2 {
+		t.Fatalf("draft = %#v", draft)
+	}
+	for _, curve := range draft.Curves {
+		if curve.Condition.Value == "mysql" {
+			t.Fatalf("adjacent category leaked into draft: %#v", draft.Curves)
 		}
 	}
 }

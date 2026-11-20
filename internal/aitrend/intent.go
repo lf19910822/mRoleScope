@@ -8,14 +8,19 @@ import (
 //go:embed assets/intent_schema_v1.json
 var intentSchemaV1 string
 
-const intentPromptV1 = `将用户趋势问题转换为严格的 ai-trend-draft-v1 JSON 合同。
-输出只能选择普通的每日活跃岗位数量折线曲线。不得输出 SQL、数据库字段、JD 正文、凭据、每日数据点或自定义公式。
-没有特殊限定时，ranking.metric 使用 avg_daily_active_jobs；“当前/截至目前”使用 period_end_active_jobs；“峰值/最高一天”使用 peak_daily_active_jobs；只有用户明确询问不同岗位时才使用 period_unique_jobs。
-只能使用 technology、project、job_family、location 四种维度。每个子问题必须独立，并保留明确的排除条件和时间范围。
-expressions 必须填写用户要求匹配的正式值或类别词，例如“数据库”“Redis”“后端”。不得把指标名、数据库字段或工具名放进 expressions。
-如果用户询问“哪些项目”“全部项目”等没有点名具体值的宽泛类别，相关 expressions 必须严格写成 ["*"]，不得写空字符串。
-如果用户询问“使用最多的编程语言”“哪些编程语言”等编程语言类别，必须使用 technology 维度和“编程语言”类别表达式，只匹配编程语言正式值（如 C++、Python、Go），不得使用 ["*"]，不得返回游戏引擎、容器、数据库或其他非编程语言技术。
-如果用户询问“哪些数据库正在被使用”，使用 technology 维度和数据库类别表达式，并且只把 avg_daily_active_jobs 放在 ranking.metric 中。`
+const intentPromptV1 = `你是趋势查询规划器。将用户趋势问题转换为符合 ai-trend-draft-v1 的 Intent，并在需要时自主调用已提供的安全工具。
+
+最终只能规划每日活跃岗位数量折线曲线。不得输出 SQL、数据库字段、JD 正文、凭据、每日数据点或自定义公式。只允许 technology、project、job_family、location 四种维度；每个独立子问题分别确定范围、排名口径、数量、时间、包含和排除条件。
+
+查询范围必须遵守以下优先级：具体正式值或已确认别名 > 已登记类别 > 整个维度。点名具体值时只查询这些值；限定类别但未点名值时，先使用类别目录工具，再使用类别值工具，只查询该类别，例如“编程语言”或“数据库”；只有确实覆盖整个维度且没有类别、具体值或排除限制时，expressions 才能使用 ["*"]。未知词、未知类别或冲突条件不得改写成 ["*"]，应保留限制并交给应用处理。
+
+如果工具目录返回正式值和显示名称，最终 Intent 使用正式值。expressions 只承载匹配对象，不放指标名、数据库字段或工具名。需要比较多个明确值时不得添加相邻或相关值。
+
+未指定时间时使用产品默认范围 month；用户明确给出的时间范围必须保留。日期表达只决定时间范围，不自动改变排名指标。未指定比较口径时使用 avg_daily_active_jobs；明确比较最新观测日使用 period_end_active_jobs；明确比较期间单日峰值使用 peak_daily_active_jobs；明确询问期间去重岗位数使用 period_unique_jobs；明确询问进入、修改、下线或重上线数量时使用对应事件指标。
+
+“哪一个”“谁第一”“使用最多的 X 是什么”将 ranking.limit 设为 1；“前 N 个”最多取 N 项；“有哪些”“看看趋势”且未指定数量时使用产品默认数量；用户明确要求全部时保留全量意图，但最终仍受系统曲线容量限制。排名顺序必须与用户问题一致。
+
+在返回最终 Intent 前，若候选范围需要类别或正式值，应先完成必要的工具调用并用趋势摘要支持排名。只返回符合 Schema 的 JSON，不返回解释文字或模型思维过程。`
 
 func IntentSchemaV1() string { return intentSchemaV1 }
 

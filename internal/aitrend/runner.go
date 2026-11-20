@@ -39,6 +39,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	}
 	resolver := resolverFromOptions(options)
 	tools := runner.Tools
+	tools.Snapshot = newServingSnapshot(options)
 	tools.Resolver = resolver
 	registry, err := tools.Registry()
 	if err != nil {
@@ -47,6 +48,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 
 	var groups []CandidateGroup
 	var plannedIntent Intent
+	toolProvider, usesToolSession := runner.Provider.(IntentToolProvider)
 	inputTokens, outputTokens := 0, 0
 	auditOperations := make([]auditOperation, 0, MaxToolCalls+1)
 	auditStarted := time.Now()
@@ -57,6 +59,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		return emit(event)
 	}
 	orchestrator := Orchestrator{
+		ToolAnalyzer: toolProvider,
 		Analyzer: func(analyzeContext context.Context, correction *ContractError) ([]byte, error) {
 			if usageProvider, ok := runner.Provider.(IntentUsageProvider); ok {
 				content, input, output, providerErr := usageProvider.AnalyzeIntentUsage(analyzeContext, query, correction)
@@ -67,7 +70,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 			return runner.Provider.AnalyzeIntent(analyzeContext, query, correction)
 		},
 		Planner: func(_ context.Context, intent Intent, _ []ToolCallResult) ([]ToolCall, error) {
-			intent = normalizeIntentForQuery(query, intent)
+			intent = normalizeIntentForQuery(query, intent, resolver)
 			plannedIntent = intent
 			groups = candidateGroups(intent, resolver)
 			return planServingTools(intent, groups), nil
@@ -83,10 +86,16 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
+	inputTokens += result.InputTokens
+	outputTokens += result.OutputTokens
 	if plannedIntent.ContractVersion == "" {
-		plannedIntent = result.Intent
+		plannedIntent = normalizeIntentForQuery(query, result.Intent, resolver)
+		groups = candidateGroups(plannedIntent, resolver)
 	}
 	applySummaryScores(groups, result.ToolResults, plannedIntent)
+	if usesToolSession {
+		filterCandidatesToSummaryResults(groups, result.ToolResults)
+	}
 	filterFailedSummaryCandidates(groups, result.ToolResults)
 
 	partialFailure := result.Partial
@@ -156,11 +165,12 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	return err
 }
 
-func normalizeIntentForQuery(query string, intent Intent) Intent {
-	category := technologyCategoryFromQuery(query)
-	if category == "" {
+func normalizeIntentForQuery(query string, intent Intent, resolver Resolver) Intent {
+	categories := technologyCategoriesFromQuery(query, resolver)
+	if len(categories) != 1 {
 		return intent
 	}
+	category := categories[0]
 	normalized := intent
 	normalized.SubQueries = append([]SubQuery(nil), intent.SubQueries...)
 	for index := range normalized.SubQueries {
@@ -182,18 +192,42 @@ func normalizeIntentForQuery(query string, intent Intent) Intent {
 	return normalized
 }
 
-func technologyCategoryFromQuery(query string) string {
+func technologyCategoriesFromQuery(query string, resolver Resolver) []string {
 	value := normalizeExpression(query)
-	switch {
-	case strings.Contains(value, "编程语言"), strings.Contains(value, "程序语言"), strings.Contains(value, "programming language"):
-		return "编程语言"
-	case strings.Contains(value, "数据库"), strings.Contains(value, "database"):
-		return "数据库"
-	case strings.Contains(value, "前端框架"), strings.Contains(value, "frontend framework"):
-		return "前端框架"
-	default:
-		return ""
+	if value == "" {
+		return nil
 	}
+	type categoryMatch struct {
+		alias  string
+		length int
+	}
+	matches := make([]categoryMatch, 0)
+	for alias := range resolver.Aliases[DimensionTechnology] {
+		if alias == "" || !strings.Contains(value, alias) {
+			continue
+		}
+		matches = append(matches, categoryMatch{alias: alias, length: len([]rune(alias))})
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].length != matches[j].length {
+			return matches[i].length > matches[j].length
+		}
+		return matches[i].alias < matches[j].alias
+	})
+	result := make([]string, 0, len(matches))
+	for _, match := range matches {
+		duplicate := false
+		for _, existing := range result {
+			if existing == match.alias {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result = append(result, match.alias)
+		}
+	}
+	return result
 }
 
 type auditOperation struct {
@@ -321,15 +355,17 @@ func resolverFromOptions(options jdserving.FilterOptionsResponse) Resolver {
 		DimensionLocation:   make([]Candidate, 0, len(options.Locations)),
 	}
 	aliases := map[Dimension]map[string][]string{DimensionTechnology: make(map[string][]string)}
+	categoryAliasesByDimension := map[Dimension]map[string]struct{}{DimensionTechnology: make(map[string]struct{})}
 	for _, option := range options.TechnologyKeywords {
 		values[DimensionTechnology] = append(values[DimensionTechnology], Candidate{Dimension: DimensionTechnology, Value: option.Value, Label: option.Label, MatchStatus: MatchExact})
 		key := normalizeExpression(option.Category.Value)
 		if key != "" {
 			aliases[DimensionTechnology][key] = append(aliases[DimensionTechnology][key], option.Value)
+			categoryAliasesByDimension[DimensionTechnology][key] = struct{}{}
 		}
-		labelKey := normalizeExpression(option.Category.Label)
-		if labelKey != "" {
-			aliases[DimensionTechnology][labelKey] = append(aliases[DimensionTechnology][labelKey], option.Value)
+		for _, categoryAlias := range categoryAliases(option.Category.Label) {
+			aliases[DimensionTechnology][categoryAlias] = append(aliases[DimensionTechnology][categoryAlias], option.Value)
+			categoryAliasesByDimension[DimensionTechnology][categoryAlias] = struct{}{}
 		}
 	}
 	for _, option := range options.Projects {
@@ -344,7 +380,7 @@ func resolverFromOptions(options jdserving.FilterOptionsResponse) Resolver {
 	for _, option := range options.Locations {
 		values[DimensionLocation] = append(values[DimensionLocation], Candidate{Dimension: DimensionLocation, Value: option.Value, Label: option.Label, MatchStatus: MatchExact})
 	}
-	return Resolver{Values: values, Aliases: aliases}
+	return Resolver{Values: values, Aliases: aliases, CategoryAliases: categoryAliasesByDimension}
 }
 
 func candidateGroups(intent Intent, resolver Resolver) []CandidateGroup {
@@ -361,7 +397,7 @@ func candidateGroups(intent Intent, resolver Resolver) []CandidateGroup {
 		if len(candidates) > MaxToolCandidates {
 			candidates = candidates[:MaxToolCandidates]
 		}
-		groups = append(groups, CandidateGroup{SubQueryID: query.ID, Candidates: candidates})
+		groups = append(groups, CandidateGroup{SubQueryID: query.ID, Candidates: candidates, Limit: query.Ranking.Limit})
 	}
 	return groups
 }
@@ -430,7 +466,7 @@ func isBroadExpression(expression string) bool {
 	if value == "" || value == "*" || value == "all" || value == "any" || value == "all values" {
 		return true
 	}
-	for _, marker := range []string{"哪些", "所有", "全部", "使用了哪些", "项目", "数据库", "技术", "岗位族", "地点", "project", "projects", "database", "databases"} {
+	for _, marker := range []string{"项目", "岗位族", "地点", "project", "projects", "job family", "job families", "location"} {
 		if value == marker {
 			return true
 		}
@@ -439,6 +475,30 @@ func isBroadExpression(expression string) bool {
 		}
 	}
 	return false
+}
+
+func categoryAliases(label string) []string {
+	normalized := normalizeExpression(label)
+	if normalized == "" {
+		return nil
+	}
+	result := []string{normalized}
+	parts := strings.FieldsFunc(normalized, func(r rune) bool {
+		switch r {
+		case '与', '和', '/', '|', ',', '，':
+			return true
+		default:
+			return false
+		}
+	})
+	for _, part := range parts {
+		part = normalizeExpression(part)
+		if part == "" || part == normalized {
+			continue
+		}
+		result = append(result, part)
+	}
+	return result
 }
 
 func planServingTools(intent Intent, groups []CandidateGroup) []ToolCall {
@@ -576,6 +636,40 @@ func filterFailedSummaryCandidates(groups []CandidateGroup, results []ToolCallRe
 				continue
 			}
 			kept = append(kept, candidate)
+		}
+		groups[groupIndex].Candidates = kept
+	}
+}
+
+func filterCandidatesToSummaryResults(groups []CandidateGroup, results []ToolCallResult) {
+	queried := make(map[string]struct{})
+	for _, result := range results {
+		if !result.Available || (result.Name != ToolBatchTrendSummary && result.Name != ToolReadTrendSummary) {
+			continue
+		}
+		if result.Name == ToolReadTrendSummary {
+			var summary summaryToolResponse
+			if json.Unmarshal(result.Payload, &summary) == nil && summary.Error == nil {
+				queried[explanationCurveKey(Dimension(summary.Curve.Dimension), summary.Curve.Value, summary.Curve.IncludeSecondary)] = struct{}{}
+			}
+			continue
+		}
+		var summaries []summaryToolResponse
+		if json.Unmarshal(result.Payload, &summaries) != nil {
+			continue
+		}
+		for _, summary := range summaries {
+			if summary.Error == nil {
+				queried[explanationCurveKey(Dimension(summary.Curve.Dimension), summary.Curve.Value, summary.Curve.IncludeSecondary)] = struct{}{}
+			}
+		}
+	}
+	for groupIndex := range groups {
+		kept := groups[groupIndex].Candidates[:0]
+		for _, candidate := range groups[groupIndex].Candidates {
+			if _, ok := queried[explanationCurveKey(candidate.Dimension, candidate.Value, candidate.IncludeSecondary)]; ok {
+				kept = append(kept, candidate)
+			}
 		}
 		groups[groupIndex].Candidates = kept
 	}
