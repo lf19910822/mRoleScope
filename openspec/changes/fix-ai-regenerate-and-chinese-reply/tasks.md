@@ -7,7 +7,7 @@
 
 ## 2. Validation and live verification
 
-- [ ] 2.1 Run full Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and verify regeneration plus Chinese explanation in the browser.
+- [x] 2.1 Run full Go/frontend tests, OpenSpec strict validation, and `git diff --check`; deploy and verify regeneration plus Chinese explanation in the browser. Revision `7160e8b` showed a Chinese explanation; browser regeneration changed pending draft rows from 8 to 0 immediately, then loaded 8 new rows after completion.
 
 ## Workflow follow-up
 
