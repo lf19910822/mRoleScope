@@ -223,7 +223,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		Model:          "qwen-plus",
 		Temperature:    0,
 	}
-	if allowTools && !hasTrendSummary {
+	if allowTools {
 		requestBody.Tools = qwenModelTools()
 	}
 	// Keep discovery turns free to emit tool calls. Once the model has
