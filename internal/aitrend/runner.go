@@ -67,6 +67,7 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 			return runner.Provider.AnalyzeIntent(analyzeContext, query, correction)
 		},
 		Planner: func(_ context.Context, intent Intent, _ []ToolCallResult) ([]ToolCall, error) {
+			intent = normalizeIntentForQuery(query, intent)
 			plannedIntent = intent
 			groups = candidateGroups(intent, resolver)
 			return planServingTools(intent, groups), nil
@@ -153,6 +154,46 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	err = streamEmit(StreamEvent{Type: StreamEventDone, Status: terminalStatus})
 	runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
 	return err
+}
+
+func normalizeIntentForQuery(query string, intent Intent) Intent {
+	category := technologyCategoryFromQuery(query)
+	if category == "" {
+		return intent
+	}
+	normalized := intent
+	normalized.SubQueries = append([]SubQuery(nil), intent.SubQueries...)
+	for index := range normalized.SubQueries {
+		subQuery := &normalized.SubQueries[index]
+		if subQuery.Dimension != DimensionTechnology {
+			continue
+		}
+		broad := len(subQuery.Expressions) == 0
+		for _, expression := range subQuery.Expressions {
+			if isBroadExpression(expression) {
+				broad = true
+				break
+			}
+		}
+		if broad {
+			subQuery.Expressions = []string{category}
+		}
+	}
+	return normalized
+}
+
+func technologyCategoryFromQuery(query string) string {
+	value := normalizeExpression(query)
+	switch {
+	case strings.Contains(value, "编程语言"), strings.Contains(value, "程序语言"), strings.Contains(value, "programming language"):
+		return "编程语言"
+	case strings.Contains(value, "数据库"), strings.Contains(value, "database"):
+		return "数据库"
+	case strings.Contains(value, "前端框架"), strings.Contains(value, "frontend framework"):
+		return "前端框架"
+	default:
+		return ""
+	}
 }
 
 type auditOperation struct {

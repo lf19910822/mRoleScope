@@ -88,7 +88,7 @@ type qwenTrendResponse struct {
 	} `json:"usage"`
 }
 
-const intentExplanationPrompt = `请用简体中文解释本次趋势草稿选择，说明不超过 100 个 Unicode 字符。
+const intentExplanationPrompt = `请用简体中文解释本次趋势草稿选择，说明控制在 80 个 Unicode 字符以内，必须完整结束，不能在句子中间截断。
 只能使用用户问题、确定性的候选列表、排序指标和聚合数值。简短说明为什么这些曲线回答了问题，必要时说明扩展推荐或部分结果。
 不得编造数据，不得输出 SQL、原始文本、内部键或思维链。只返回包含 explanation 字段的 JSON。`
 
@@ -171,7 +171,7 @@ func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query
 	}
 	body, err := json.Marshal(qwenTrendRequest{
 		EnableThinking: false,
-		MaxTokens:      160,
+		MaxTokens:      200,
 		Messages: []qwenTrendMessage{
 			{Role: "system", Content: intentExplanationPrompt},
 			{Role: "user", Content: string(input)},
