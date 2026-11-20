@@ -212,7 +212,7 @@ func TestOrchestratorRunsBoundedModelToolLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Intent.ContractVersion != ContractVersionV1 || result.AIAttempts != 3 || len(result.ToolResults) != 2 || result.InputTokens != 15 || result.OutputTokens != 12 {
+	if result.Intent.ContractVersion != ContractVersionV1 || result.AIAttempts != 1 || len(result.ToolResults) != 2 || result.InputTokens != 15 || result.OutputTokens != 12 {
 		t.Fatalf("result = %#v", result)
 	}
 	if len(provider.history) != 3 || len(provider.history[2]) != 2 {

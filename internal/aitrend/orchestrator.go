@@ -188,7 +188,9 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 			result.Stopped = true
 			return result, ctx.Err()
 		}
-		result.AIAttempts++
+		if result.AIAttempts == 0 {
+			result.AIAttempts = 1
+		}
 		modelOperation := string(ToolAnalyzeIntent)
 		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: modelOperation}); err != nil {
 			return result, err
@@ -305,8 +307,10 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 		correctionAttempts++
 		_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
 		if correctionAttempts >= MaxAIAttempts {
+			result.AIAttempts = MaxAIAttempts
 			return result, contractErr
 		}
+		result.AIAttempts = correctionAttempts + 1
 		correction = contractErr
 	}
 	return result, &ContractError{Code: ErrorLimitExceeded, Field: "model_turns", Message: "AI model turn limit exceeded"}
