@@ -56,10 +56,26 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			}, 18, 9)
 			return
 		}
-		if len(body.Format) == 0 {
-			t.Fatal("final discovery turn did not request the Intent response schema")
+		if requests == 3 {
+			if len(body.Format) != 0 {
+				t.Fatalf("summary planning turn unexpectedly forced response format: %s", body.Format)
+			}
+			if len(body.Messages) != 6 || body.Messages[4].Role != "assistant" || body.Messages[5].Role != "tool" || !strings.Contains(body.Messages[5].Content, "cpp") {
+				t.Fatalf("continued messages = %#v", body.Messages)
+			}
+			writeQwenResponse(writer, map[string]any{
+				"content": "",
+				"tool_calls": []any{map[string]any{
+					"id": "call-summary", "type": "function",
+					"function": map[string]string{"name": string(ToolBatchTrendSummary), "arguments": `[{"dimension":"technology","value":"cpp","range":"month"}]`},
+				}},
+			}, 21, 13)
+			return
 		}
-		if len(body.Messages) != 6 || body.Messages[4].Role != "assistant" || body.Messages[5].Role != "tool" || !strings.Contains(body.Messages[5].Content, "cpp") {
+		if len(body.Format) == 0 {
+			t.Fatal("final turn did not request the Intent response schema")
+		}
+		if len(body.Messages) != 8 || body.Messages[6].Role != "assistant" || body.Messages[7].Role != "tool" || !strings.Contains(body.Messages[7].Content, "average_daily_active_jobs") {
 			t.Fatalf("continued messages = %#v", body.Messages)
 		}
 		writeQwenResponse(writer, map[string]any{
@@ -85,11 +101,19 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 		Results: []ToolCallResult{{Name: ToolListCategoryValues, Payload: json.RawMessage(`[{"value":"cpp","label":"C++"}]`), Available: true}},
 	})
 	turn, err = provider.AnalyzeIntentTurn(context.Background(), "使用最多的编程语言是什么", nil, history, true)
+	if err != nil || len(turn.Intent) != 0 || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolBatchTrendSummary || turn.InputTokens != 21 || turn.OutputTokens != 13 {
+		t.Fatalf("summary turn = %#v err=%v", turn, err)
+	}
+	history = append(history, ToolConversation{
+		Calls:   turn.ToolCalls,
+		Results: []ToolCallResult{{Name: ToolBatchTrendSummary, Payload: json.RawMessage(`[{"curve":{"dimension":"technology","value":"cpp"},"average_daily_active_jobs":42}]`), Available: true}},
+	})
+	turn, err = provider.AnalyzeIntentTurn(context.Background(), "使用最多的编程语言是什么", nil, history, true)
 	if err != nil || len(turn.Intent) == 0 || len(turn.ToolCalls) != 0 || turn.InputTokens != 21 || turn.OutputTokens != 13 {
 		t.Fatalf("final turn = %#v err=%v", turn, err)
 	}
-	if requests != 3 {
-		t.Fatalf("provider requests = %d, want 3", requests)
+	if requests != 4 {
+		t.Fatalf("provider requests = %d, want 4", requests)
 	}
 }
 
