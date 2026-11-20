@@ -88,9 +88,9 @@ type qwenTrendResponse struct {
 	} `json:"usage"`
 }
 
-const intentExplanationPrompt = `Explain the completed trend-draft selection for the user in no more than 100 Unicode characters.
-Use only the supplied question, deterministic candidate list, ranking metric, and aggregate values. Mention why the selected curves answer the question and any broad/partial matching when useful.
-Do not invent data, do not output SQL or source text, do not reveal internal keys, and do not show chain-of-thought. Return JSON with exactly one explanation field.`
+const intentExplanationPrompt = `请用简体中文解释本次趋势草稿选择，说明不超过 100 个 Unicode 字符。
+只能使用用户问题、确定性的候选列表、排序指标和聚合数值。简短说明为什么这些曲线回答了问题，必要时说明扩展推荐或部分结果。
+不得编造数据，不得输出 SQL、原始文本、内部键或思维链。只返回包含 explanation 字段的 JSON。`
 
 var intentExplanationSchema = json.RawMessage(`{"type":"object","properties":{"explanation":{"type":"string","maxLength":100}},"required":["explanation"],"additionalProperties":false}`)
 
@@ -218,6 +218,9 @@ func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query
 	if explanation == "" {
 		return "", 0, 0, &ContractError{Code: ErrorMissingField, Field: "explanation", Message: "AI 说明为空"}
 	}
+	if !containsChinese(explanation) {
+		return "", 0, 0, &ContractError{Code: ErrorInvalidCombination, Field: "explanation", Message: "AI 说明必须使用中文"}
+	}
 	if utf8.RuneCountInString(explanation) > MaxExplanationRunes {
 		return "", 0, 0, &ContractError{Code: ErrorLimitExceeded, Field: "explanation", Message: "AI 说明超过长度限制"}
 	}
@@ -225,4 +228,13 @@ func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query
 		return "", 0, 0, &ContractError{Code: ErrorProviderFailure, Message: "AI 返回用量无效"}
 	}
 	return explanation, payload.Usage.PromptTokens, payload.Usage.CompletionTokens, nil
+}
+
+func containsChinese(value string) bool {
+	for _, r := range value {
+		if (r >= '\u3400' && r <= '\u4dbf') || (r >= '\u4e00' && r <= '\u9fff') {
+			return true
+		}
+	}
+	return false
 }

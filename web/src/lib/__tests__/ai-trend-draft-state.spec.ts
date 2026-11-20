@@ -86,4 +86,51 @@ describe('AI trend draft state', () => {
     expect(state.operations.map((operation) => operation.tool)).toContain('explain_draft')
     expect(state.operations.map((operation) => operation.tool)).toContain('list_available_values')
   })
+
+  it('clears the previous pending draft when regenerating', async () => {
+    let fetchCount = 0
+    let releaseSecondRequest: (() => void) | undefined
+    const draftEvent = JSON.stringify({
+      type: 'draft',
+      status: 'completed',
+      draft: {
+        contract_version: 'ai-trend-draft-v1',
+        status: 'complete',
+        curves: [
+          {
+            condition: { dimension: 'project', value: 'alpha', includeSecondary: false, operator: '' },
+            label: 'Alpha',
+            match_status: 'exact',
+            reason: '正式项目',
+            selected: true,
+            sub_query_ids: ['projects'],
+          },
+        ],
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        fetchCount += 1
+        if (fetchCount === 1) {
+          return new Response(`${draftEvent}\n${JSON.stringify({ type: 'done', status: 'success' })}\n`)
+        }
+        await new Promise<void>((resolve) => {
+          releaseSecondRequest = resolve
+        })
+        return new Response(`${draftEvent}\n${JSON.stringify({ type: 'done', status: 'success' })}\n`)
+      }),
+    )
+    const state = createAITrendDraftState()
+    await state.submit('哪些项目')
+    expect(state.draft?.curves).toHaveLength(1)
+
+    const regeneration = state.submit('哪些技术')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(state.status).toBe('running')
+    expect(state.draft).toBeUndefined()
+    releaseSecondRequest?.()
+    await regeneration
+    expect(state.draft?.curves).toHaveLength(1)
+  })
 })

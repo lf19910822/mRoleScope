@@ -79,6 +79,7 @@ export function createAITrendDraftState(): AITrendDraftState {
     state.operations = []
     state.operationsExpanded = true
     state.error = ''
+    state.draft = undefined
     state.status = 'running'
     let nextDraft: AITrendDraft | undefined
     try {
