@@ -17,11 +17,15 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			Messages []qwenTrendMessage `json:"messages"`
 			Tools    []qwenTool         `json:"tools"`
 			Format   json.RawMessage    `json:"response_format"`
+			Result   string             `json:"result_format"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
 		if requests == 1 {
+			if body.Result != "message" {
+				t.Fatalf("tool turn result format = %q, want message", body.Result)
+			}
 			if len(body.Tools) == 0 {
 				t.Fatal("first model turn did not receive tools")
 			}
