@@ -221,13 +221,19 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		Messages:       messages,
 		Model:          "qwen-plus",
 		Temperature:    0,
-		ResponseFormat: &qwenTrendResponseFormat{
-			Type:       "json_schema",
-			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
-		},
 	}
 	if allowTools {
 		requestBody.Tools = qwenModelTools()
+	}
+	// Keep discovery turns free to emit tool calls. Once the model has
+	// received the results of two discovery exchanges, constrain the next
+	// response to the Intent schema so provider-specific envelopes cannot
+	// leak into validation.
+	if !allowTools || len(history) >= 2 {
+		requestBody.ResponseFormat = &qwenTrendResponseFormat{
+			Type:       "json_schema",
+			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
+		}
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {

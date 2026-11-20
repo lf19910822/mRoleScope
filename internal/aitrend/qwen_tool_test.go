@@ -25,8 +25,8 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			if len(body.Tools) == 0 {
 				t.Fatal("first model turn did not receive tools")
 			}
-			if len(body.Format) == 0 {
-				t.Fatal("tool turn did not request the Intent response schema")
+			if len(body.Format) != 0 {
+				t.Fatalf("discovery turn unexpectedly forced response format: %s", body.Format)
 			}
 			if len(body.Messages) != 2 || body.Messages[1].Role != "user" {
 				t.Fatalf("first messages = %#v", body.Messages)
@@ -35,12 +35,31 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 				"content": "",
 				"tool_calls": []any{map[string]any{
 					"id": "call-category", "type": "function",
-					"function": map[string]string{"name": string(ToolListCategoryValues), "arguments": `{"category":"编程语言"}`},
+					"function": map[string]string{"name": string(ToolListTechnologyCategories), "arguments": `{}`},
 				}},
 			}, 12, 8)
 			return
 		}
-		if len(body.Messages) != 4 || body.Messages[2].Role != "assistant" || body.Messages[3].Role != "tool" || !strings.Contains(body.Messages[3].Content, "cpp") {
+		if requests == 2 {
+			if len(body.Format) != 0 {
+				t.Fatalf("second discovery turn unexpectedly forced response format: %s", body.Format)
+			}
+			if len(body.Messages) != 4 || body.Messages[2].Role != "assistant" || body.Messages[3].Role != "tool" || !strings.Contains(body.Messages[3].Content, "programming-languages") {
+				t.Fatalf("continued messages = %#v", body.Messages)
+			}
+			writeQwenResponse(writer, map[string]any{
+				"content": "",
+				"tool_calls": []any{map[string]any{
+					"id": "call-values", "type": "function",
+					"function": map[string]string{"name": string(ToolListCategoryValues), "arguments": `{"category":"programming-languages"}`},
+				}},
+			}, 18, 9)
+			return
+		}
+		if len(body.Format) == 0 {
+			t.Fatal("final discovery turn did not request the Intent response schema")
+		}
+		if len(body.Messages) != 6 || body.Messages[4].Role != "assistant" || body.Messages[5].Role != "tool" || !strings.Contains(body.Messages[5].Content, "cpp") {
 			t.Fatalf("continued messages = %#v", body.Messages)
 		}
 		writeQwenResponse(writer, map[string]any{
@@ -50,19 +69,27 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 	defer server.Close()
 	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
 	turn, err := provider.AnalyzeIntentTurn(context.Background(), "使用最多的编程语言是什么", nil, nil, true)
-	if err != nil || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolListCategoryValues || turn.InputTokens != 12 || turn.OutputTokens != 8 {
+	if err != nil || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolListTechnologyCategories || turn.InputTokens != 12 || turn.OutputTokens != 8 {
 		t.Fatalf("first turn = %#v err=%v", turn, err)
 	}
 	history := []ToolConversation{{
 		Calls:   turn.ToolCalls,
-		Results: []ToolCallResult{{Name: ToolListCategoryValues, Payload: json.RawMessage(`[{"value":"cpp","label":"C++"}]`), Available: true}},
+		Results: []ToolCallResult{{Name: ToolListTechnologyCategories, Payload: json.RawMessage(`[{"value":"programming-languages","label":"编程语言"}]`), Available: true}},
 	}}
+	turn, err = provider.AnalyzeIntentTurn(context.Background(), "使用最多的编程语言是什么", nil, history, true)
+	if err != nil || len(turn.Intent) != 0 || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolListCategoryValues || turn.InputTokens != 18 || turn.OutputTokens != 9 {
+		t.Fatalf("second turn = %#v err=%v", turn, err)
+	}
+	history = append(history, ToolConversation{
+		Calls:   turn.ToolCalls,
+		Results: []ToolCallResult{{Name: ToolListCategoryValues, Payload: json.RawMessage(`[{"value":"cpp","label":"C++"}]`), Available: true}},
+	})
 	turn, err = provider.AnalyzeIntentTurn(context.Background(), "使用最多的编程语言是什么", nil, history, true)
 	if err != nil || len(turn.Intent) == 0 || len(turn.ToolCalls) != 0 || turn.InputTokens != 21 || turn.OutputTokens != 13 {
 		t.Fatalf("final turn = %#v err=%v", turn, err)
 	}
-	if requests != 2 {
-		t.Fatalf("provider requests = %d, want 2", requests)
+	if requests != 3 {
+		t.Fatalf("provider requests = %d, want 3", requests)
 	}
 }
 
