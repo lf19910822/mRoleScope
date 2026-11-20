@@ -45,6 +45,18 @@ func (runnerProjectSummaryReader) ReadTrendSummary(_ context.Context, query jdse
 	}, nil
 }
 
+type languageSummaryReader struct{}
+
+func (languageSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.TrendQuery) (jdserving.TrendSummary, error) {
+	counts := map[string]float64{"cpp": 30, "python": 20, "unreal-engine": 40}
+	average := counts[query.Condition.Value]
+	return jdserving.TrendSummary{
+		Curve:                  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionTechnology, Value: query.Condition.Value, Label: query.Condition.Value},
+		AverageDailyActiveJobs: &average,
+		ValidObservationDays:   1,
+	}, nil
+}
+
 type runnerIntentProvider struct {
 	intent Intent
 }
@@ -164,6 +176,44 @@ func TestTrendRunnerEmitsModelExplanationAfterToolResults(t *testing.T) {
 	}
 }
 
+func TestTrendRunnerLimitsProgrammingLanguageCategory(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "cpp", Label: "C++"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "python", Label: "Python"},
+		{Category: jdserving.FilterOption{Value: "game-engines", Label: "游戏引擎"}, Value: "unreal-engine", Label: "Unreal Engine"},
+	}}
+	intent := Intent{
+		ContractVersion: ContractVersionV1,
+		SubQueries: []SubQuery{{
+			ID: "languages", Dimension: DimensionTechnology, Expressions: []string{"*"},
+			Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: MaxCurves},
+		}},
+		TimeRange: TimeRange{Kind: RangeAll},
+		Output:    OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine},
+	}
+	runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, languageSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	if err := runner.Run(context.Background(), "使用最多的编程语言是什么", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 2 {
+		t.Fatalf("draft = %#v, want two programming-language curves", draft)
+	}
+	for _, curve := range draft.Curves {
+		if curve.Condition.Value != "cpp" && curve.Condition.Value != "python" {
+			t.Fatalf("non-language curve returned: %#v", curve)
+		}
+	}
+}
+
 func TestTrendRunnerUsesAllProjectsForEmptyExpression(t *testing.T) {
 	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{
 		{Value: "alpha", Label: "Alpha"},
@@ -280,7 +330,11 @@ func TestQwenIntentProviderDecodesStructuredResponseWithoutLeakingProviderBody(t
 			t.Fatalf("max_tokens = %#v", body["max_tokens"])
 		}
 		messages, ok := body["messages"].([]any)
-		if !ok || len(messages) == 0 || !strings.Contains(messages[0].(map[string]any)["content"].(string), "never put a metric name") || !strings.Contains(messages[0].(map[string]any)["content"].(string), "exactly [\"*\"]") {
+		prompt := ""
+		if ok && len(messages) > 0 {
+			prompt = messages[0].(map[string]any)["content"].(string)
+		}
+		if !ok || len(messages) == 0 || !strings.Contains(prompt, "将用户趋势问题转换") || !strings.Contains(prompt, "编程语言") || !strings.Contains(prompt, "[\"*\"]") {
 			t.Fatalf("intent prompt did not separate expressions from metrics: %#v", body["messages"])
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -311,11 +365,15 @@ func TestQwenIntentProviderGeneratesBoundedDraftExplanation(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["max_tokens"] != float64(160) {
+		if body["max_tokens"] != float64(200) {
 			t.Fatalf("max_tokens = %#v", body["max_tokens"])
 		}
 		messages, ok := body["messages"].([]any)
-		if !ok || len(messages) == 0 || !strings.Contains(messages[0].(map[string]any)["content"].(string), "简体中文") {
+		prompt := ""
+		if ok && len(messages) > 0 {
+			prompt = messages[0].(map[string]any)["content"].(string)
+		}
+		if !ok || len(messages) == 0 || !strings.Contains(prompt, "简体中文") || !strings.Contains(prompt, "80") {
 			t.Fatalf("explanation prompt is not Chinese: %#v", body["messages"])
 		}
 		writer.Header().Set("Content-Type", "application/json")
