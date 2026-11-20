@@ -22,6 +22,83 @@ func (fakeFilterOptions) ListFilterOptions(context.Context) (jdserving.FilterOpt
 	}, nil
 }
 
+type countingFilterOptions struct {
+	options jdserving.FilterOptionsResponse
+	calls   int
+}
+
+func (reader *countingFilterOptions) ListFilterOptions(context.Context) (jdserving.FilterOptionsResponse, error) {
+	reader.calls++
+	return reader.options, nil
+}
+
+func TestServingToolSnapshotReusesOneVocabularyReadAndAcceptsCategoryLabel(t *testing.T) {
+	reader := &countingFilterOptions{
+		options: jdserving.FilterOptionsResponse{
+			TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+				{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "cpp", Label: "C++"},
+				{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "python", Label: "Python"},
+			},
+		},
+	}
+	service := ServingToolService{Options: reader}
+	snapshot, err := service.snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Snapshot = snapshot
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, params := range []string{`{}`, `{"category":"编程语言"}`, `{"category":"programming-languages"}`} {
+		call := ToolListTechnologyCategories
+		if params != `{}` {
+			call = ToolListCategoryValues
+		}
+		result, callErr := registry.Call(context.Background(), ToolCall{Name: call, Params: json.RawMessage(params)})
+		if callErr != nil || !result.Available {
+			t.Fatalf("tool %s params=%s err=%v result=%#v", call, params, callErr, result)
+		}
+	}
+	if reader.calls != 1 {
+		t.Fatalf("filter options reads = %d, want one snapshot read", reader.calls)
+	}
+}
+
+func TestServingToolCategoryRejectsUnknownWithoutWildcard(t *testing.T) {
+	service := ServingToolService{Options: fakeFilterOptions{}}
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.Call(context.Background(), ToolCall{Name: ToolListCategoryValues, Params: json.RawMessage(`{"category":"量子数据库"}`)})
+	if err == nil || result.Available {
+		t.Fatalf("unknown category result = %#v, err=%v", result, err)
+	}
+	contractErr, ok := err.(*ContractError)
+	if !ok || contractErr.Code != ErrorUnavailableValue {
+		t.Fatalf("unknown category error = %#v", err)
+	}
+}
+
+func TestToolRegistryDescriptorsExposeOnlyRegisteredTools(t *testing.T) {
+	service := ServingToolService{Options: fakeFilterOptions{}}
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptors := registry.Descriptors()
+	if len(descriptors) != 10 {
+		t.Fatalf("descriptor count = %d, want 10", len(descriptors))
+	}
+	for _, descriptor := range descriptors {
+		if descriptor.Name == ToolAnalyzeIntent || descriptor.Name == ToolExplainDraft || len(descriptor.Parameters) == 0 {
+			t.Fatalf("invalid model descriptor = %#v", descriptor)
+		}
+	}
+}
+
 func TestServingToolRegistryExposesOnlyBoundedFormalValues(t *testing.T) {
 	service := ServingToolService{Options: fakeFilterOptions{}, Resolver: Resolver{Values: map[Dimension][]Candidate{
 		DimensionTechnology: {{Dimension: DimensionTechnology, Value: "redis", Label: "Redis", MatchStatus: MatchExact}},

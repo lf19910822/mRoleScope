@@ -11,6 +11,7 @@ type ToolPlanner func(context.Context, Intent, []ToolCallResult) ([]ToolCall, er
 
 type Orchestrator struct {
 	Analyzer        IntentAnalyzer
+	ToolAnalyzer    IntentToolProvider
 	Planner         ToolPlanner
 	Registry        *ToolRegistry
 	MaxDuration     time.Duration
@@ -21,11 +22,13 @@ type Orchestrator struct {
 }
 
 type OrchestrationResult struct {
-	Intent      Intent
-	AIAttempts  int
-	ToolResults []ToolCallResult
-	Partial     bool
-	Stopped     bool
+	Intent       Intent
+	AIAttempts   int
+	ToolResults  []ToolCallResult
+	Partial      bool
+	Stopped      bool
+	InputTokens  int
+	OutputTokens int
 }
 
 func (orchestrator Orchestrator) Run(ctx context.Context) (OrchestrationResult, error) {
@@ -48,8 +51,8 @@ func (orchestrator Orchestrator) RunWithInput(ctx context.Context, input string)
 	return orchestrator.run(ctx, input)
 }
 
-func (orchestrator Orchestrator) run(ctx context.Context, _ string) (OrchestrationResult, error) {
-	if orchestrator.Analyzer == nil || orchestrator.Planner == nil || orchestrator.Registry == nil {
+func (orchestrator Orchestrator) run(ctx context.Context, input string) (OrchestrationResult, error) {
+	if orchestrator.Registry == nil || (orchestrator.ToolAnalyzer == nil && (orchestrator.Analyzer == nil || orchestrator.Planner == nil)) {
 		return OrchestrationResult{}, &ContractError{Code: ErrorConfigurationFailure, Message: "orchestrator is not configured"}
 	}
 	if orchestrator.MaxDuration <= 0 {
@@ -66,6 +69,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, _ string) (Orchestrati
 	}
 	ctx, cancel := context.WithTimeout(ctx, orchestrator.MaxDuration)
 	defer cancel()
+	if orchestrator.ToolAnalyzer != nil {
+		return orchestrator.runToolSession(ctx, input)
+	}
 	var correction *ContractError
 	var intent Intent
 	attemptsUsed := 0
@@ -159,6 +165,164 @@ func (orchestrator Orchestrator) run(ctx context.Context, _ string) (Orchestrati
 		}
 	}
 	return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed, ToolResults: results, Partial: partial}, nil
+}
+
+func (orchestrator Orchestrator) runToolSession(ctx context.Context, query string) (OrchestrationResult, error) {
+	if orchestrator.ToolAnalyzer == nil || orchestrator.Registry == nil {
+		return OrchestrationResult{}, &ContractError{Code: ErrorConfigurationFailure, Message: "tool analyzer is not configured"}
+	}
+	result := OrchestrationResult{}
+	history := make([]ToolConversation, 0)
+	var correction *ContractError
+	correctionAttempts := 0
+	toolCallsUsed := 0
+	toolBudgetExhausted := false
+	modelToolLimit := MaxToolCalls - 1 // reserve the final registry call for draft validation
+	// A model may need several turns to discover a category, read values,
+	// summarize candidates, and finally emit Intent. The tool budget remains
+	// the hard bound; this turn bound prevents a provider loop from running
+	// forever when it never emits a final Intent.
+	for modelTurns := 0; modelTurns < MaxToolCalls+MaxAIAttempts+5; modelTurns++ {
+		if ctx.Err() != nil {
+			result.Partial = true
+			result.Stopped = true
+			return result, ctx.Err()
+		}
+		result.AIAttempts++
+		modelOperation := string(ToolAnalyzeIntent)
+		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: modelOperation}); err != nil {
+			return result, err
+		}
+		turn, err := orchestrator.ToolAnalyzer.AnalyzeIntentTurn(ctx, query, correction, history, !toolBudgetExhausted)
+		result.InputTokens += turn.InputTokens
+		result.OutputTokens += turn.OutputTokens
+		if err != nil {
+			_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: modelOperation, Error: safeErrorFrom(err)})
+			if ctx.Err() != nil {
+				result.Partial = true
+				result.Stopped = true
+				return result, ctx.Err()
+			}
+			return result, err
+		}
+		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: modelOperation}); err != nil {
+			return result, err
+		}
+		if len(turn.Intent) > 0 && len(turn.ToolCalls) > 0 {
+			return result, &ContractError{Code: ErrorInvalidCombination, Field: "model_response", Message: "AI 同时返回了工具调用和最终意图"}
+		}
+		if len(turn.Intent) > 0 && orchestrator.TokenCounter(turn.Intent) > orchestrator.MaxOutputTokens {
+			return result, &ContractError{Code: ErrorLimitExceeded, Field: "ai_output_tokens", Message: "AI output token budget exceeded"}
+		}
+		if len(turn.ToolCalls) > 0 {
+			if toolBudgetExhausted {
+				return result, &ContractError{Code: ErrorLimitExceeded, Field: "tool_calls", Message: "tool call limit exceeded before final Intent"}
+			}
+			exchange := ToolConversation{Calls: append([]ToolCall(nil), turn.ToolCalls...)}
+			for _, call := range turn.ToolCalls {
+				toolCallsUsed++
+				if toolCallsUsed > modelToolLimit {
+					toolBudgetExhausted = true
+					result.Partial = true
+					toolResult := ToolCallResult{
+						Name: call.Name, CallNumber: toolCallsUsed, Available: false,
+						SafeError: &SafeError{Code: ErrorLimitExceeded, Field: "tool_calls", Message: "tool call limit exceeded"},
+					}
+					exchange.Results = append(exchange.Results, toolResult)
+					result.ToolResults = append(result.ToolResults, toolResult)
+					continue
+				}
+				var toolResult ToolCallResult
+				var callErr error
+				contractErr := validateToolCallContract(call)
+				if contractErr == nil {
+					if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params}); err != nil {
+						return result, err
+					}
+				}
+				if contractErr != nil {
+					toolResult = ToolCallResult{Name: call.Name, CallNumber: toolCallsUsed, Available: false, SafeError: safeErrorFrom(contractErr)}
+					callErr = contractErr
+				} else {
+					toolResult, callErr = orchestrator.Registry.Call(ctx, call)
+				}
+				if callErr != nil {
+					if !isModelToolContractError(callErr) {
+						result.Partial = true
+					}
+					toolResult.SafeError = safeErrorFrom(callErr)
+					toolResult.Available = false
+					if contractErr == nil {
+						_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+					}
+				} else {
+					if orchestrator.TokenCounter(toolResult.Payload) > orchestrator.MaxOutputTokens {
+						toolResult.SafeError = &SafeError{Code: ErrorLimitExceeded, Field: "tool_output_tokens", Message: "tool output exceeded budget"}
+						toolResult.Available = false
+						result.Partial = true
+					}
+					if toolResult.Name == ToolBatchTrendSummary {
+						if toolResult.SafeError == nil {
+							toolResult.SafeError = batchTrendPayloadFailure(toolResult.Payload)
+						}
+						if toolResult.SafeError != nil {
+							result.Partial = true
+						}
+					}
+					status := StreamCompleted
+					if toolResult.SafeError != nil {
+						status = StreamFailed
+					}
+					_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: status, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+				}
+				exchange.Results = append(exchange.Results, toolResult)
+				result.ToolResults = append(result.ToolResults, toolResult)
+				if toolCallsUsed >= modelToolLimit {
+					toolBudgetExhausted = true
+				}
+				if ctx.Err() != nil {
+					result.Partial = true
+					result.Stopped = true
+					return result, ctx.Err()
+				}
+			}
+			history = append(history, exchange)
+			correction = nil
+			continue
+		}
+		if len(turn.Intent) == 0 {
+			return result, &ContractError{Code: ErrorMissingField, Field: "intent", Message: "AI returned neither tool calls nor final Intent"}
+		}
+		intent, decodeErr := DecodeIntent(turn.Intent)
+		if decodeErr == nil {
+			result.Intent = intent
+			return result, nil
+		}
+		contractErr, ok := decodeErr.(*ContractError)
+		if !ok {
+			return result, decodeErr
+		}
+		correctionAttempts++
+		_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
+		if correctionAttempts >= MaxAIAttempts {
+			return result, contractErr
+		}
+		correction = contractErr
+	}
+	return result, &ContractError{Code: ErrorLimitExceeded, Field: "model_turns", Message: "AI model turn limit exceeded"}
+}
+
+func isModelToolContractError(err error) bool {
+	contractErr, ok := err.(*ContractError)
+	if !ok {
+		return false
+	}
+	switch contractErr.Code {
+	case ErrorInvalidJSON, ErrorMissingField, ErrorInvalidEnum, ErrorInvalidCombination, ErrorUnavailableValue:
+		return true
+	default:
+		return false
+	}
 }
 
 func batchTrendPayloadFailure(payload json.RawMessage) *SafeError {

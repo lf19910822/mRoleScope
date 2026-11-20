@@ -112,6 +112,29 @@ func TestResolverTreatsEmptyExpressionAsBroadDimension(t *testing.T) {
 	}
 }
 
+func TestResolverDoesNotExpandUnknownQualifiedCategory(t *testing.T) {
+	resolver := resolverFromOptions(jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "mysql", Label: "MySQL"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "go", Label: "Go"},
+	}})
+	if got := resolver.ResolveNatural("量子数据库", "q1"); len(got) != 0 {
+		t.Fatalf("unknown qualified category expanded to %#v", got)
+	}
+}
+
+func TestResolverCategoryExpansionIsNotLimitedToFuzzyCandidateCap(t *testing.T) {
+	resolver := resolverFromOptions(jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "cpp", Label: "C++"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "python", Label: "Python"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "go", Label: "Go"},
+		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "rust", Label: "Rust"},
+	}})
+	got := resolver.ResolveNatural("哪些编程语言", "q1")
+	if len(got) != 4 {
+		t.Fatalf("category expansion returned %d candidates, want 4: %#v", len(got), got)
+	}
+}
+
 func TestBroadExpressionRecognizesWildcardAndWholeDimensionPhrases(t *testing.T) {
 	for _, expression := range []string{"*", "all", "全部项目", "所有岗位族"} {
 		if !isBroadExpression(expression) {

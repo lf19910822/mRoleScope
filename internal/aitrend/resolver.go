@@ -19,8 +19,9 @@ type Candidate struct {
 }
 
 type Resolver struct {
-	Values  map[Dimension][]Candidate
-	Aliases map[Dimension]map[string][]string
+	Values          map[Dimension][]Candidate
+	Aliases         map[Dimension]map[string][]string
+	CategoryAliases map[Dimension]map[string]struct{}
 }
 
 // Resolve performs deterministic, bounded matching over values supplied by
@@ -43,7 +44,22 @@ func (resolver Resolver) ResolveNatural(expression, subQueryID string) []Candida
 	}
 	needle := normalizeExpression(expression)
 	for _, dimension := range []Dimension{DimensionTechnology, DimensionProject, DimensionJobFamily, DimensionLocation} {
+		categoryAlias := false
 		aliases := resolver.Aliases[dimension][needle]
+		if _, ok := resolver.CategoryAliases[dimension][needle]; ok {
+			categoryAlias = true
+		}
+		if len(aliases) == 0 {
+			for alias, values := range resolver.Aliases[dimension] {
+				if !categoryAliasMatchesExpression(needle, alias) {
+					continue
+				}
+				aliases = append(aliases, values...)
+				if _, ok := resolver.CategoryAliases[dimension][alias]; ok {
+					categoryAlias = true
+				}
+			}
+		}
 		if len(aliases) == 0 {
 			aliases = defaultAliasValues(dimension, needle)
 		}
@@ -62,9 +78,28 @@ func (resolver Resolver) ResolveNatural(expression, subQueryID string) []Candida
 				candidates = append(candidates, candidate)
 			}
 		}
+		candidates = MergeCandidates(candidates)
+		if categoryAlias {
+			if len(candidates) > MaxToolCandidates {
+				return candidates[:MaxToolCandidates]
+			}
+			return candidates
+		}
 		return boundCandidates(candidates)
 	}
 	return nil
+}
+
+func categoryAliasMatchesExpression(expression, alias string) bool {
+	if alias == "" || expression == alias {
+		return alias != ""
+	}
+	for _, prefix := range []string{"哪些", "所有", "全部", "使用哪些", "使用了哪些", "哪一个", "哪个", "主要"} {
+		if strings.HasPrefix(expression, prefix) && strings.Contains(expression[len(prefix):], alias) {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveAcrossDimensions preserves ambiguity when a phrase could name more

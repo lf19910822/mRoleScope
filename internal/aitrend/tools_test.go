@@ -45,3 +45,15 @@ func TestValidateBatchSize(t *testing.T) {
 		t.Fatal("batch size limit was not enforced")
 	}
 }
+
+func TestValidateToolCallContractRejectsUnknownAndMalformedCalls(t *testing.T) {
+	if err := validateToolCallContract(ToolCall{Name: "read_sql", Params: json.RawMessage(`{}`)}); err == nil {
+		t.Fatal("unknown tool was accepted")
+	}
+	if err := validateToolCallContract(ToolCall{Name: ToolListCategoryValues, Params: json.RawMessage(`{"category":`)}); err == nil {
+		t.Fatal("malformed tool params were accepted")
+	}
+	if err := validateToolCallContract(ToolCall{Name: ToolListCategoryValues, Params: json.RawMessage(`{"category":"编程语言"}`)}); err != nil {
+		t.Fatal(err)
+	}
+}

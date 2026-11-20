@@ -32,13 +32,39 @@ const (
 type ToolHandler func(context.Context, json.RawMessage) (json.RawMessage, error)
 
 type ToolDefinition struct {
-	Name    ToolName
-	Handler ToolHandler
+	Name        ToolName
+	Description string
+	Parameters  json.RawMessage
+	Handler     ToolHandler
 }
 
 type ToolCall struct {
+	ID     string
 	Name   ToolName
 	Params json.RawMessage
+}
+
+// ToolConversation is the bounded history exchanged between the model and the
+// serving tool registry. It contains only safe tool payloads, never provider
+// messages or raw source data.
+type ToolConversation struct {
+	Calls   []ToolCall
+	Results []ToolCallResult
+}
+
+// IntentToolTurn is one model turn. Exactly one of Intent or ToolCalls is
+// expected after provider response validation.
+type IntentToolTurn struct {
+	Intent       json.RawMessage
+	ToolCalls    []ToolCall
+	InputTokens  int
+	OutputTokens int
+}
+
+// IntentToolProvider is implemented by providers that can continue a model
+// conversation after receiving bounded serving-tool results.
+type IntentToolProvider interface {
+	AnalyzeIntentTurn(context.Context, string, *ContractError, []ToolConversation, bool) (IntentToolTurn, error)
 }
 
 type ToolCallResult struct {
@@ -105,6 +131,76 @@ func (registry *ToolRegistry) Calls() int {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	return registry.calls
+}
+
+// ToolDescriptor is the model-facing contract without exposing handler
+// functions or other server internals.
+type ToolDescriptor struct {
+	Name        ToolName
+	Description string
+	Parameters  json.RawMessage
+}
+
+// Descriptors returns only tools registered by this registry in stable order.
+func (registry *ToolRegistry) Descriptors() []ToolDescriptor {
+	if registry == nil {
+		return nil
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	result := make([]ToolDescriptor, 0, len(registry.tools))
+	for _, descriptor := range trendToolDescriptors() {
+		if _, ok := registry.tools[descriptor.Name]; ok {
+			result = append(result, descriptor)
+		}
+	}
+	return result
+}
+
+func trendToolDescriptors() []ToolDescriptor {
+	return []ToolDescriptor{
+		{Name: ToolListTechnologyCategories, Description: "List the current formal technology categories.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)},
+		{Name: ToolListCategoryValues, Description: "List formal technology values in one technology category.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["category"],"properties":{"category":{"type":"string","minLength":1}}}`)},
+		{Name: ToolListAvailableValues, Description: "List bounded formal values for one supported dimension.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]}}}`)},
+		{Name: ToolRankValues, Description: "Resolve a bounded expression against formal values.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension","expression","sub_query_id"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"expression":{"type":"string","minLength":1},"sub_query_id":{"type":"string","minLength":1}}}`)},
+		{Name: ToolReadTrendSummary, Description: "Read a safe aggregate trend summary for one formal curve.", Parameters: trendToolParameters()},
+		{Name: ToolReadEventSummary, Description: "Read safe aggregate event counts for one formal curve.", Parameters: trendToolParameters()},
+		{Name: ToolValidateCurveDraft, Description: "Validate one curve draft against the active formal vocabulary.", Parameters: json.RawMessage(`{"type":"object"}`)},
+		{Name: ToolBatchTrendSummary, Description: "Read up to eight safe aggregate trend summaries.", Parameters: batchTrendToolParameters()},
+		{Name: ToolBatchEventSummary, Description: "Read up to eight safe aggregate event summaries.", Parameters: batchTrendToolParameters()},
+		{Name: ToolBatchValidateDraft, Description: "Validate up to eight curve drafts.", Parameters: json.RawMessage(`{"type":"array","maxItems":8}`)},
+	}
+}
+
+func validateToolCallContract(call ToolCall) error {
+	if call.Name == "" {
+		return contractError(ErrorMissingField, "tool", "tool name is required")
+	}
+	known := false
+	for _, descriptor := range trendToolDescriptors() {
+		if descriptor.Name == call.Name {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return contractError(ErrorInvalidEnum, "tool", "tool is not allowed")
+	}
+	if len(call.Params) > MaxToolOutputBytes {
+		return contractError(ErrorLimitExceeded, "params", "tool parameters exceed bounded size")
+	}
+	if len(call.Params) > 0 && !json.Valid(call.Params) {
+		return contractError(ErrorInvalidJSON, "params", "tool parameters are invalid JSON")
+	}
+	return nil
+}
+
+func trendToolParameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension","value","range"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"value":{"type":"string","minLength":1},"range":{"enum":["week","month","quarter","year","all","custom"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"include_secondary":{"type":"boolean"},"operator":{"enum":["eq","gt","gte","lt","lte"]}}}`)
+}
+
+func batchTrendToolParameters() json.RawMessage {
+	return json.RawMessage(`{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["dimension","value","range"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"value":{"type":"string","minLength":1},"range":{"enum":["week","month","quarter","year","all","custom"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"include_secondary":{"type":"boolean"},"operator":{"enum":["eq","gt","gte","lt","lte"]}}}}`)
 }
 
 func ValidateBatchSize(count int) error {

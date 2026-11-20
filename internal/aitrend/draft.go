@@ -1,10 +1,14 @@
 package aitrend
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 type CandidateGroup struct {
 	SubQueryID string
 	Candidates []Candidate
+	Limit      int
 }
 
 type DraftBuildOptions struct {
@@ -47,7 +51,12 @@ func BuildDraft(groups []CandidateGroup, options DraftBuildOptions) (Draft, erro
 		}
 		groupCandidates = append(groupCandidates, candidates)
 	}
-	curves := AllocateCandidates(groupCandidates)
+	limitedGroups := make([]CandidateGroup, 0, len(groups))
+	for index, group := range groups {
+		group.Candidates = groupCandidates[index]
+		limitedGroups = append(limitedGroups, group)
+	}
+	curves := AllocateCandidatesWithLimits(limitedGroups)
 	draft := Draft{ContractVersion: ContractVersionV1, Status: DraftComplete, Curves: make([]DraftCurve, 0, len(curves)), Warnings: append([]string(nil), options.Warnings...), Explanation: options.Explanation}
 	if options.Stopped {
 		draft.Status = DraftStopped
@@ -96,4 +105,69 @@ func BuildDraft(groups []CandidateGroup, options DraftBuildOptions) (Draft, erro
 		return Draft{}, err
 	}
 	return draft, nil
+}
+
+// AllocateCandidatesWithLimits reserves one candidate for each non-empty
+// sub-query, then fills remaining curve capacity by score while never taking
+// more than that sub-query's requested ranking limit.
+func AllocateCandidatesWithLimits(groups []CandidateGroup) []Candidate {
+	if len(groups) == 0 {
+		return nil
+	}
+	selected := make([]Candidate, 0, MaxCurves)
+	used := make(map[string]struct{})
+	limitFor := func(group CandidateGroup) int {
+		if group.Limit < 1 || group.Limit > MaxCurves {
+			return MaxCurves
+		}
+		return group.Limit
+	}
+	for _, group := range groups {
+		limit := limitFor(group)
+		for index, candidate := range group.Candidates {
+			if index >= limit {
+				break
+			}
+			key := candidateIdentity(candidate)
+			if _, exists := used[key]; exists {
+				continue
+			}
+			selected = append(selected, candidate)
+			used[key] = struct{}{}
+			break
+		}
+		if len(selected) == MaxCurves {
+			return selected
+		}
+	}
+	remaining := make([]Candidate, 0)
+	for _, group := range groups {
+		limit := limitFor(group)
+		for index, candidate := range group.Candidates {
+			if index >= limit {
+				break
+			}
+			if _, exists := used[candidateIdentity(candidate)]; !exists {
+				remaining = append(remaining, candidate)
+			}
+		}
+	}
+	sort.SliceStable(remaining, func(i, j int) bool {
+		if remaining[i].Score != remaining[j].Score {
+			return remaining[i].Score > remaining[j].Score
+		}
+		return remaining[i].Value < remaining[j].Value
+	})
+	for _, candidate := range remaining {
+		if len(selected) == MaxCurves {
+			break
+		}
+		key := candidateIdentity(candidate)
+		if _, exists := used[key]; exists {
+			continue
+		}
+		selected = append(selected, candidate)
+		used[key] = struct{}{}
+	}
+	return selected
 }

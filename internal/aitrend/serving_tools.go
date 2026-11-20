@@ -28,6 +28,70 @@ type ServingToolService struct {
 	Summary  jdserving.TrendSummaryReader
 	Events   TrendEventReader
 	Resolver Resolver
+	Snapshot *ServingSnapshot
+}
+
+// ServingSnapshot keeps one request's public vocabulary stable while the
+// model discovers categories and values. It intentionally stores only formal
+// labels and keys, never source or JD content.
+type ServingSnapshot struct {
+	options          jdserving.FilterOptionsResponse
+	categories       []FilterOption
+	valuesByCategory map[string][]FilterOption
+	categoryKeys     map[string]string
+}
+
+func newServingSnapshot(options jdserving.FilterOptionsResponse) *ServingSnapshot {
+	snapshot := &ServingSnapshot{
+		options:          options,
+		categories:       make([]FilterOption, 0),
+		valuesByCategory: make(map[string][]FilterOption),
+		categoryKeys:     make(map[string]string),
+	}
+	seen := make(map[string]struct{})
+	for _, option := range options.TechnologyKeywords {
+		categoryValue := strings.TrimSpace(option.Category.Value)
+		categoryLabel := strings.TrimSpace(option.Category.Label)
+		if categoryValue == "" || categoryLabel == "" {
+			continue
+		}
+		categoryKey := normalizeExpression(categoryValue)
+		if _, exists := seen[categoryKey]; !exists {
+			snapshot.categories = append(snapshot.categories, FilterOption{Dimension: DimensionTechnology, Value: categoryValue, Label: categoryLabel})
+			seen[categoryKey] = struct{}{}
+		}
+		snapshot.categoryKeys[categoryKey] = categoryValue
+		snapshot.categoryKeys[normalizeExpression(categoryLabel)] = categoryValue
+		snapshot.valuesByCategory[categoryKey] = append(snapshot.valuesByCategory[categoryKey], FilterOption{Dimension: DimensionTechnology, Value: option.Value, Label: option.Label})
+	}
+	sort.SliceStable(snapshot.categories, func(i, j int) bool {
+		if snapshot.categories[i].Label != snapshot.categories[j].Label {
+			return snapshot.categories[i].Label < snapshot.categories[j].Label
+		}
+		return snapshot.categories[i].Value < snapshot.categories[j].Value
+	})
+	for category, values := range snapshot.valuesByCategory {
+		sort.SliceStable(values, func(i, j int) bool {
+			if values[i].Label != values[j].Label {
+				return values[i].Label < values[j].Label
+			}
+			return values[i].Value < values[j].Value
+		})
+		snapshot.valuesByCategory[category] = values
+	}
+	return snapshot
+}
+
+func (snapshot *ServingSnapshot) categoryValues(category string) ([]FilterOption, string, bool) {
+	if snapshot == nil {
+		return nil, "", false
+	}
+	formal, ok := snapshot.categoryKeys[normalizeExpression(category)]
+	if !ok {
+		return nil, "", false
+	}
+	values := append([]FilterOption(nil), snapshot.valuesByCategory[normalizeExpression(formal)]...)
+	return values, formal, true
 }
 
 func (service ServingToolService) Registry() (*ToolRegistry, error) {
@@ -85,20 +149,11 @@ func (service ServingToolService) listTechnologyCategories(ctx context.Context, 
 	if len(params) != 0 && string(params) != "null" && string(params) != "{}" {
 		return nil, contractError(ErrorInvalidCombination, "params", "this tool does not accept parameters")
 	}
-	options, err := service.readOptions(ctx)
+	snapshot, err := service.snapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]FilterOption{}
-	for _, option := range options.TechnologyKeywords {
-		seen[option.Category.Value] = FilterOption{Dimension: DimensionTechnology, Value: option.Category.Value, Label: option.Category.Label}
-	}
-	result := make([]FilterOption, 0, len(seen))
-	for _, option := range seen {
-		result = append(result, option)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Value < result[j].Value })
-	return json.Marshal(result)
+	return marshalBounded(snapshot.categories, MaxToolCandidates)
 }
 
 type FilterOption struct {
@@ -112,15 +167,13 @@ func (service ServingToolService) listCategoryValues(ctx context.Context, params
 	if err := decodeToolParams(params, &request); err != nil {
 		return nil, err
 	}
-	options, err := service.readOptions(ctx)
+	snapshot, err := service.snapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
-	values := make([]FilterOption, 0)
-	for _, option := range options.TechnologyKeywords {
-		if option.Category.Value == request.Category {
-			values = append(values, FilterOption{Dimension: DimensionTechnology, Value: option.Value, Label: option.Label})
-		}
+	values, _, ok := snapshot.categoryValues(request.Category)
+	if !ok {
+		return nil, contractError(ErrorUnavailableValue, "category", "technology category is unavailable")
 	}
 	return marshalBounded(values, MaxToolCandidates)
 }
@@ -266,6 +319,17 @@ func (service ServingToolService) readOptions(ctx context.Context) (jdserving.Fi
 		return jdserving.FilterOptionsResponse{}, fmt.Errorf("filter options reader is unavailable")
 	}
 	return service.Options.ListFilterOptions(ctx)
+}
+
+func (service ServingToolService) snapshot(ctx context.Context) (*ServingSnapshot, error) {
+	if service.Snapshot != nil {
+		return service.Snapshot, nil
+	}
+	options, err := service.readOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newServingSnapshot(options), nil
 }
 
 func (service ServingToolService) optionsForDimension(options jdserving.FilterOptionsResponse, dimension Dimension) []FilterOption {
