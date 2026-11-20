@@ -221,14 +221,13 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		Messages:       messages,
 		Model:          "qwen-plus",
 		Temperature:    0,
+		ResponseFormat: &qwenTrendResponseFormat{
+			Type:       "json_schema",
+			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
+		},
 	}
 	if allowTools {
 		requestBody.Tools = qwenModelTools()
-	} else {
-		requestBody.ResponseFormat = &qwenTrendResponseFormat{
-			Type:       "json_schema",
-			JSONSchema: qwenTrendJSONSchema{Name: ContractVersionV1, Strict: true, Schema: json.RawMessage(IntentSchemaV1())},
-		}
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {

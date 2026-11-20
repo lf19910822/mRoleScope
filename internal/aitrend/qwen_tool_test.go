@@ -25,8 +25,8 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			if len(body.Tools) == 0 {
 				t.Fatal("first model turn did not receive tools")
 			}
-			if len(body.Format) != 0 {
-				t.Fatalf("tool turn unexpectedly forced response format: %s", body.Format)
+			if len(body.Format) == 0 {
+				t.Fatal("tool turn did not request the Intent response schema")
 			}
 			if len(body.Messages) != 2 || body.Messages[1].Role != "user" {
 				t.Fatalf("first messages = %#v", body.Messages)
