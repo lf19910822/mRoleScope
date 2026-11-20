@@ -302,11 +302,28 @@ func toolLoopUserPrompt(query string, correction *ContractError) string {
 func unwrapIntentEnvelope(content []byte) []byte {
 	var envelope struct {
 		Intent json.RawMessage `json:"intent"`
+		Type   string          `json:"type"`
 	}
-	if err := json.Unmarshal(content, &envelope); err != nil || len(envelope.Intent) == 0 || string(envelope.Intent) == "null" {
+	if err := json.Unmarshal(content, &envelope); err != nil {
 		return content
 	}
-	return bytes.TrimSpace(envelope.Intent)
+	if len(envelope.Intent) > 0 && string(envelope.Intent) != "null" {
+		var encoded string
+		if json.Unmarshal(envelope.Intent, &encoded) == nil {
+			return []byte(encoded)
+		}
+		return bytes.TrimSpace(envelope.Intent)
+	}
+	if envelope.Type == "final" {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(content, &fields) == nil {
+			delete(fields, "type")
+			if normalized, err := json.Marshal(fields); err == nil {
+				return normalized
+			}
+		}
+	}
+	return content
 }
 
 func marshalToolResultForModel(result ToolCallResult) []byte {
