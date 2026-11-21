@@ -223,6 +223,32 @@ func TestOrchestratorRunsBoundedModelToolLoop(t *testing.T) {
 	}
 }
 
+func TestOrchestratorRequiresTrendSummaryBeforeFinalIntent(t *testing.T) {
+	final, err := json.Marshal(validIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{Intent: final},
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"go","range":"month"}]`)}}, InputTokens: 2, OutputTokens: 1},
+		{Intent: final},
+	}}
+	registry, err := NewToolRegistry([]ToolDefinition{{Name: ToolBatchTrendSummary, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return []byte(`[{"curve":{"dimension":"technology","value":"go"},"average_daily_active_jobs":12}]`), nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{ToolAnalyzer: provider, Registry: registry}
+	result, err := orchestrator.RunWithInput(context.Background(), "比较 Go 和 Python 的岗位数量")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Intent.ContractVersion != ContractVersionV1 || len(result.ToolResults) != 1 || result.ToolResults[0].Name != ToolBatchTrendSummary {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 type budgetToolProvider struct {
 	final       []byte
 	toolTurns   int

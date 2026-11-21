@@ -295,6 +295,18 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 		if len(turn.Intent) == 0 {
 			return result, &ContractError{Code: ErrorMissingField, Field: "intent", Message: "AI returned neither tool calls nor final Intent"}
 		}
+		if !historyHasTrendSummaryCall(history) && !toolBudgetExhausted && !historyHasToolFailure(history) {
+			contractErr := &ContractError{Code: ErrorInvalidCombination, Field: "model_response", Message: "AI must call a trend summary tool before final Intent"}
+			correctionAttempts++
+			_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
+			if correctionAttempts >= MaxAIAttempts {
+				result.AIAttempts = MaxAIAttempts
+				return result, contractErr
+			}
+			result.AIAttempts = correctionAttempts + 1
+			correction = contractErr
+			continue
+		}
 		intent, decodeErr := DecodeIntent(turn.Intent)
 		if decodeErr == nil {
 			result.Intent = intent
@@ -314,6 +326,28 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 		correction = contractErr
 	}
 	return result, &ContractError{Code: ErrorLimitExceeded, Field: "model_turns", Message: "AI model turn limit exceeded"}
+}
+
+func historyHasTrendSummaryCall(history []ToolConversation) bool {
+	for _, exchange := range history {
+		for _, call := range exchange.Calls {
+			if call.Name == ToolBatchTrendSummary || call.Name == ToolReadTrendSummary {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func historyHasToolFailure(history []ToolConversation) bool {
+	for _, exchange := range history {
+		for _, result := range exchange.Results {
+			if result.SafeError != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isModelToolContractError(err error) bool {
