@@ -117,6 +117,25 @@ func TestAITrendDraftAllowsExplanationOperation(t *testing.T) {
 	}
 }
 
+func TestAITrendDraftAllowsTrendRankingOperation(t *testing.T) {
+	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolRankTrendValues), Params: []byte(`{"dimension":"project","range":"month","metric":"avg_daily_active_jobs","limit":8,"sub_query_id":"projects"}`)}); err != nil {
+			return err
+		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamCompleted, Tool: string(aitrend.ToolRankTrendValues)}); err != nil {
+			return err
+		}
+		return emit(aitrend.StreamEvent{Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess})
+	})
+	router := New(nil, runner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/job-trends/ai-draft", strings.NewReader(`{"query":"哪些项目岗位最多？"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"tool":"rank_trend_values"`) || !strings.Contains(response.Body.String(), `"status":"success"`) {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestAITrendDraftStreamsAssistantMessage(t *testing.T) {
 	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
 		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventAssistant, Status: aitrend.StreamRunning, Delta: "你好，"}); err != nil {
