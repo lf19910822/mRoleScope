@@ -77,7 +77,7 @@ func (r Router) aiTrendDraft(context *gin.Context) {
 func safeAITrendTool(tool string) bool {
 	switch aitrend.ToolName(tool) {
 	case aitrend.ToolAnalyzeIntent, aitrend.ToolExplainDraft, aitrend.ToolListTechnologyCategories, aitrend.ToolListCategoryValues,
-		aitrend.ToolListAvailableValues, aitrend.ToolRankValues,
+		aitrend.ToolListAvailableValues, aitrend.ToolRankValues, aitrend.ToolRankTrendValues,
 		aitrend.ToolReadTrendSummary, aitrend.ToolReadEventSummary,
 		aitrend.ToolValidateCurveDraft, aitrend.ToolBatchTrendSummary,
 		aitrend.ToolBatchEventSummary, aitrend.ToolBatchValidateDraft:
@@ -115,6 +115,10 @@ func filterAITrendParams(tool string, raw json.RawMessage) json.RawMessage {
 		allowed["dimension"] = struct{}{}
 	case aitrend.ToolRankValues:
 		for _, key := range []string{"dimension", "expression", "sub_query_id"} {
+			allowed[key] = struct{}{}
+		}
+	case aitrend.ToolRankTrendValues:
+		for _, key := range []string{"dimension", "range", "start_date", "end_date", "metric", "limit", "sub_query_id", "include_secondary"} {
 			allowed[key] = struct{}{}
 		}
 	case aitrend.ToolReadTrendSummary, aitrend.ToolReadEventSummary:
