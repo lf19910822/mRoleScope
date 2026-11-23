@@ -40,6 +40,30 @@ func TestQwenProviderStreamsAssistantMessageDeltasAndUsage(t *testing.T) {
 	}
 }
 
+func TestQwenProviderTrendReplyPromptOmitsGuidanceExamples(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Messages) != 2 || strings.Contains(body.Messages[0].Content, "比较 Go 和 Python 的岗位数量") || !strings.Contains(body.Messages[0].Content, "严禁列出提问示例") {
+			t.Fatalf("trend reply prompt = %#v", body.Messages)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	if _, _, err := provider.StreamAssistantMessage(context.Background(), AssistantReplyContext{Query: "哪些项目的岗位最多？", ResponseModes: []ResponseMode{ResponseModeTrend}}, func(string) error { return nil }); err != nil {
+		t.Fatalf("trend stream error = %v", err)
+	}
+}
+
 func TestQwenProviderStopsStreamingWhenConsumerStops(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")

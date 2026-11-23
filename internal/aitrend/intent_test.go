@@ -56,9 +56,14 @@ func TestAgentContextV1IsStableAndStateless(t *testing.T) {
 }
 
 func TestAssistantReplyPromptGuidanceProvidesCopyableExamples(t *testing.T) {
+	guidancePrompt := assistantReplyPromptForModes([]ResponseMode{ResponseModeGuidance})
 	for _, phrase := range []string{"仅包含 guidance", "比较 Go 和 Python 的岗位数量", "哪些项目的岗位最多？", "哪些数据库正在使用？", "不要自动执行示例"} {
-		if !strings.Contains(assistantReplyPrompt, phrase) {
+		if !strings.Contains(guidancePrompt, phrase) {
 			t.Fatalf("assistant reply prompt missing %q", phrase)
 		}
+	}
+	trendPrompt := assistantReplyPromptForModes([]ResponseMode{ResponseModeTrend})
+	if strings.Contains(trendPrompt, "比较 Go 和 Python 的岗位数量") || !strings.Contains(trendPrompt, "严禁列出提问示例") {
+		t.Fatalf("trend-only reply prompt exposes guidance examples: %s", trendPrompt)
 	}
 }
