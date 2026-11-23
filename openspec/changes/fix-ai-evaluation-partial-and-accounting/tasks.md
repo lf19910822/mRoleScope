@@ -13,5 +13,5 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Run the full Go test suite, vet, diff check, and strict OpenSpec validation.
+- [x] 3.1 Run the full Go test suite, vet, diff check, and strict OpenSpec validation.
 - [ ] 3.2 Deploy the fix and rerun a bounded real-model smoke before deciding whether a full paid Benchmark rerun is necessary.
