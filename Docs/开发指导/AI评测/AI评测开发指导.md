@@ -14,3 +14,23 @@
 2. 首期拟定benchmark 30题。且benchmark要先生成供人员审阅的md文档，人员审阅通过后再编入代码。文件生成在Docs/开发指导/AI评测。
 3. 每次评测需要审计，比如对失败的题目，要还原处理，思考过程，帮助后期调优者理解错误原因/trace过程。
 4. 注意评估成本。不过30道题应该成本不会太大。
+
+# 真实模型评测入口
+
+Benchmark 默认使用离线 fixture，不会调用模型。需要进行真实评测时必须显式指定 Qwen provider：
+
+```sh
+go run ./cmd/ai-evaluation \
+  -provider qwen \
+  -suite trend \
+  -cases Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md
+
+go run ./cmd/ai-evaluation \
+  -provider qwen \
+  -suite agent \
+  -cases Docs/开发指导/AI评测/AI趋势智能体AgentBenchmark-v1.md
+```
+
+运行前由操作者在进程环境中配置 `MROLESCOPE_QWEN_API_KEY` 和 `MROLESCOPE_QWEN_WORKSPACE_ID`。程序只读取它们，不把值写入命令参数、日志、trace 或 report；缺少配置时会在发送请求前失败。
+
+真实评测的模型调用使用 Qwen，工具和曲线数据仍来自评测固定快照。每道题运行三次，报告记录真实工具次数、输入/输出 token、首事件延迟、总耗时和按评测费率估算的成本。两套题分开统计，不写入生产 Serving、用户看板或日常审计。
