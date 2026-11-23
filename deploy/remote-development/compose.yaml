@@ -263,8 +263,8 @@ services:
     profiles: [ai-trend-evaluation]
     restart: "no"
     user: "0:0"
+    entrypoint: ["/usr/local/bin/mrolescope-ai-evaluation"]
     command:
-      - "/usr/local/bin/mrolescope-ai-evaluation"
       - "-provider"
       - "qwen"
       - "-suite"
@@ -292,8 +292,8 @@ services:
     profiles: [ai-trend-evaluation]
     restart: "no"
     user: "0:0"
+    entrypoint: ["/usr/local/bin/mrolescope-ai-evaluation"]
     command:
-      - "/usr/local/bin/mrolescope-ai-evaluation"
       - "-provider"
       - "qwen"
       - "-suite"
