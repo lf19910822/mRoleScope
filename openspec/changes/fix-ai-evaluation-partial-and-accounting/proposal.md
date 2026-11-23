@@ -25,4 +25,4 @@
 
 - 影响 `internal/aitrend` 的批量摘要编排和评测 Runner。
 - 影响 `internal/aitrend/evaluation` 的 trace/report 聚合。
-- 不改变生产 Serving 数据、评测快照格式或模型凭据边界。
+- 新增版本化评测快照格式，冻结每日观测和 `as_of_date`；不改变生产 Serving 数据或模型凭据边界。

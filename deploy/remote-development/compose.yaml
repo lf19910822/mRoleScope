@@ -272,7 +272,7 @@ services:
       - "-cases"
       - "/app/evaluation/AI趋势智能体Benchmark-v1.md"
       - "-snapshot"
-      - "/app/evaluation/serving-snapshot-v1.json"
+      - "/app/evaluation/serving-snapshot-v2.json"
       - "-output"
       - "/var/lib/mrolescope/ai-evaluation/trend"
     environment:
@@ -301,7 +301,7 @@ services:
       - "-cases"
       - "/app/evaluation/AI趋势智能体AgentBenchmark-v1.md"
       - "-snapshot"
-      - "/app/evaluation/serving-snapshot-v1.json"
+      - "/app/evaluation/serving-snapshot-v2.json"
       - "-output"
       - "/var/lib/mrolescope/ai-evaluation/agent"
     environment:

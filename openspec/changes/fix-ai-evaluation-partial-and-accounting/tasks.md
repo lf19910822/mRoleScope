@@ -10,6 +10,7 @@
 - [x] 2.1 Add a report regression test for infrastructure resource usage and functional score separation.
 - [x] 2.2 Aggregate usage and duration from executed traces while excluding missing zero timings from latency percentiles.
 - [x] 2.3 Add a delayed-provider regression test and measure the first model-visible event after the initial local operation.
+- [x] 2.4 Add a versioned daily snapshot with month-range coverage and switch real evaluation defaults to it.
 
 ## 3. Verification
 

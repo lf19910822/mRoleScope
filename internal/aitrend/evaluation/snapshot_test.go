@@ -53,3 +53,30 @@ func TestEvaluationSnapshotValidatesBenchmarkFormalIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEvaluationSnapshotV2SupportsDefaultMonthRange(t *testing.T) {
+	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v2.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := snapshot.ReadTrendSummary(context.Background(), jdserving.TrendQuery{
+		Range: jdserving.TrendRangeMonth,
+		Condition: jdserving.TrendCondition{Dimension: jdserving.TrendDimensionTechnology, Value: "go"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.AverageDailyActiveJobs == nil {
+		t.Fatal("month snapshot summary has no average")
+	}
+	allSummary, err := snapshot.ReadTrendSummary(context.Background(), jdserving.TrendQuery{
+		Range: jdserving.TrendRangeAll,
+		Condition: jdserving.TrendCondition{Dimension: jdserving.TrendDimensionTechnology, Value: "go"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allSummary.ValidObservationDays <= summary.ValidObservationDays {
+		t.Fatalf("daily range derivation = all %d days, month %d days", allSummary.ValidObservationDays, summary.ValidObservationDays)
+	}
+}
