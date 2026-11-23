@@ -33,6 +33,8 @@ type AuditRecord struct {
 	DraftCurveCount    int
 	DraftSelectedCount int
 	DraftWarningCount  int
+	ResponseModes      []ResponseMode
+	ReplyWarningCount  int
 	CreatedAt          time.Time
 	CompletedAt        *time.Time
 	ExpiresAt          time.Time
@@ -58,8 +60,18 @@ func (record AuditRecord) Validate() error {
 	if len(record.RequestHash) != 64 || record.ContractVersion == "" || record.ValidationStatus == "" || record.Status == "" || record.ExpiresAt.Before(record.CreatedAt) {
 		return fmt.Errorf("invalid bounded audit record")
 	}
-	if record.AIAttemptCount < 0 || record.AIAttemptCount > MaxAIAttempts || record.ToolCallCount < 0 || record.ToolCallCount > MaxToolCalls || record.DraftCurveCount < 0 || record.DraftCurveCount > MaxCurves || record.DraftSelectedCount < 0 || record.DraftSelectedCount > MaxCurves {
+	if record.AIAttemptCount < 0 || record.AIAttemptCount > MaxAIAttempts || record.ToolCallCount < 0 || record.ToolCallCount > MaxToolCalls || record.DraftCurveCount < 0 || record.DraftCurveCount > MaxCurves || record.DraftSelectedCount < 0 || record.DraftSelectedCount > MaxCurves || len(record.ResponseModes) > 2 || record.ReplyWarningCount < 0 || record.ReplyWarningCount > 3 {
 		return fmt.Errorf("audit record exceeds contract limit")
+	}
+	seenModes := make(map[ResponseMode]struct{}, len(record.ResponseModes))
+	for _, mode := range record.ResponseModes {
+		if mode != ResponseModeTrend && mode != ResponseModeGuidance {
+			return fmt.Errorf("audit record contains invalid response mode %q", mode)
+		}
+		if _, ok := seenModes[mode]; ok {
+			return fmt.Errorf("audit record contains duplicate response mode %q", mode)
+		}
+		seenModes[mode] = struct{}{}
 	}
 	return nil
 }
@@ -82,13 +94,21 @@ func (store *AuditStore) Insert(ctx context.Context, record AuditRecord) (string
 	err := store.pool.QueryRow(ctx, `INSERT INTO ai_trend_request_audits
         (request_hash, intent_hash, draft_hash, contract_version, validation_status, status, safe_error_code,
          ai_attempt_count, tool_call_count, tool_failure_count, input_token_count, output_token_count, duration_ms,
-         draft_curve_count, draft_selected_count, draft_warning_count, created_at, completed_at, expires_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        draft_curve_count, draft_selected_count, draft_warning_count, response_modes, reply_warning_count, created_at, completed_at, expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         RETURNING id::text`,
 		record.RequestHash, record.IntentHash, record.DraftHash, record.ContractVersion, record.ValidationStatus, record.Status, record.SafeErrorCode,
 		record.AIAttemptCount, record.ToolCallCount, record.ToolFailureCount, record.InputTokenCount, record.OutputTokenCount, record.Duration.Milliseconds(),
-		record.DraftCurveCount, record.DraftSelectedCount, record.DraftWarningCount, record.CreatedAt, record.CompletedAt, record.ExpiresAt).Scan(&id)
+		record.DraftCurveCount, record.DraftSelectedCount, record.DraftWarningCount, responseModeStrings(record.ResponseModes), record.ReplyWarningCount, record.CreatedAt, record.CompletedAt, record.ExpiresAt).Scan(&id)
 	return id, err
+}
+
+func responseModeStrings(modes []ResponseMode) []string {
+	values := make([]string, 0, len(modes))
+	for _, mode := range modes {
+		values = append(values, string(mode))
+	}
+	return values
 }
 
 func (store *AuditStore) InsertTool(ctx context.Context, record AuditToolRecord) error {

@@ -129,8 +129,33 @@ describe('AI trend draft state', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(state.status).toBe('running')
     expect(state.draft).toBeUndefined()
+    expect(state.assistantMessage).toBe('')
     releaseSecondRequest?.()
     await regeneration
     expect(state.draft?.curves).toHaveLength(1)
+  })
+
+  it('supports a successful guidance response without a draft', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          [
+            JSON.stringify({ type: 'assistant_message', status: 'running', delta: '你好，' }),
+            JSON.stringify({ type: 'assistant_message', status: 'running', delta: '可以查看趋势。' }),
+            JSON.stringify({ type: 'assistant_message', status: 'completed' }),
+            JSON.stringify({ type: 'done', status: 'success' }),
+          ].join('\n') + '\n',
+          { headers: { 'Content-Type': 'application/x-ndjson' } },
+        ),
+      ),
+    )
+    const state = createAITrendDraftState()
+
+    await state.submit('你好')
+
+    expect(state.status).toBe('success')
+    expect(state.assistantMessage).toBe('你好，可以查看趋势。')
+    expect(state.draft).toBeUndefined()
   })
 })

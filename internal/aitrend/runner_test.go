@@ -3,6 +3,7 @@ package aitrend
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,71 @@ func (runnerSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.T
 		PeriodEndActiveJobs:    &count,
 		ValidObservationDays:   1,
 	}, nil
+}
+
+func TestTrendRunnerGuidanceOnlyDoesNotBuildDraft(t *testing.T) {
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{{Intent: []byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}`)}}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "你好", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Type == StreamEventDraft {
+			t.Fatalf("guidance-only request emitted Draft: %#v", events)
+		}
+	}
+	foundMessage, foundSuccess := false, false
+	for _, event := range events {
+		if event.Type == StreamEventAssistant && event.Status == StreamRunning && event.Delta != "" {
+			foundMessage = true
+		}
+		if event.Type == StreamEventDone && event.Status == StreamSuccess {
+			foundSuccess = true
+		}
+	}
+	if !foundMessage || !foundSuccess {
+		t.Fatalf("guidance events = %#v", events)
+	}
+}
+
+func TestTrendRunnerGuidanceIgnoresAccidentalTrendToolResult(t *testing.T) {
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "values", Name: ToolListAvailableValues, Params: []byte(`{"dimension":"technology"}`)}}, InputTokens: 1, OutputTokens: 1},
+		{Intent: []byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}`), InputTokens: 1, OutputTokens: 1},
+	}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "你好", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	foundTool, foundDraft, foundSuccess := false, false, false
+	for _, event := range events {
+		if event.Type == StreamEventOperation && event.Tool == string(ToolListAvailableValues) {
+			foundTool = true
+		}
+		if event.Type == StreamEventDraft {
+			foundDraft = true
+		}
+		if event.Type == StreamEventDone && event.Status == StreamSuccess {
+			foundSuccess = true
+		}
+	}
+	if !foundTool || foundDraft || !foundSuccess {
+		t.Fatalf("guidance accidental-tool events = %#v", events)
+	}
 }
 
 type runnerProjectSummaryReader struct{}
@@ -89,6 +155,48 @@ func TestTrendRunnerUsesModelCategoryDiscoveryAndRankingLimit(t *testing.T) {
 	}
 }
 
+type wideGlobalSummaryReader struct{}
+
+func (wideGlobalSummaryReader) ReadTrendSummary(_ context.Context, query jdserving.TrendQuery) (jdserving.TrendSummary, error) {
+	var index int
+	if len(query.Condition.Value) >= len("tech-") {
+		_, _ = fmt.Sscanf(query.Condition.Value, "tech-%d", &index)
+	}
+	score := float64(index)
+	return jdserving.TrendSummary{
+		Curve:                  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionTechnology, Value: query.Condition.Value, Label: query.Condition.Value},
+		AverageDailyActiveJobs: &score,
+		ValidObservationDays:   1,
+	}, nil
+}
+
+func TestTrendRunnerGlobalRankingIncludesValuesBeyondCandidateBound(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: make([]jdserving.TechnologyKeywordFilterOption, 101)}
+	for index := range options.TechnologyKeywords {
+		value := fmt.Sprintf("tech-%03d", index)
+		options.TechnologyKeywords[index] = jdserving.TechnologyKeywordFilterOption{Category: jdserving.FilterOption{Value: "synthetic", Label: "合成类别"}, Value: value, Label: value}
+	}
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "all-tech", Dimension: DimensionTechnology, Expressions: []string{"*"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeAll}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, wideGlobalSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "使用最多的技术关键词是什么？", func(event StreamEvent) error {
+		events = append(events, event)
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != "tech-100" {
+		t.Fatalf("global ranking draft = %#v, events=%#v, want tech-100", draft, events)
+	}
+}
+
 type runnerIntentProvider struct {
 	intent Intent
 }
@@ -100,6 +208,132 @@ func (provider runnerIntentProvider) AnalyzeIntent(context.Context, string, *Con
 type runnerExplanationProvider struct {
 	intent  Intent
 	context DraftExplanationContext
+}
+
+type runnerStreamingProvider struct {
+	intent Intent
+}
+
+type runnerStoppingProvider struct {
+	intent Intent
+}
+
+type runnerLongReplyProvider struct{ intent Intent }
+
+func (provider runnerLongReplyProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	return json.Marshal(provider.intent)
+}
+
+func (runnerLongReplyProvider) StreamAssistantMessage(_ context.Context, _ AssistantReplyContext, emit func(string) error) (int, int, error) {
+	return 0, 0, emit(strings.Repeat("中", MaxReplyRunes+1))
+}
+
+func (provider runnerStoppingProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	return json.Marshal(provider.intent)
+}
+
+func (runnerStoppingProvider) StreamAssistantMessage(_ context.Context, _ AssistantReplyContext, emit func(string) error) (int, int, error) {
+	if err := emit("已开始说明"); err != nil {
+		return 0, 0, err
+	}
+	return 0, 0, context.Canceled
+}
+
+func (provider runnerStreamingProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	return json.Marshal(provider.intent)
+}
+
+func (runnerStreamingProvider) StreamAssistantMessage(_ context.Context, _ AssistantReplyContext, emit func(string) error) (int, int, error) {
+	if err := emit("第一段说明"); err != nil {
+		return 3, 5, err
+	}
+	if err := emit("第二段指导"); err != nil {
+		return 3, 5, err
+	}
+	return 3, 5, nil
+}
+
+func TestTrendRunnerEmitsDraftBeforeStreamingAssistantMessage(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{{Value: "game.genshin-impact", Label: "原神"}}}
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{"*"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeMonth}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	runner, err := NewTrendRunner(runnerStreamingProvider{intent: intent}, runnerOptionsReader{options: options}, runnerProjectSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "哪些项目岗位最多？", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	draftIndex, assistantIndex, doneIndex := -1, -1, -1
+	for index, event := range events {
+		if event.Type == StreamEventDraft && draftIndex < 0 {
+			draftIndex = index
+		}
+		if event.Type == StreamEventAssistant && assistantIndex < 0 {
+			assistantIndex = index
+		}
+		if event.Type == StreamEventDone {
+			doneIndex = index
+		}
+	}
+	if draftIndex < 0 || assistantIndex <= draftIndex || doneIndex <= assistantIndex {
+		t.Fatalf("event order = %#v", events)
+	}
+}
+
+func TestTrendRunnerPreservesDraftWhenAssistantStreamStops(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{{Value: "game.genshin-impact", Label: "原神"}}}
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{"*"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeMonth}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	runner, err := NewTrendRunner(runnerStoppingProvider{intent: intent}, runnerOptionsReader{options: options}, runnerProjectSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "哪些项目岗位最多？", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var stoppedDraft bool
+	var terminal StreamStatus
+	for _, event := range events {
+		if event.Type == StreamEventDraft && event.Status == StreamStopped && event.Draft != nil && len(event.Draft.Curves) > 0 {
+			stoppedDraft = true
+		}
+		if event.Type == StreamEventDone {
+			terminal = event.Status
+		}
+	}
+	if !stoppedDraft || terminal != StreamStopped {
+		t.Fatalf("stop events = %#v", events)
+	}
+}
+
+func TestTrendRunnerRecordsReplyQualityWarningWithoutRollingBackDraft(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{{Value: "game.genshin-impact", Label: "原神"}}}
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{"*"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeMonth}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	runner, err := NewTrendRunner(runnerLongReplyProvider{intent: intent}, runnerOptionsReader{options: options}, runnerProjectSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	var stats TrendRunStats
+	runner.StatsSink = func(value TrendRunStats) { stats = value }
+	if err := runner.Run(context.Background(), "哪些项目岗位最多？", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft && event.Draft != nil {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || draft.Status != DraftComplete || len(stats.ReplyQualityWarnings) != 1 || stats.ReplyQualityWarnings[0] != "too_long" {
+		t.Fatalf("draft=%#v stats=%#v", draft, stats)
+	}
 }
 
 func (provider *runnerExplanationProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
@@ -357,6 +591,42 @@ func TestTrendRunnerKeepsSuccessfulCurvesWhenBatchItemFails(t *testing.T) {
 	}
 	if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != "good" || draft.Status != DraftPartial || terminal != StreamPartial {
 		t.Fatalf("draft=%#v terminal=%s", draft, terminal)
+	}
+}
+
+func TestTrendRunnerRejectsConflictingTimeRanges(t *testing.T) {
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{"*"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeMonth}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{{Value: "alpha", Label: "Alpha"}}}}, runnerProjectSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runner.Run(context.Background(), "本月和去年哪个项目岗位更多？", func(StreamEvent) error { return nil })
+	contractErr, ok := err.(*ContractError)
+	if !ok || contractErr.Code != ErrorInvalidCombination || contractErr.Field != "time_range" {
+		t.Fatalf("conflicting range error = %#v", err)
+	}
+}
+
+func TestTrendRunnerMarksUnsupportedMetricAndChartFallbacksPartial(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{Projects: []jdserving.FilterOption{{Value: "alpha", Label: "Alpha"}}}
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionProject, Expressions: []string{"*"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeMonth}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	for _, query := range []string{"哪些项目的岗位占比最高？", "用柱状图展示岗位最多的项目"} {
+		runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, runnerProjectSummaryReader{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var draft *Draft
+		if err := runner.Run(context.Background(), query, func(event StreamEvent) error {
+			if event.Type == StreamEventDraft {
+				draft = event.Draft
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if draft == nil || draft.Status != DraftPartial || len(draft.Warnings) == 0 {
+			t.Fatalf("fallback query %q draft = %#v", query, draft)
+		}
 	}
 }
 

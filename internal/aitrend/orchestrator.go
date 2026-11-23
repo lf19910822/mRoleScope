@@ -22,13 +22,15 @@ type Orchestrator struct {
 }
 
 type OrchestrationResult struct {
-	Intent       Intent
-	AIAttempts   int
-	ToolResults  []ToolCallResult
-	Partial      bool
-	Stopped      bool
-	InputTokens  int
-	OutputTokens int
+	Intent               Intent
+	AgentResponse        AgentResponse
+	AIAttempts           int
+	ToolResults          []ToolCallResult
+	Partial              bool
+	Stopped              bool
+	InputTokens          int
+	OutputTokens         int
+	ReplyQualityWarnings []string
 }
 
 func (orchestrator Orchestrator) Run(ctx context.Context) (OrchestrationResult, error) {
@@ -74,6 +76,7 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 	}
 	var correction *ContractError
 	var intent Intent
+	var agentResponse AgentResponse
 	attemptsUsed := 0
 	for attempt := 1; attempt <= MaxAIAttempts; attempt++ {
 		attemptsUsed = attempt
@@ -107,8 +110,12 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: modelOperation}); err != nil {
 			return OrchestrationResult{AIAttempts: attempt}, err
 		}
-		intent, err = DecodeIntent(encoded)
+		agentResponse, err = DecodeAgentResponse(encoded)
 		if err == nil {
+			if agentResponse.TrendIntent == nil {
+				return OrchestrationResult{AgentResponse: agentResponse, AIAttempts: attemptsUsed}, nil
+			}
+			intent = *agentResponse.TrendIntent
 			break
 		}
 		contractErr, ok := err.(*ContractError)
@@ -124,19 +131,19 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 
 	calls, err := orchestrator.Planner(ctx, intent, nil)
 	if err != nil {
-		return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed}, err
+		return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed}, err
 	}
 	if len(calls) > MaxToolCalls {
-		return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed}, &ContractError{Code: ErrorLimitExceeded, Field: "tool_calls", Message: "tool call limit exceeded"}
+		return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed}, &ContractError{Code: ErrorLimitExceeded, Field: "tool_calls", Message: "tool call limit exceeded"}
 	}
 	results := make([]ToolCallResult, 0, len(calls))
 	partial := false
 	for _, call := range calls {
 		if ctx.Err() != nil {
-			return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed, ToolResults: results, Partial: true, Stopped: true}, ctx.Err()
+			return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed, ToolResults: results, Partial: true, Stopped: true}, ctx.Err()
 		}
 		if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params}); err != nil {
-			return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed, ToolResults: results, Partial: true}, err
+			return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed, ToolResults: results, Partial: true}, err
 		}
 		result, callErr := orchestrator.Registry.Call(ctx, call)
 		if callErr != nil {
@@ -147,6 +154,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 		} else {
 			if result.Name == ToolBatchTrendSummary {
 				result.SafeError = batchTrendPayloadFailure(result.Payload)
+			}
+			if result.Name == ToolRankTrendValues {
+				result.SafeError = rankedTrendPayloadFailure(result.Payload)
 			}
 			if orchestrator.TokenCounter(result.Payload) > orchestrator.MaxOutputTokens {
 				partial = true
@@ -161,10 +171,10 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 		}
 		results = append(results, result)
 		if ctx.Err() != nil {
-			return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed, ToolResults: results, Partial: true, Stopped: true}, ctx.Err()
+			return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed, ToolResults: results, Partial: true, Stopped: true}, ctx.Err()
 		}
 	}
-	return OrchestrationResult{Intent: intent, AIAttempts: attemptsUsed, ToolResults: results, Partial: partial}, nil
+	return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed, ToolResults: results, Partial: partial}, nil
 }
 
 func (orchestrator Orchestrator) runToolSession(ctx context.Context, query string) (OrchestrationResult, error) {
@@ -245,6 +255,7 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 				if contractErr != nil {
 					toolResult = ToolCallResult{Name: call.Name, CallNumber: toolCallsUsed, Available: false, SafeError: safeErrorFrom(contractErr)}
 					callErr = contractErr
+					_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
 				} else {
 					toolResult, callErr = orchestrator.Registry.Call(ctx, call)
 				}
@@ -266,6 +277,14 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 					if toolResult.Name == ToolBatchTrendSummary {
 						if toolResult.SafeError == nil {
 							toolResult.SafeError = batchTrendPayloadFailure(toolResult.Payload)
+						}
+						if toolResult.SafeError != nil {
+							result.Partial = true
+						}
+					}
+					if toolResult.Name == ToolRankTrendValues {
+						if toolResult.SafeError == nil {
+							toolResult.SafeError = rankedTrendPayloadFailure(toolResult.Payload)
 						}
 						if toolResult.SafeError != nil {
 							result.Partial = true
@@ -295,6 +314,26 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 		if len(turn.Intent) == 0 {
 			return result, &ContractError{Code: ErrorMissingField, Field: "intent", Message: "AI returned neither tool calls nor final Intent"}
 		}
+		agentResponse, decodeErr := DecodeAgentResponse(turn.Intent)
+		if decodeErr != nil {
+			contractErr, ok := decodeErr.(*ContractError)
+			if !ok {
+				return result, decodeErr
+			}
+			correctionAttempts++
+			_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
+			if correctionAttempts >= MaxAIAttempts {
+				result.AIAttempts = MaxAIAttempts
+				return result, contractErr
+			}
+			result.AIAttempts = correctionAttempts + 1
+			correction = contractErr
+			continue
+		}
+		if agentResponse.TrendIntent == nil {
+			result.AgentResponse = agentResponse
+			return result, nil
+		}
 		if !historyHasTrendSummaryCall(history) && !toolBudgetExhausted && !historyHasToolFailure(history) {
 			contractErr := &ContractError{Code: ErrorInvalidCombination, Field: "model_response", Message: "AI must call a trend summary tool before final Intent"}
 			correctionAttempts++
@@ -307,23 +346,9 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 			correction = contractErr
 			continue
 		}
-		intent, decodeErr := DecodeIntent(turn.Intent)
-		if decodeErr == nil {
-			result.Intent = intent
-			return result, nil
-		}
-		contractErr, ok := decodeErr.(*ContractError)
-		if !ok {
-			return result, decodeErr
-		}
-		correctionAttempts++
-		_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
-		if correctionAttempts >= MaxAIAttempts {
-			result.AIAttempts = MaxAIAttempts
-			return result, contractErr
-		}
-		result.AIAttempts = correctionAttempts + 1
-		correction = contractErr
+		result.AgentResponse = agentResponse
+		result.Intent = *agentResponse.TrendIntent
+		return result, nil
 	}
 	return result, &ContractError{Code: ErrorLimitExceeded, Field: "model_turns", Message: "AI model turn limit exceeded"}
 }
@@ -374,6 +399,14 @@ func batchTrendPayloadFailure(payload json.RawMessage) *SafeError {
 		}
 	}
 	return nil
+}
+
+func rankedTrendPayloadFailure(payload json.RawMessage) *SafeError {
+	var response rankedTrendValuesResponse
+	if err := json.Unmarshal(payload, &response); err != nil || len(response.FailedValues) == 0 {
+		return nil
+	}
+	return &SafeError{Code: ErrorBackendFailure, Field: "ranked_values", Message: "部分趋势候选读取失败"}
 }
 
 func (orchestrator Orchestrator) emit(event StreamEvent) error {

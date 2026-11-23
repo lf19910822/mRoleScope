@@ -20,6 +20,11 @@ func TestAuditRecordIsBoundedAndIrreversible(t *testing.T) {
 	if err := tooMany.Validate(); err == nil {
 		t.Fatal("unbounded tool count accepted")
 	}
+	tooManyModes := record
+	tooManyModes.ResponseModes = []ResponseMode{ResponseModeTrend, ResponseModeGuidance, ResponseModeTrend}
+	if err := tooManyModes.Validate(); err == nil {
+		t.Fatal("unbounded response modes accepted")
+	}
 }
 
 func TestAuditRecordUsesMigrationValidationStatuses(t *testing.T) {

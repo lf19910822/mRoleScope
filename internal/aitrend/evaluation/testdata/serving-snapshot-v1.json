@@ -1,0 +1,44 @@
+{
+  "version": "serving-evaluation-snapshot-v1",
+  "filter_options": {
+    "activity_states": [{"value":"effective","label":"仍有效"}],
+    "education_levels": [],
+    "experience_years": [],
+    "job_families": [
+      {"value":"frontend","label":"前端"},
+      {"value":"backend","label":"后端"}
+    ],
+    "locations": [
+      {"value":"上海","label":"上海"},
+      {"value":"北京","label":"北京"}
+    ],
+    "main_job_families": [],
+    "other_job_families": [],
+    "projects": [
+      {"value":"game.genshin-impact","label":"原神"},
+      {"value":"game.zenless-zone-zero","label":"绝区零"}
+    ],
+    "technology_keywords": [
+      {"category":{"value":"programming-languages","label":"编程语言"},"value":"go","label":"Go"},
+      {"category":{"value":"programming-languages","label":"编程语言"},"value":"python","label":"Python"},
+      {"category":{"value":"databases-and-storage","label":"数据库与存储"},"value":"redis","label":"Redis"},
+      {"category":{"value":"databases-and-storage","label":"数据库与存储"},"value":"mysql","label":"MySQL"},
+      {"category":{"value":"game-engines","label":"游戏引擎"},"value":"unreal-engine","label":"Unreal Engine"},
+      {"category":{"value":"cloud-native","label":"容器与云原生组件"},"value":"docker","label":"Docker"}
+    ],
+    "urgent_options": []
+  },
+  "summaries": [
+    {"dimension":"technology","value":"go","range":"all","label":"Go","average_daily_active_jobs":64.0,"period_end_active_jobs":66,"period_unique_jobs":88,"peak_date":"2026-11-12","peak_count":70,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"technology","value":"python","range":"all","label":"Python","average_daily_active_jobs":60.0,"period_end_active_jobs":61,"period_unique_jobs":82,"peak_date":"2026-11-10","peak_count":68,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"technology","value":"redis","range":"all","label":"Redis","average_daily_active_jobs":42.0,"period_end_active_jobs":41,"period_unique_jobs":55,"peak_date":"2026-11-11","peak_count":49,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"technology","value":"mysql","range":"all","label":"MySQL","average_daily_active_jobs":46.0,"period_end_active_jobs":45,"period_unique_jobs":60,"peak_date":"2026-11-09","peak_count":52,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"technology","value":"docker","range":"all","label":"Docker","average_daily_active_jobs":44.0,"period_end_active_jobs":43,"period_unique_jobs":58,"peak_date":"2026-11-09","peak_count":50,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"project","value":"game.genshin-impact","range":"all","label":"原神","average_daily_active_jobs":20.0,"period_end_active_jobs":21,"period_unique_jobs":30,"peak_date":"2026-11-08","peak_count":24,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"project","value":"game.zenless-zone-zero","range":"all","label":"绝区零","average_daily_active_jobs":18.0,"period_end_active_jobs":17,"period_unique_jobs":28,"peak_date":"2026-11-08","peak_count":22,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"job_family","value":"frontend","range":"all","label":"前端","average_daily_active_jobs":35.0,"period_end_active_jobs":34,"period_unique_jobs":48,"peak_date":"2026-11-07","peak_count":40,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"job_family","value":"backend","range":"all","label":"后端","average_daily_active_jobs":50.0,"period_end_active_jobs":52,"period_unique_jobs":70,"peak_date":"2026-11-13","peak_count":58,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"location","value":"上海","range":"all","label":"上海","average_daily_active_jobs":45.0,"period_end_active_jobs":46,"period_unique_jobs":66,"peak_date":"2026-11-06","peak_count":54,"valid_observation_days":30,"missing_observation_days":0},
+    {"dimension":"location","value":"北京","range":"all","label":"北京","average_daily_active_jobs":40.0,"period_end_active_jobs":39,"period_unique_jobs":61,"peak_date":"2026-11-06","peak_count":47,"valid_observation_days":30,"missing_observation_days":0}
+  ]
+}

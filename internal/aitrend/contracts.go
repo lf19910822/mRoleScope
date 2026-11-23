@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	ContractVersionV1 = "ai-trend-draft-v1"
+	ContractVersionV1      = "ai-trend-draft-v1"
+	AgentContractVersionV1 = "ai-trend-agent-v1"
 
 	MaxToolCalls            = 20
 	MaxToolCandidates       = 100
@@ -21,6 +22,7 @@ const (
 	MaxAIAttempts           = 3
 	MaxExpressionCandidates = 3
 	MaxExplanationRunes     = 100
+	MaxReplyRunes           = 1000
 )
 
 type Dimension string
@@ -106,6 +108,7 @@ const (
 	StreamEventOperation  StreamEventType = "operation"
 	StreamEventValidation StreamEventType = "validation"
 	StreamEventDraft      StreamEventType = "draft"
+	StreamEventAssistant  StreamEventType = "assistant_message"
 	StreamEventDone       StreamEventType = "done"
 )
 
@@ -119,6 +122,13 @@ const (
 	StreamPartial   StreamStatus = "partial"
 	StreamFailure   StreamStatus = "failure"
 	StreamStopped   StreamStatus = "user_stopped"
+)
+
+type ResponseMode string
+
+const (
+	ResponseModeTrend    ResponseMode = "trend"
+	ResponseModeGuidance ResponseMode = "guidance"
 )
 
 type SafeErrorCode string
@@ -141,6 +151,14 @@ type Intent struct {
 	SubQueries      []SubQuery   `json:"sub_queries"`
 	TimeRange       TimeRange    `json:"time_range"`
 	Output          OutputIntent `json:"output"`
+}
+
+// AgentResponse is the outer interaction contract. TrendIntent deliberately
+// remains the existing ai-trend-draft-v1 contract.
+type AgentResponse struct {
+	ContractVersion string         `json:"contract_version"`
+	ResponseModes   []ResponseMode `json:"response_modes"`
+	TrendIntent     *Intent        `json:"trend_intent,omitempty"`
 }
 
 type SubQuery struct {
@@ -206,6 +224,7 @@ type StreamEvent struct {
 	Status StreamStatus    `json:"status"`
 	Tool   string          `json:"tool,omitempty"`
 	Params json.RawMessage `json:"params,omitempty"`
+	Delta  string          `json:"delta,omitempty"`
 	Draft  *Draft          `json:"draft,omitempty"`
 	Error  *SafeError      `json:"error,omitempty"`
 }
@@ -219,6 +238,67 @@ func DecodeIntent(data []byte) (Intent, error) {
 		return Intent{}, err
 	}
 	return intent, nil
+}
+
+// DecodeAgentResponse accepts the new outer Agent contract and legacy trend
+// Intent payloads so existing providers can migrate without changing the
+// curve contract in one step.
+func DecodeAgentResponse(data []byte) (AgentResponse, error) {
+	var version struct {
+		ContractVersion string `json:"contract_version"`
+	}
+	if err := json.Unmarshal(data, &version); err != nil {
+		return AgentResponse{}, &ContractError{Code: ErrorInvalidJSON, Message: err.Error()}
+	}
+	if version.ContractVersion == ContractVersionV1 {
+		intent, err := DecodeIntent(data)
+		if err != nil {
+			return AgentResponse{}, err
+		}
+		return AgentResponse{ContractVersion: AgentContractVersionV1, ResponseModes: []ResponseMode{ResponseModeTrend}, TrendIntent: &intent}, nil
+	}
+	var response AgentResponse
+	if err := decodeStrict(data, &response); err != nil {
+		return AgentResponse{}, &ContractError{Code: ErrorInvalidJSON, Message: err.Error()}
+	}
+	if err := ValidateAgentResponse(response); err != nil {
+		return AgentResponse{}, err
+	}
+	return response, nil
+}
+
+func ValidateAgentResponse(response AgentResponse) error {
+	if response.ContractVersion != AgentContractVersionV1 {
+		return contractError(ErrorInvalidEnum, "contract_version", "unsupported Agent contract version")
+	}
+	if len(response.ResponseModes) == 0 || len(response.ResponseModes) > 2 {
+		return contractError(ErrorMissingField, "response_modes", "one or two response modes are required")
+	}
+	seen := make(map[ResponseMode]struct{}, len(response.ResponseModes))
+	hasTrend := false
+	for _, mode := range response.ResponseModes {
+		if mode != ResponseModeTrend && mode != ResponseModeGuidance {
+			return contractError(ErrorInvalidEnum, "response_modes", "unsupported response mode")
+		}
+		if _, exists := seen[mode]; exists {
+			return contractError(ErrorInvalidCombination, "response_modes", "duplicate response mode")
+		}
+		seen[mode] = struct{}{}
+		if mode == ResponseModeTrend {
+			hasTrend = true
+		}
+	}
+	if hasTrend {
+		if response.TrendIntent == nil {
+			return contractError(ErrorMissingField, "trend_intent", "trend mode requires a trend Intent")
+		}
+		if err := ValidateIntent(*response.TrendIntent); err != nil {
+			return err
+		}
+	} else if response.TrendIntent != nil {
+		return contractError(ErrorInvalidCombination, "trend_intent", "guidance-only response cannot carry trend Intent")
+	}
+	return nil
 }
 
 func DecodeStreamEvent(data []byte) (StreamEvent, error) {
@@ -275,7 +355,7 @@ func ValidateDraft(draft Draft) error {
 }
 
 func ValidateStreamEvent(event StreamEvent) error {
-	if event.Type != StreamEventOperation && event.Type != StreamEventValidation && event.Type != StreamEventDraft && event.Type != StreamEventDone {
+	if event.Type != StreamEventOperation && event.Type != StreamEventValidation && event.Type != StreamEventDraft && event.Type != StreamEventAssistant && event.Type != StreamEventDone {
 		return contractError(ErrorInvalidEnum, "type", "unsupported stream event type")
 	}
 	if event.Status == "" {
@@ -283,6 +363,15 @@ func ValidateStreamEvent(event StreamEvent) error {
 	}
 	if event.Type == StreamEventOperation && strings.TrimSpace(event.Tool) == "" {
 		return contractError(ErrorMissingField, "tool", "operation tool is required")
+	}
+	if event.Type == StreamEventAssistant && event.Status == StreamRunning && event.Delta == "" {
+		return contractError(ErrorMissingField, "delta", "running assistant message requires delta")
+	}
+	if event.Type == StreamEventAssistant && utf8.RuneCountInString(event.Delta) > MaxReplyRunes {
+		return contractError(ErrorLimitExceeded, "delta", "assistant message delta is too long")
+	}
+	if event.Type != StreamEventAssistant && event.Delta != "" {
+		return contractError(ErrorInvalidCombination, "delta", "delta is only valid for assistant messages")
 	}
 	if event.Type == StreamEventDraft && event.Draft == nil {
 		return contractError(ErrorMissingField, "draft", "draft event requires a draft")
