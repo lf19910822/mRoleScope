@@ -124,6 +124,36 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 	}
 }
 
+func TestQwenIntentProviderKeepsToolCallsWhenMessageAlsoHasText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeQwenResponse(writer, map[string]any{
+			"content": "我会先读取项目候选。",
+			"tool_calls": []any{map[string]any{
+				"id": "call-projects", "type": "function",
+				"function": map[string]string{"name": string(ToolListAvailableValues), "arguments": `{"dimension":"project"}`},
+			}},
+		}, 10, 4)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	turn, err := provider.AnalyzeIntentTurn(context.Background(), "哪些项目岗位最多？并说明怎么修改", nil, nil, true)
+	if err != nil || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolListAvailableValues {
+		t.Fatalf("turn = %#v err=%v", turn, err)
+	}
+}
+
+func TestQwenIntentProviderFallsBackToGuidanceForInitialPlainText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeQwenResponse(writer, map[string]any{"content": "你好，我可以帮助你分析趋势。"}, 11, 7)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	turn, err := provider.AnalyzeIntentTurn(context.Background(), "你好", nil, nil, true)
+	if err != nil || string(turn.Intent) != `{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}` || turn.InputTokens != 11 || turn.OutputTokens != 7 {
+		t.Fatalf("turn = %#v err=%v", turn, err)
+	}
+}
+
 func writeQwenResponse(writer http.ResponseWriter, message map[string]any, promptTokens, completionTokens int) {
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(map[string]any{
