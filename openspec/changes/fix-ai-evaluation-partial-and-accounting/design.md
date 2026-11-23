@@ -12,6 +12,10 @@ Functional case scoring remains unchanged. Resource totals and total-duration la
 
 The evaluation Runner will ignore only the immediately emitted `analyze_intent:running` operation when setting first-event latency. The first completed model operation, validation event, tool operation, or assistant event becomes the measured first model-visible event.
 
+## Versioned daily snapshot
+
+The active evaluation snapshot stores a bounded daily count series and an explicit `as_of_date`. The evaluation-only Serving reader derives `month`, `quarter`, `year`, `week`, `all`, and custom ranges by filtering those frozen points before calling the existing deterministic summary function. The previous aggregate-only snapshot remains available for historical report reproducibility; the real evaluator switches to the new snapshot version.
+
 ## TDD seams
 
 - Unit tests for mixed and all-failed batch payload classification.

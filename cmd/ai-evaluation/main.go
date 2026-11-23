@@ -295,7 +295,7 @@ func main() {
 	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
 	flag.StringVar(&suite, "suite", "trend", "benchmark suite: trend or agent")
 	flag.StringVar(&providerMode, "provider", evaluationProviderFixture, "model provider: fixture or qwen")
-	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v1.json", "evaluation-only Serving snapshot path")
+	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v2.json", "evaluation-only Serving snapshot path")
 	flag.StringVar(&outputDir, "output", evaluation.DefaultArtifactRoot, "independent evaluation artifact directory")
 	flag.StringVar(&runID, "run-id", "", "evaluation run ID (default: generated from UTC time)")
 	flag.Parse()

@@ -27,3 +27,10 @@ The evaluation Runner MUST measure first-event latency from request start to the
 - **WHEN** the provider delays before completing the first model operation
 - **THEN** first-event latency is greater than or equal to the provider delay
 
+### Requirement: Cover the benchmark default time range
+The evaluation snapshot used by the real benchmark MUST contain summaries for the product default `month` range for every formal value that the benchmark may query. The prior snapshot version MUST remain available for historical report reproducibility.
+
+#### Scenario: Unspecified benchmark time range
+- **WHEN** the model selects the product default month range for a formal value
+- **THEN** the active evaluation snapshot returns a month summary instead of an artificial missing-summary backend failure
+
