@@ -14,4 +14,4 @@
 ## 3. Verification
 
 - [x] 3.1 运行 Go 全量测试、前端检查、部署静态检查、`go vet`、`git diff --check` 和 OpenSpec 严格校验。
-- [ ] 3.2 在 CVM 内执行一次真实 trend smoke，确认脱敏报告和模型调用；不自动运行完整 30+10 题集。
+- [x] 3.2 在 CVM 内执行真实 trend/Agent 评测，已确认脱敏报告生成和真实模型调用。
