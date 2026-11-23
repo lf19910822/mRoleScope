@@ -2492,6 +2492,8 @@ type AiTrendRequestAudit struct {
 	CreatedAt          pgtype.Timestamptz
 	CompletedAt        pgtype.Timestamptz
 	ExpiresAt          pgtype.Timestamptz
+	ResponseModes      []string
+	ReplyWarningCount  int32
 }
 
 type AiTrendRequestAuditTool struct {
