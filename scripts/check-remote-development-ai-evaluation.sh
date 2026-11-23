@@ -51,6 +51,8 @@ for service in ai-trend-evaluation ai-agent-evaluation; do
   grep -Fqx '    profiles: [ai-trend-evaluation]' <<<"$block" || die "${service} profile is not isolated"
   grep -Fqx '    networks: [ai-edge]' <<<"$block" || die "${service} must use only ai-edge"
   grep -Fqx '    read_only: true' <<<"$block" || die "${service} must be read-only"
+  grep -Fqx '    entrypoint: ["/usr/local/bin/mrolescope-ai-evaluation"]' <<<"$block" || die "${service} must override the worker entrypoint"
+  grep -Fqx '      - "-provider"' <<<"$block" || die "${service} must pass flags to the evaluation binary"
   grep -Fqx '        source: /var/lib/mrolescope/ai-evaluation' <<<"$block" || die "${service} report path is not fixed"
   if grep -Eq '^[[:space:]]+ports:|DATABASE_URL|backend|raw|COS_' <<<"$block"; then
     die "${service} has an unsafe production boundary"
