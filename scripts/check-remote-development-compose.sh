@@ -38,6 +38,9 @@ grep -Fqx '    profiles: [ai-analysis]' "$compose_file" \
 [[ "$(grep -Fxc '    profiles: [ai-output-audit-diagnostic]' "$compose_file")" -eq 2 ]] \
   || die 'the two fixed output-audit diagnostic services must remain explicitly requested'
 
+[[ "$(grep -Fxc '    profiles: [ai-trend-evaluation]' "$compose_file")" -eq 2 ]] \
+  || die 'the fixed trend and Agent evaluation services must remain explicitly requested'
+
 grep -Fqx '    profiles: [backfill]' "$compose_file" \
   || die 'backfill must remain an explicitly requested one-shot profile'
 
@@ -309,8 +312,8 @@ for service in ai-plus-trial; do
     die "${service} must not receive COS, a host port, raw-data volumes, or the ordinary edge network"
   fi
 done
-[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 3 ]] \
-  || die 'the Qwen key variable must appear only in the API, Plus trial, and five-body diagnostic caller'
+[[ "$(grep -Fxc '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' "$compose_file")" -eq 5 ]] \
+  || die 'the Qwen key variable must appear only in the API, Plus trial, five-body diagnostic, and two fixed evaluation callers'
 
 for service in \
   ai-plus-output-audit-diagnostic \

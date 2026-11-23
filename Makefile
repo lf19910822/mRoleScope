@@ -51,7 +51,8 @@ deploy-config-check:
 		deploy/remote-development/mrolescope-backfill-versioned-content \
 		deploy/remote-development/mrolescope-dictionary \
 		deploy/remote-development/mrolescope-release \
-		deploy/remote-development/mrolescope-ai-analysis
+		deploy/remote-development/mrolescope-ai-analysis \
+		deploy/remote-development/mrolescope-ai-evaluation
 	bash scripts/check-remote-development-sync-release.sh deploy/remote-development/mrolescope-sync
 	bash scripts/check-remote-development-analysis-release.sh deploy/remote-development/mrolescope-analysis
 	bash scripts/check-remote-development-backfill-release.sh deploy/remote-development/mrolescope-backfill-versioned-content
@@ -62,6 +63,8 @@ deploy-config-check:
 	bash scripts/check-remote-development-release-lifecycle.sh
 	bash scripts/test-check-remote-development-ai-analysis.sh
 	bash scripts/check-remote-development-ai-analysis.sh
+	bash scripts/test-check-remote-development-ai-evaluation.sh
+	bash scripts/check-remote-development-ai-evaluation.sh deploy/remote-development/mrolescope-ai-evaluation deploy/remote-development/compose.yaml
 	bash scripts/test-check-remote-development-compose.sh
 	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
 	bash scripts/test-mrolescope-deploy-web-edge.sh

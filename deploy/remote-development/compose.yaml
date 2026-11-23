@@ -258,6 +258,64 @@ services:
     # It has no provider key or external network path.
     networks: [backend]
 
+  ai-trend-evaluation:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-trend-evaluation]
+    restart: "no"
+    user: "0:0"
+    command:
+      - "/usr/local/bin/mrolescope-ai-evaluation"
+      - "-provider"
+      - "qwen"
+      - "-suite"
+      - "trend"
+      - "-cases"
+      - "/app/evaluation/AI趋势智能体Benchmark-v1.md"
+      - "-snapshot"
+      - "/app/evaluation/serving-snapshot-v1.json"
+      - "-output"
+      - "/var/lib/mrolescope/ai-evaluation/trend"
+    environment:
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-evaluation
+        target: /var/lib/mrolescope/ai-evaluation
+    networks: [ai-edge]
+
+  ai-agent-evaluation:
+    image: ${MROLESCOPE_WORKER_IMAGE}
+    profiles: [ai-trend-evaluation]
+    restart: "no"
+    user: "0:0"
+    command:
+      - "/usr/local/bin/mrolescope-ai-evaluation"
+      - "-provider"
+      - "qwen"
+      - "-suite"
+      - "agent"
+      - "-cases"
+      - "/app/evaluation/AI趋势智能体AgentBenchmark-v1.md"
+      - "-snapshot"
+      - "/app/evaluation/serving-snapshot-v1.json"
+      - "-output"
+      - "/var/lib/mrolescope/ai-evaluation/agent"
+    environment:
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: /var/lib/mrolescope/ai-evaluation
+        target: /var/lib/mrolescope/ai-evaluation
+    networks: [ai-edge]
+
   ai-plus-publish:
     image: ${MROLESCOPE_WORKER_IMAGE}
     profiles: [ai-analysis]

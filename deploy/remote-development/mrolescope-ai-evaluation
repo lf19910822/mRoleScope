@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Root-owned, fixed CVM entrypoint for the two real trend Benchmark suites.
+# It never accepts a path, query, image, command, or secret argument.
+set -euo pipefail
+
+readonly COMPOSE_FILE='/opt/mrolescope/remote-development.compose.yaml'
+readonly SECRETS_FILE='/etc/mrolescope/secrets/remote-development.env'
+readonly DEPLOY_CONFIG='/etc/mrolescope/remote-development.conf'
+readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly EVALUATION_DIR='/var/lib/mrolescope/ai-evaluation'
+readonly CURRENT_FILE="${RELEASE_DIR}/current.env"
+readonly PROJECT_NAME='mrolescope-remote-development'
+readonly DIGEST_PATTERN='sha256:[a-f0-9]{64}'
+readonly NAMESPACE_PATTERN='^[a-z0-9][a-z0-9_-]{0,38}$'
+
+die() {
+  printf 'mrolescope AI evaluation failed: %s\n' "$1" >&2
+  exit 1
+}
+
+is_root_owned_mode() {
+  local path="$1" expected_mode="$2"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:${expected_mode}" ]]
+}
+
+load_release() {
+  local namespace worker_image worker_pattern
+  is_root_owned_mode "$DEPLOY_CONFIG" 644 || die 'deployment configuration is not trusted'
+  # shellcheck disable=SC1090
+  . "$DEPLOY_CONFIG"
+  # shellcheck disable=SC1090
+  . "$CURRENT_FILE"
+  namespace="${DOCKERHUB_NAMESPACE:-}"
+  worker_image="${worker_image:-}"
+  [[ "$namespace" =~ $NAMESPACE_PATTERN ]] || die 'invalid configured image namespace'
+  worker_pattern="^docker\\.io/${namespace}/mrolescope-worker@${DIGEST_PATTERN}$"
+  [[ "$worker_image" =~ $worker_pattern ]] || die 'verified worker image is unavailable'
+  export MROLESCOPE_WORKER_IMAGE="$worker_image"
+}
+
+[[ "${EUID}" -eq 0 ]] || die 'must run as root'
+[[ "$#" -eq 1 && ( "$1" == 'run-trend' || "$1" == 'run-agent' ) ]] || die 'operation is not allowlisted'
+is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition is not trusted'
+is_root_owned_mode "$SECRETS_FILE" 600 || die 'runtime secrets are not trusted'
+is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
+[[ -d "$EVALUATION_DIR" && "$(stat -c '%U:%G:%a' "$EVALUATION_DIR")" == 'root:root:700' ]] || die 'evaluation directory is not trusted'
+command -v docker >/dev/null 2>&1 || die 'docker is required'
+
+load_release
+
+set -a
+# shellcheck disable=SC1090
+. "$SECRETS_FILE"
+set +a
+
+compose() {
+  docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --env-file "$SECRETS_FILE" "$@"
+}
+
+case "$1" in
+  run-trend)
+    exec compose --profile ai-trend-evaluation run --rm --no-deps ai-trend-evaluation
+    ;;
+  run-agent)
+    exec compose --profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation
+    ;;
+esac
