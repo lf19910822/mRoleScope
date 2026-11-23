@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -290,9 +291,10 @@ func minLimit(value int) int {
 }
 
 func main() {
-	var casesPath, snapshotPath, outputDir, runID, suite string
+	var casesPath, snapshotPath, outputDir, runID, suite, providerMode string
 	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
 	flag.StringVar(&suite, "suite", "trend", "benchmark suite: trend or agent")
+	flag.StringVar(&providerMode, "provider", evaluationProviderFixture, "model provider: fixture or qwen")
 	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v1.json", "evaluation-only Serving snapshot path")
 	flag.StringVar(&outputDir, "output", evaluation.DefaultArtifactRoot, "independent evaluation artifact directory")
 	flag.StringVar(&runID, "run-id", "", "evaluation run ID (default: generated from UTC time)")
@@ -324,8 +326,11 @@ func main() {
 	if err := snapshot.ValidateCases(cases); err != nil {
 		fatal(err)
 	}
+	if err := validateEvaluationProviderConfiguration(providerMode, http.DefaultClient, os.LookupEnv); err != nil {
+		fatal(err)
+	}
 	version, err := evaluation.NewEvaluationVersion(evaluation.VersionInput{
-		RunID: runID, Model: "fixture-provider", Provider: "offline-fixture",
+		RunID: runID, Model: evaluationModelName(providerMode), Provider: evaluationProviderName(providerMode),
 		PromptVersion: "intent-prompt-v1", ToolSchemaVersion: "aitrend-tools-v1",
 		SnapshotVersion: snapshot.Version(), CodeRevision: "local", CasesVersion: func() string {
 			if suite == "agent" {
@@ -338,7 +343,11 @@ func main() {
 		fatal(err)
 	}
 	executor, err := evaluation.NewExecutor(func(ctx context.Context, item evaluation.Case) (evaluation.Result, error) {
-		runner, runnerErr := evaluation.NewRunner(&fixtureProvider{item: item}, snapshot)
+		provider, providerErr := newEvaluationProvider(providerMode, item, http.DefaultClient, os.LookupEnv)
+		if providerErr != nil {
+			return evaluation.Result{}, providerErr
+		}
+		runner, runnerErr := evaluation.NewRunner(provider, snapshot)
 		if runnerErr != nil {
 			return evaluation.Result{}, runnerErr
 		}
@@ -380,6 +389,20 @@ func main() {
 		fatal(err)
 	}
 	fmt.Printf("evaluation=%s cases=%d traces=%d output=%s\n", version.ID(), len(cases), len(traces), filepath.Clean(outputDir))
+}
+
+func evaluationModelName(providerMode string) string {
+	if strings.EqualFold(strings.TrimSpace(providerMode), evaluationProviderQwen) {
+		return "qwen-plus"
+	}
+	return "fixture-provider"
+}
+
+func evaluationProviderName(providerMode string) string {
+	if strings.EqualFold(strings.TrimSpace(providerMode), evaluationProviderQwen) {
+		return "qwen"
+	}
+	return "offline-fixture"
 }
 
 func errorForAttempt(attempt evaluation.Attempt) error {
