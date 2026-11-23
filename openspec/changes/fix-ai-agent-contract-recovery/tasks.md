@@ -4,6 +4,7 @@
 
 - [x] 1.1 Add red tests for mixed tool/content turns and initial guidance text.
 - [x] 1.2 Implement provider and orchestrator recovery without storing raw model content.
+- [x] 1.3 Synchronize the planning Prompt in code and the reviewed Prompt document.
 
 ## 2. Verification
 
