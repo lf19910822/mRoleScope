@@ -79,6 +79,9 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 		if !strings.Contains(string(body.Format), `"type":"json_schema"`) || !strings.Contains(string(body.Format), AgentContractVersionV1) {
 			t.Fatalf("final evidence turn did not request Agent schema: %s", body.Format)
 		}
+		if strings.Contains(string(body.Format), `"uniqueItems"`) || strings.Contains(string(body.Format), `"contains"`) || strings.Contains(string(body.Format), `"minContains"`) || strings.Contains(string(body.Format), `"maxContains"`) {
+			t.Fatalf("final evidence turn used Qwen-incompatible array schema keywords: %s", body.Format)
+		}
 		if body.Result != "" || len(body.Tools) != 0 {
 			t.Fatalf("final evidence turn retained tool protocol fields: result=%q tools=%d", body.Result, len(body.Tools))
 		}
