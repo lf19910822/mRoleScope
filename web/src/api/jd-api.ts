@@ -193,10 +193,11 @@ export interface AITrendDraft {
 }
 
 export interface AITrendStreamEvent {
-  type: 'operation' | 'validation' | 'draft' | 'done'
+  type: 'operation' | 'validation' | 'assistant_message' | 'draft' | 'done'
   status: 'running' | 'completed' | 'failed' | 'success' | 'partial' | 'failure' | 'user_stopped'
   tool?: string
   params?: Record<string, unknown>
+  delta?: string
   draft?: AITrendDraft
   error?: { code: string; field?: string; message: string }
 }

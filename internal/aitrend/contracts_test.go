@@ -3,6 +3,7 @@ package aitrend
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,53 @@ func TestValidateIntentRejectsCurveAndAttemptLimits(t *testing.T) {
 	intent.SubQueries[0].Ranking.Limit = MaxCurves + 1
 	if err := ValidateIntent(intent); err == nil {
 		t.Fatal("ValidateIntent accepted a ninth curve limit")
+	}
+}
+
+func TestDecodeAgentResponseSupportsGuidanceTrendAndMixedModes(t *testing.T) {
+	guidance, err := DecodeAgentResponse([]byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}`))
+	if err != nil || len(guidance.ResponseModes) != 1 || guidance.TrendIntent != nil {
+		t.Fatalf("guidance response = %#v, err=%v", guidance, err)
+	}
+	trendJSON := []byte(`{"contract_version":"ai-trend-draft-v1","sub_queries":[{"id":"q1","dimension":"project","expressions":["*"],"ranking":{"metric":"avg_daily_active_jobs","order":"desc","limit":1}}],"time_range":{"kind":"month"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`)
+	trend, err := DecodeAgentResponse(trendJSON)
+	if err != nil || len(trend.ResponseModes) != 1 || trend.ResponseModes[0] != ResponseModeTrend || trend.TrendIntent == nil {
+		t.Fatalf("legacy trend response = %#v, err=%v", trend, err)
+	}
+	wrapped := []byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["trend","guidance"],"trend_intent":` + string(trendJSON) + `}`)
+	mixed, err := DecodeAgentResponse(wrapped)
+	if err != nil || len(mixed.ResponseModes) != 2 || mixed.TrendIntent == nil {
+		t.Fatalf("mixed response = %#v, err=%v", mixed, err)
+	}
+}
+
+func TestDecodeAgentResponseRejectsInvalidModeCombinations(t *testing.T) {
+	tests := []string{
+		`{"contract_version":"ai-trend-agent-v1","response_modes":[]}`,
+		`{"contract_version":"ai-trend-agent-v1","response_modes":["guidance","guidance"]}`,
+		`{"contract_version":"ai-trend-agent-v1","response_modes":["trend"]}`,
+		`{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"],"trend_intent":{"contract_version":"ai-trend-draft-v1"}}`,
+	}
+	for _, raw := range tests {
+		if _, err := DecodeAgentResponse([]byte(raw)); err == nil {
+			t.Fatalf("invalid Agent response accepted: %s", raw)
+		}
+	}
+}
+
+func TestValidateStreamEventAssistantMessage(t *testing.T) {
+	if err := ValidateStreamEvent(StreamEvent{Type: StreamEventAssistant, Status: StreamRunning, Delta: "你好"}); err != nil {
+		t.Fatalf("assistant delta rejected: %v", err)
+	}
+	if err := ValidateStreamEvent(StreamEvent{Type: StreamEventAssistant, Status: StreamCompleted}); err != nil {
+		t.Fatalf("assistant completion rejected: %v", err)
+	}
+	if err := ValidateStreamEvent(StreamEvent{Type: StreamEventAssistant, Status: StreamRunning}); err == nil {
+		t.Fatal("empty assistant delta accepted")
+	}
+	longDelta := strings.Repeat("中", MaxReplyRunes+1)
+	if err := ValidateStreamEvent(StreamEvent{Type: StreamEventAssistant, Status: StreamRunning, Delta: longDelta}); err == nil {
+		t.Fatal("long assistant delta accepted")
 	}
 }
 

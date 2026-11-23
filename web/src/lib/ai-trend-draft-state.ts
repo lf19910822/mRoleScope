@@ -14,6 +14,8 @@ export interface AITrendOperation {
 }
 
 export interface AITrendDraftState {
+  assistantMessage: string
+  assistantMessageWarning: string
   draft?: AITrendDraft
   durationLabel: string
   error: string
@@ -37,6 +39,8 @@ function formatElapsed(milliseconds: number): string {
 
 export function createAITrendDraftState(): AITrendDraftState {
   const state = reactive<AITrendDraftState>({
+    assistantMessage: '',
+    assistantMessageWarning: '',
     durationLabel: '0秒',
     error: '',
     operations: [],
@@ -79,6 +83,8 @@ export function createAITrendDraftState(): AITrendDraftState {
     state.operations = []
     state.operationsExpanded = true
     state.error = ''
+    state.assistantMessage = ''
+    state.assistantMessageWarning = ''
     state.draft = undefined
     state.status = 'running'
     let nextDraft: AITrendDraft | undefined
@@ -103,6 +109,9 @@ export function createAITrendDraftState(): AITrendDraftState {
           }
         }
         if (event.type === 'draft' && event.draft) nextDraft = event.draft
+        if (event.type === 'assistant_message' && event.delta) {
+          state.assistantMessage += event.delta
+        }
         if (event.type === 'done') {
           if (
             event.status === 'success' ||
@@ -124,7 +133,7 @@ export function createAITrendDraftState(): AITrendDraftState {
         }
       }
       await streamAITrendDraft(normalized, handleEvent, controller.signal)
-      if (state.status === 'running') state.status = nextDraft ? 'success' : 'failure'
+      if (state.status === 'running') state.status = nextDraft || state.assistantMessage ? 'success' : 'failure'
       if (nextDraft) state.draft = nextDraft
     } catch (error) {
       if (currentRequest !== requestID) return

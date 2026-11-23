@@ -100,6 +100,7 @@ func (service ServingToolService) Registry() (*ToolRegistry, error) {
 		{Name: ToolListCategoryValues, Handler: service.listCategoryValues},
 		{Name: ToolListAvailableValues, Handler: service.listAvailableValues},
 		{Name: ToolRankValues, Handler: service.rankValues},
+		{Name: ToolRankTrendValues, Handler: service.rankTrendValues},
 		{Name: ToolReadTrendSummary, Handler: service.readTrendSummary},
 		{Name: ToolReadEventSummary, Handler: service.readEventSummary},
 		{Name: ToolValidateCurveDraft, Handler: service.validateCurveDraft},
@@ -121,6 +122,30 @@ type rankRequest struct {
 	Dimension  Dimension `json:"dimension"`
 	Expression string    `json:"expression"`
 	SubQueryID string    `json:"sub_query_id"`
+}
+
+type trendRankRequest struct {
+	Dimension        Dimension `json:"dimension"`
+	Range            RangeKind `json:"range"`
+	StartDate        string    `json:"start_date,omitempty"`
+	EndDate          string    `json:"end_date,omitempty"`
+	Metric           Metric    `json:"metric"`
+	Limit            int       `json:"limit"`
+	SubQueryID       string    `json:"sub_query_id"`
+	IncludeSecondary bool      `json:"include_secondary,omitempty"`
+}
+
+type rankedTrendValue struct {
+	SubQueryID  string    `json:"sub_query_id"`
+	Dimension   Dimension `json:"dimension"`
+	Value       string    `json:"value"`
+	Label       string    `json:"label"`
+	MetricValue float64   `json:"metric_value"`
+}
+
+type rankedTrendValuesResponse struct {
+	Values       []rankedTrendValue `json:"values"`
+	FailedValues []string           `json:"failed_values,omitempty"`
 }
 
 type trendToolRequest struct {
@@ -197,6 +222,72 @@ func (service ServingToolService) rankValues(_ context.Context, params json.RawM
 		return nil, err
 	}
 	return json.Marshal(service.Resolver.Resolve(request.Dimension, request.Expression, request.SubQueryID))
+}
+
+func (service ServingToolService) rankTrendValues(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	var request trendRankRequest
+	if err := decodeToolParams(params, &request); err != nil {
+		return nil, err
+	}
+	if request.Dimension != DimensionTechnology && request.Dimension != DimensionProject && request.Dimension != DimensionJobFamily && request.Dimension != DimensionLocation {
+		return nil, contractError(ErrorInvalidEnum, "dimension", "unsupported ranking dimension")
+	}
+	if request.Range == "" {
+		return nil, contractError(ErrorMissingField, "range", "trend range is required")
+	}
+	if request.Limit < 1 || request.Limit > MaxCurves {
+		return nil, contractError(ErrorLimitExceeded, "limit", "trend ranking limit must be between one and eight")
+	}
+	if request.SubQueryID == "" {
+		return nil, contractError(ErrorMissingField, "sub_query_id", "sub-query id is required")
+	}
+	snapshot, err := service.snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values := service.optionsForDimension(snapshot.options, request.Dimension)
+	ranked := make([]rankedTrendValue, 0, len(values))
+	failedValues := make([]string, 0)
+	for _, option := range values {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		payload, err := service.readTrendSummary(ctx, mustMarshal(trendToolRequest{
+			Dimension: request.Dimension, Value: option.Value, Range: request.Range,
+			StartDate: request.StartDate, EndDate: request.EndDate, IncludeSecondary: request.IncludeSecondary,
+		}))
+		if err != nil {
+			failedValues = append(failedValues, option.Value)
+			continue
+		}
+		var summary summaryToolResponse
+		if err := json.Unmarshal(payload, &summary); err != nil {
+			failedValues = append(failedValues, option.Value)
+			continue
+		}
+		metricValue, ok := summaryMetric(summary, request.Metric)
+		if !ok {
+			failedValues = append(failedValues, option.Value)
+			continue
+		}
+		ranked = append(ranked, rankedTrendValue{SubQueryID: request.SubQueryID, Dimension: request.Dimension, Value: option.Value, Label: option.Label, MetricValue: metricValue})
+	}
+	if len(ranked) == 0 {
+		return nil, contractError(ErrorBackendFailure, "values", "no trend ranking result is available")
+	}
+	sort.SliceStable(ranked, func(left, right int) bool {
+		if ranked[left].MetricValue != ranked[right].MetricValue {
+			if request.Metric == MetricAbsoluteChange || request.Metric == MetricRelativeChange {
+				return ranked[left].MetricValue < ranked[right].MetricValue
+			}
+			return ranked[left].MetricValue > ranked[right].MetricValue
+		}
+		return ranked[left].Value < ranked[right].Value
+	})
+	if len(ranked) > request.Limit {
+		ranked = ranked[:request.Limit]
+	}
+	return json.Marshal(rankedTrendValuesResponse{Values: ranked, FailedValues: failedValues})
 }
 
 func (service ServingToolService) readTrendSummary(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {

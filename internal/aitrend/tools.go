@@ -20,6 +20,7 @@ const (
 	ToolListCategoryValues       ToolName = "list_category_values"
 	ToolListAvailableValues      ToolName = "list_available_values"
 	ToolRankValues               ToolName = "rank_values"
+	ToolRankTrendValues          ToolName = "rank_trend_values"
 	ToolReadTrendSummary         ToolName = "read_trend_summary"
 	ToolReadEventSummary         ToolName = "read_event_summary"
 	ToolValidateCurveDraft       ToolName = "validate_curve_draft"
@@ -163,6 +164,7 @@ func trendToolDescriptors() []ToolDescriptor {
 		{Name: ToolListCategoryValues, Description: "List formal technology values in one technology category.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["category"],"properties":{"category":{"type":"string","minLength":1}}}`)},
 		{Name: ToolListAvailableValues, Description: "List bounded formal values for one supported dimension.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]}}}`)},
 		{Name: ToolRankValues, Description: "Resolve a bounded expression against formal values.", Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension","expression","sub_query_id"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"expression":{"type":"string","minLength":1},"sub_query_id":{"type":"string","minLength":1}}}`)},
+		{Name: ToolRankTrendValues, Description: "Rank all formal values in one dimension by a trend metric and return the top bounded candidates.", Parameters: trendRankToolParameters()},
 		{Name: ToolReadTrendSummary, Description: "Read a safe aggregate trend summary for one formal curve.", Parameters: trendToolParameters()},
 		{Name: ToolReadEventSummary, Description: "Read safe aggregate event counts for one formal curve.", Parameters: trendToolParameters()},
 		{Name: ToolValidateCurveDraft, Description: "Validate one curve draft against the active formal vocabulary.", Parameters: json.RawMessage(`{"type":"object"}`)},
@@ -197,6 +199,10 @@ func validateToolCallContract(call ToolCall) error {
 
 func trendToolParameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension","value","range"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"value":{"type":"string","minLength":1},"range":{"enum":["week","month","quarter","year","all","custom"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"include_secondary":{"type":"boolean"},"operator":{"enum":["eq","gt","gte","lt","lte"]}}}`)
+}
+
+func trendRankToolParameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["dimension","range","metric","limit","sub_query_id"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"range":{"enum":["week","month","quarter","year","all","custom"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"metric":{"enum":["avg_daily_active_jobs","period_end_active_jobs","peak_daily_active_jobs","period_unique_jobs","entered_jobs","modified_jobs","left_jobs","reopened_jobs"]},"limit":{"type":"integer","minimum":1,"maximum":8},"sub_query_id":{"type":"string","minLength":1},"include_secondary":{"type":"boolean"}}}`)
 }
 
 func batchTrendToolParameters() json.RawMessage {

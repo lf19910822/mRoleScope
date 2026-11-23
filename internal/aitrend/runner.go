@@ -3,6 +3,7 @@ package aitrend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -20,6 +21,22 @@ type TrendRunner struct {
 	Tools       ServingToolService
 	Audit       *AuditStore
 	MaxDuration time.Duration
+	StatsSink   func(TrendRunStats)
+}
+
+// TrendRunStats is an in-memory handoff for evaluation and diagnostics. It is
+// never part of the public user response and does not replace aggregate audit.
+type TrendRunStats struct {
+	InputTokens          int
+	OutputTokens         int
+	ToolCalls            int
+	ToolFailures         int
+	DraftCurveCount      int
+	Intent               *Intent
+	ResponseModes        []ResponseMode
+	ReplyQualityWarnings []string
+	StartedAt            time.Time
+	CompletedAt          time.Time
 }
 
 func NewTrendRunner(provider IntentProvider, options FilterOptionsReader, summary jdserving.TrendSummaryReader, events TrendEventReader) (*TrendRunner, error) {
@@ -30,6 +47,51 @@ func NewTrendRunner(provider IntentProvider, options FilterOptionsReader, summar
 }
 
 func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(StreamEvent) error) error {
+	startedAt := time.Now()
+	var inputTokens, outputTokens int
+	var result OrchestrationResult
+	var draft *Draft
+	var replyQualityWarnings []string
+	defer func() {
+		if runner == nil || runner.StatsSink == nil {
+			return
+		}
+		failures := 0
+		for _, toolResult := range result.ToolResults {
+			if toolResult.SafeError != nil {
+				failures++
+			}
+		}
+		// Tool failure details remain in the stream and aggregate AuditStore;
+		// this handoff only carries bounded counters for the evaluator.
+		totalInputTokens, totalOutputTokens := inputTokens, outputTokens
+		if totalInputTokens == 0 {
+			totalInputTokens = result.InputTokens
+		}
+		if totalOutputTokens == 0 {
+			totalOutputTokens = result.OutputTokens
+		}
+		runner.StatsSink(TrendRunStats{
+			InputTokens: totalInputTokens, OutputTokens: totalOutputTokens,
+			ToolCalls: len(result.ToolResults), ToolFailures: failures,
+			DraftCurveCount: func() int {
+				if draft == nil {
+					return 0
+				}
+				return len(draft.Curves)
+			}(),
+			ResponseModes:        append([]ResponseMode(nil), result.AgentResponse.ResponseModes...),
+			ReplyQualityWarnings: append([]string(nil), replyQualityWarnings...),
+			Intent: func() *Intent {
+				if result.Intent.ContractVersion == "" {
+					return nil
+				}
+				intent := result.Intent
+				return &intent
+			}(),
+			StartedAt: startedAt, CompletedAt: time.Now(),
+		})
+	}()
 	if runner == nil || runner.Provider == nil || runner.Tools.Options == nil || runner.Tools.Summary == nil {
 		return &ContractError{Code: ErrorConfigurationFailure, Message: "trend AI is not configured"}
 	}
@@ -49,7 +111,6 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	var groups []CandidateGroup
 	var plannedIntent Intent
 	toolProvider, usesToolSession := runner.Provider.(IntentToolProvider)
-	inputTokens, outputTokens := 0, 0
 	auditOperations := make([]auditOperation, 0, MaxToolCalls+1)
 	auditStarted := time.Now()
 	streamEmit := func(event StreamEvent) error {
@@ -81,18 +142,49 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		MaxOutputTokens: 16_000,
 		Emit:            streamEmit,
 	}
-	result, err := orchestrator.RunWithInput(ctx, query)
+	result, err = orchestrator.RunWithInput(ctx, query)
 	if err != nil {
 		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
 	inputTokens += result.InputTokens
 	outputTokens += result.OutputTokens
+	// Let the Agent classify a conflicting question as guidance-only. Legacy
+	// trend responses still receive the established contract error so the
+	// existing non-Agent seam keeps its validation boundary.
+	if conflictingTrendRanges(query) && !isGuidanceOnly(result.AgentResponse) {
+		conflictErr := &ContractError{Code: ErrorInvalidCombination, Field: "time_range", Message: "用户同时指定了互相冲突的时间范围"}
+		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, conflictErr)
+		return conflictErr
+	}
+	if isGuidanceOnly(result.AgentResponse) {
+		guidanceInput, guidanceOutput, warnings, replyErr := runner.streamAssistantReply(ctx, query, result.AgentResponse.ResponseModes, nil, false, streamEmit)
+		inputTokens += guidanceInput
+		outputTokens += guidanceOutput
+		replyQualityWarnings = append(replyQualityWarnings, warnings...)
+		result.ReplyQualityWarnings = append([]string(nil), replyQualityWarnings...)
+		if replyErr != nil {
+			if errors.Is(replyErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				_ = streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamStopped})
+				runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, nil)
+				return nil
+			}
+			runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, replyErr)
+			return replyErr
+		}
+		err = streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamSuccess})
+		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
+		return err
+	}
 	if plannedIntent.ContractVersion == "" {
 		plannedIntent = normalizeIntentForQuery(query, result.Intent, resolver)
 		groups = candidateGroups(plannedIntent, resolver)
 	}
 	applySummaryScores(groups, result.ToolResults, plannedIntent)
+	rankApplied := applyTrendRankResults(groups, result.ToolResults)
+	if !rankApplied {
+		boundBroadCandidates(groups)
+	}
 	if usesToolSession {
 		filterCandidatesToSummaryResults(groups, result.ToolResults)
 	}
@@ -102,6 +194,11 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	warnings := make([]string, 0)
 	for _, toolResult := range result.ToolResults {
 		if toolResult.SafeError != nil {
+			// A malformed model tool request is corrected in the tool session;
+			// once a later turn succeeds it must not downgrade the final Draft.
+			if !toolResult.Available && isModelToolContractError(&ContractError{Code: toolResult.SafeError.Code}) {
+				continue
+			}
 			partialFailure = true
 			break
 		}
@@ -109,42 +206,37 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	if unsupportedMetric(plannedIntent) {
 		warnings = append(warnings, "部分比较指标暂不直接作为纵轴，已按岗位数量生成曲线。")
 	}
+	if unsupportedMetricPhrase(query) {
+		warnings = append(warnings, "当前暂不支持直接绘制占比或变化率，已按岗位数量生成曲线。")
+		partialFailure = true
+	}
+	if unsupportedChartPhrase(query) {
+		warnings = append(warnings, "当前看板使用折线图，已保留岗位趋势曲线。")
+		partialFailure = true
+	}
+	globalTechnologyFallback := hasProjectTechnologyConstraint(query, plannedIntent, resolver)
+	if globalTechnologyFallback {
+		warnings = append(warnings, "当前技术曲线为全局范围，暂未按项目过滤。")
+		partialFailure = true
+	}
 	statusStopped := result.Stopped
-	draft, err := BuildDraft(groups, DraftBuildOptions{
+	explanation := draftExplanation(plannedIntent)
+	if globalTechnologyFallback {
+		explanation += "技术曲线为全局范围，暂未按项目过滤。"
+	}
+	builtDraft, err := BuildDraft(groups, DraftBuildOptions{
 		Warnings:       warnings,
-		Explanation:    draftExplanation(plannedIntent),
+		Explanation:    explanation,
 		Stopped:        statusStopped,
 		PartialFailure: partialFailure,
 	})
 	if err != nil {
 		return err
 	}
+	draft = &builtDraft
 	if len(draft.Curves) > 0 {
-		if err := emitValidatedDraft(ctx, registry, draft, streamEmit); err != nil {
+		if err := emitValidatedDraft(ctx, registry, *draft, streamEmit); err != nil {
 			return err
-		}
-	}
-	if !result.Stopped {
-		if explanationProvider, ok := runner.Provider.(IntentExplanationUsageProvider); ok {
-			if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolExplainDraft)}); err != nil {
-				runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
-				return err
-			}
-			explanation, input, output, explanationErr := explanationProvider.ExplainDraftUsage(ctx, query, buildDraftExplanationContext(plannedIntent, draft, groups, result.ToolResults))
-			inputTokens += input
-			outputTokens += output
-			if explanationErr != nil {
-				if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolExplainDraft), Error: safeErrorFrom(explanationErr)}); err != nil {
-					runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
-					return err
-				}
-			} else {
-				draft.Explanation = explanation
-				if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolExplainDraft)}); err != nil {
-					runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
-					return err
-				}
-			}
 		}
 	}
 	draftStatus := StreamCompleted
@@ -156,13 +248,139 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		draftStatus = StreamPartial
 		terminalStatus = StreamPartial
 	}
-	if err := streamEmit(StreamEvent{Type: StreamEventDraft, Status: draftStatus, Draft: &draft}); err != nil {
-		runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+	if err := streamEmit(StreamEvent{Type: StreamEventDraft, Status: draftStatus, Draft: draft}); err != nil {
+		runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
+	if !result.Stopped {
+		modes := result.AgentResponse.ResponseModes
+		if len(modes) == 0 {
+			modes = []ResponseMode{ResponseModeTrend}
+		}
+		if _, streamProvider := runner.Provider.(AssistantReplyStreamProvider); streamProvider || !hasLegacyExplanationProvider(runner.Provider) {
+			input, output, warnings, replyErr := runner.streamAssistantReply(ctx, query, modes, func() *DraftExplanationContext {
+				context := buildDraftExplanationContext(plannedIntent, *draft, groups, result.ToolResults)
+				return &context
+			}(), true, streamEmit)
+			inputTokens += input
+			outputTokens += output
+			replyQualityWarnings = append(replyQualityWarnings, warnings...)
+			result.ReplyQualityWarnings = append([]string(nil), replyQualityWarnings...)
+			if replyErr != nil {
+				if errors.Is(replyErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+					draft.Status = DraftStopped
+					_ = streamEmit(StreamEvent{Type: StreamEventDraft, Status: StreamStopped, Draft: draft})
+					_ = streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamStopped})
+					runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, nil)
+					return nil
+				}
+				runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, replyErr)
+				return replyErr
+			}
+		} else if explanationProvider, ok := runner.Provider.(IntentExplanationUsageProvider); ok {
+			// Keep the legacy non-streaming test/provider seam working. The
+			// initial Draft has already been emitted; send a second Draft with
+			// the completed legacy explanation for old consumers.
+			if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolExplainDraft)}); err != nil {
+				runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+				return err
+			}
+			explanation, input, output, explanationErr := explanationProvider.ExplainDraftUsage(ctx, query, buildDraftExplanationContext(plannedIntent, *draft, groups, result.ToolResults))
+			inputTokens += input
+			outputTokens += output
+			if explanationErr != nil {
+				if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolExplainDraft), Error: safeErrorFrom(explanationErr)}); err != nil {
+					runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+					return err
+				}
+			} else {
+				draft.Explanation = explanation
+				if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolExplainDraft)}); err != nil {
+					runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+					return err
+				}
+				if err := streamEmit(StreamEvent{Type: StreamEventDraft, Status: draftStatus, Draft: draft}); err != nil {
+					runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+					return err
+				}
+			}
+		}
+	}
 	err = streamEmit(StreamEvent{Type: StreamEventDone, Status: terminalStatus})
-	runner.persistAudit(ctx, query, result, &draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+	runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
 	return err
+}
+
+func hasLegacyExplanationProvider(provider IntentProvider) bool {
+	_, ok := provider.(IntentExplanationUsageProvider)
+	return ok
+}
+
+func isGuidanceOnly(response AgentResponse) bool {
+	if response.ContractVersion != AgentContractVersionV1 || response.TrendIntent != nil {
+		return false
+	}
+	for _, mode := range response.ResponseModes {
+		if mode == ResponseModeGuidance {
+			return true
+		}
+	}
+	return false
+}
+
+func (runner *TrendRunner) streamAssistantReply(ctx context.Context, query string, modes []ResponseMode, draftContext *DraftExplanationContext, emitOperation bool, emit func(StreamEvent) error) (int, int, []string, error) {
+	replyContext := AssistantReplyContext{Query: query, ResponseModes: append([]ResponseMode(nil), modes...), Draft: draftContext}
+	var fullReply strings.Builder
+	if provider, ok := runner.Provider.(AssistantReplyStreamProvider); ok {
+		if emitOperation {
+			if err := emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolExplainDraft)}); err != nil {
+				return 0, 0, nil, err
+			}
+		}
+		inputTokens, outputTokens, err := provider.StreamAssistantMessage(ctx, replyContext, func(delta string) error {
+			fullReply.WriteString(delta)
+			return emit(StreamEvent{Type: StreamEventAssistant, Status: StreamRunning, Delta: delta})
+		})
+		if err != nil {
+			if emitOperation {
+				_ = emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolExplainDraft), Error: safeErrorFrom(err)})
+			}
+			return inputTokens, outputTokens, AssistantReplyQualityWarnings(fullReply.String()), err
+		}
+		if err := emit(StreamEvent{Type: StreamEventAssistant, Status: StreamCompleted}); err != nil {
+			return inputTokens, outputTokens, AssistantReplyQualityWarnings(fullReply.String()), err
+		}
+		if emitOperation {
+			if err := emit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolExplainDraft)}); err != nil {
+				return inputTokens, outputTokens, AssistantReplyQualityWarnings(fullReply.String()), err
+			}
+		}
+		return inputTokens, outputTokens, AssistantReplyQualityWarnings(fullReply.String()), nil
+	}
+	// Provider-free tests and compatibility adapters still receive a bounded
+	// deterministic message until they implement the stream seam.
+	fallback := "当前可以分析项目、技术关键词、岗位族和地点的岗位趋势。"
+	if len(modes) > 0 && modes[0] == ResponseModeTrend {
+		fallback = "已按当前趋势结果整理曲线候选，应用前仍可修改。"
+	}
+	if emitOperation {
+		if err := emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolExplainDraft)}); err != nil {
+			return 0, 0, nil, err
+		}
+	}
+	fullReply.WriteString(fallback)
+	if err := emit(StreamEvent{Type: StreamEventAssistant, Status: StreamRunning, Delta: fallback}); err != nil {
+		return 0, 0, AssistantReplyQualityWarnings(fullReply.String()), err
+	}
+	if err := emit(StreamEvent{Type: StreamEventAssistant, Status: StreamCompleted}); err != nil {
+		return 0, 0, AssistantReplyQualityWarnings(fullReply.String()), err
+	}
+	if emitOperation {
+		if err := emit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolExplainDraft)}); err != nil {
+			return 0, 0, AssistantReplyQualityWarnings(fullReply.String()), err
+		}
+	}
+	return 0, 0, AssistantReplyQualityWarnings(fullReply.String()), nil
 }
 
 func normalizeIntentForQuery(query string, intent Intent, resolver Resolver) Intent {
@@ -230,6 +448,51 @@ func technologyCategoriesFromQuery(query string, resolver Resolver) []string {
 	return result
 }
 
+func hasProjectTechnologyConstraint(query string, intent Intent, resolver Resolver) bool {
+	hasTechnology := false
+	for _, subQuery := range intent.SubQueries {
+		if subQuery.Dimension == DimensionTechnology {
+			hasTechnology = true
+			break
+		}
+	}
+	if !hasTechnology {
+		return false
+	}
+	needle := normalizeExpression(query)
+	for _, project := range resolver.Values[DimensionProject] {
+		if strings.Contains(needle, normalizeExpression(project.Value)) || strings.Contains(needle, normalizeExpression(project.Label)) {
+			return true
+		}
+	}
+	return strings.Contains(needle, "项目") && strings.Contains(needle, "技术") && len(resolver.Values[DimensionProject]) > 0
+}
+
+func conflictingTrendRanges(query string) bool {
+	value := normalizeExpression(query)
+	month := strings.Contains(value, "本月") || strings.Contains(value, "这个月")
+	year := strings.Contains(value, "去年") || strings.Contains(value, "上一年")
+	quarter := strings.Contains(value, "本季度") || strings.Contains(value, "这个季度")
+	week := strings.Contains(value, "本周") || strings.Contains(value, "这周")
+	count := 0
+	for _, found := range []bool{month, year, quarter, week} {
+		if found {
+			count++
+		}
+	}
+	return count > 1
+}
+
+func unsupportedMetricPhrase(query string) bool {
+	value := normalizeExpression(query)
+	return strings.Contains(value, "占比") || strings.Contains(value, "比例") || strings.Contains(value, "百分比") || strings.Contains(value, "变化率")
+}
+
+func unsupportedChartPhrase(query string) bool {
+	value := normalizeExpression(query)
+	return strings.Contains(value, "柱状图") || strings.Contains(value, "柱形图") || strings.Contains(value, "饼图") || strings.Contains(value, "bar chart") || strings.Contains(value, "pie chart")
+}
+
 type auditOperation struct {
 	Tool          string
 	Status        StreamStatus
@@ -286,11 +549,17 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 	createdAt := startedAt
 	completedAt := time.Now()
 	requestHash := HashRequest([]byte(query))
+	contractVersion := ContractVersionV1
+	if result.AgentResponse.ContractVersion != "" {
+		contractVersion = result.AgentResponse.ContractVersion
+	}
 	record := AuditRecord{
-		RequestHash: requestHash, ContractVersion: ContractVersionV1, ValidationStatus: "valid",
+		RequestHash: requestHash, ContractVersion: contractVersion, ValidationStatus: "valid",
 		Status: status, AIAttemptCount: result.AIAttempts, ToolCallCount: len(operations),
 		InputTokenCount: inputTokens, OutputTokenCount: outputTokens, Duration: completedAt.Sub(createdAt),
-		CreatedAt: createdAt, CompletedAt: &completedAt, ExpiresAt: createdAt.Add(AuditRetention),
+		ResponseModes:     append([]ResponseMode(nil), result.AgentResponse.ResponseModes...),
+		ReplyWarningCount: len(result.ReplyQualityWarnings),
+		CreatedAt:         createdAt, CompletedAt: &completedAt, ExpiresAt: createdAt.Add(AuditRetention),
 	}
 	if result.Intent.ContractVersion != "" {
 		if data, err := MarshalIntent(result.Intent); err == nil {
@@ -387,14 +656,18 @@ func candidateGroups(intent Intent, resolver Resolver) []CandidateGroup {
 	groups := make([]CandidateGroup, 0, len(intent.SubQueries))
 	for _, query := range intent.SubQueries {
 		candidates := make([]Candidate, 0)
+		broad := false
 		for _, expression := range query.Expressions {
-			if len(candidates) >= MaxToolCandidates {
+			if isBroadExpression(expression) {
+				broad = true
+			}
+			if len(candidates) >= MaxToolCandidates && !broad {
 				break
 			}
 			candidates = append(candidates, resolveIntentExpression(resolver, query, expression)...)
 		}
 		candidates = MergeCandidates(candidates)
-		if len(candidates) > MaxToolCandidates {
+		if !broad && len(candidates) > MaxToolCandidates {
 			candidates = candidates[:MaxToolCandidates]
 		}
 		groups = append(groups, CandidateGroup{SubQueryID: query.ID, Candidates: candidates, Limit: query.Ranking.Limit})
@@ -505,6 +778,7 @@ func planServingTools(intent Intent, groups []CandidateGroup) []ToolCall {
 	// Reserve one registry call for final draft validation.
 	maxPlanningCalls := MaxToolCalls - 1
 	calls := make([]ToolCall, 0, maxPlanningCalls)
+	rankedSubQueries := make(map[string]struct{})
 	dimensions := make(map[Dimension]struct{})
 	for _, query := range intent.SubQueries {
 		dimensions[query.Dimension] = struct{}{}
@@ -521,13 +795,21 @@ func planServingTools(intent Intent, groups []CandidateGroup) []ToolCall {
 			continue
 		}
 		expression := strings.TrimSpace(query.Expressions[0])
-		if expression == "" || isBroadExpression(expression) {
+		if expression == "" {
+			continue
+		}
+		if isBroadExpression(expression) {
+			calls = append(calls, ToolCall{Name: ToolRankTrendValues, Params: mustMarshal(trendRankRequest{Dimension: query.Dimension, Range: RangeKind(intent.TimeRange.Kind), StartDate: intent.TimeRange.StartDate, EndDate: intent.TimeRange.EndDate, Metric: query.Ranking.Metric, Limit: query.Ranking.Limit, SubQueryID: query.ID, IncludeSecondary: query.IncludeSecondary != nil && *query.IncludeSecondary})})
+			rankedSubQueries[query.ID] = struct{}{}
 			continue
 		}
 		calls = append(calls, ToolCall{Name: ToolRankValues, Params: mustMarshal(rankRequest{Dimension: query.Dimension, Expression: expression, SubQueryID: query.ID})})
 	}
 	requests := make([]trendToolRequest, 0, MaxBatchCandidates)
 	for _, group := range groups {
+		if _, ranked := rankedSubQueries[group.SubQueryID]; ranked {
+			continue
+		}
 		for _, candidate := range group.Candidates {
 			requests = append(requests, candidateTrendRequest(intent.TimeRange, candidate))
 			if len(requests) == MaxBatchCandidates {
@@ -546,6 +828,54 @@ func planServingTools(intent Intent, groups []CandidateGroup) []ToolCall {
 		calls = append(calls, ToolCall{Name: ToolBatchTrendSummary, Params: mustMarshal(requests)})
 	}
 	return calls
+}
+
+func applyTrendRankResults(groups []CandidateGroup, results []ToolCallResult) bool {
+	rankedBySubQuery := make(map[string][]rankedTrendValue)
+	for _, result := range results {
+		if result.Name != ToolRankTrendValues || !result.Available {
+			continue
+		}
+		var response rankedTrendValuesResponse
+		if err := json.Unmarshal(result.Payload, &response); err != nil {
+			continue
+		}
+		for _, value := range response.Values {
+			rankedBySubQuery[value.SubQueryID] = append(rankedBySubQuery[value.SubQueryID], value)
+		}
+	}
+	if len(rankedBySubQuery) == 0 {
+		return false
+	}
+	for index := range groups {
+		ranked, ok := rankedBySubQuery[groups[index].SubQueryID]
+		if !ok {
+			continue
+		}
+		byValue := make(map[string]Candidate, len(groups[index].Candidates))
+		for _, candidate := range groups[index].Candidates {
+			byValue[candidate.Value] = candidate
+		}
+		filtered := make([]Candidate, 0, len(ranked))
+		for rank, value := range ranked {
+			candidate, exists := byValue[value.Value]
+			if !exists {
+				candidate = Candidate{Dimension: value.Dimension, Value: value.Value, Label: value.Label, MatchStatus: MatchExact, SubQueryID: groups[index].SubQueryID}
+			}
+			candidate.Score = len(ranked) - rank
+			filtered = append(filtered, candidate)
+		}
+		groups[index].Candidates = filtered
+	}
+	return true
+}
+
+func boundBroadCandidates(groups []CandidateGroup) {
+	for index := range groups {
+		if len(groups[index].Candidates) > MaxToolCandidates {
+			groups[index].Candidates = groups[index].Candidates[:MaxToolCandidates]
+		}
+	}
 }
 
 func candidateTrendRequest(timeRange TimeRange, candidate Candidate) trendToolRequest {

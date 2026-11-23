@@ -116,3 +116,22 @@ func TestAITrendDraftAllowsExplanationOperation(t *testing.T) {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestAITrendDraftStreamsAssistantMessage(t *testing.T) {
+	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventAssistant, Status: aitrend.StreamRunning, Delta: "你好，"}); err != nil {
+			return err
+		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventAssistant, Status: aitrend.StreamCompleted}); err != nil {
+			return err
+		}
+		return emit(aitrend.StreamEvent{Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess})
+	})
+	router := New(nil, runner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/job-trends/ai-draft", strings.NewReader(`{"query":"你好"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"type":"assistant_message"`) || !strings.Contains(response.Body.String(), `"delta":"你好，"`) {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}

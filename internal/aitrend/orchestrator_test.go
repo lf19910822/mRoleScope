@@ -223,6 +223,30 @@ func TestOrchestratorRunsBoundedModelToolLoop(t *testing.T) {
 	}
 }
 
+func TestOrchestratorAcceptsMixedAgentResponseWithTrendIntent(t *testing.T) {
+	intent, err := json.Marshal(validIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := append([]byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["trend","guidance"],"trend_intent":`), intent...)
+	wrapped = append(wrapped, '}')
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{}]`)}}, InputTokens: 1, OutputTokens: 1},
+		{Intent: wrapped, InputTokens: 1, OutputTokens: 1},
+	}}
+	registry, err := NewToolRegistry([]ToolDefinition{{Name: ToolBatchTrendSummary, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return []byte(`[]`), nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{ToolAnalyzer: provider, Registry: registry}
+	result, err := orchestrator.RunWithInput(context.Background(), "比较 Go 和 Python，并告诉我怎么修改曲线")
+	if err != nil || result.Intent.ContractVersion != ContractVersionV1 || result.AgentResponse.ContractVersion != AgentContractVersionV1 || len(result.AgentResponse.ResponseModes) != 2 {
+		t.Fatalf("mixed result=%#v err=%v", result, err)
+	}
+}
+
 func TestOrchestratorRequiresTrendSummaryBeforeFinalIntent(t *testing.T) {
 	final, err := json.Marshal(validIntent())
 	if err != nil {

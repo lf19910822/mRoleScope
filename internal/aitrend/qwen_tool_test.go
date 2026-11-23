@@ -76,8 +76,8 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			}, 21, 13)
 			return
 		}
-		if !strings.Contains(string(body.Format), `"type":"json_schema"`) {
-			t.Fatalf("final evidence turn did not request Intent schema: %s", body.Format)
+		if !strings.Contains(string(body.Format), `"type":"json_schema"`) || !strings.Contains(string(body.Format), AgentContractVersionV1) {
+			t.Fatalf("final evidence turn did not request Agent schema: %s", body.Format)
 		}
 		if body.Result != "" || len(body.Tools) != 0 {
 			t.Fatalf("final evidence turn retained tool protocol fields: result=%q tools=%d", body.Result, len(body.Tools))
@@ -86,7 +86,7 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			t.Fatalf("continued messages = %#v", body.Messages)
 		}
 		writeQwenResponse(writer, map[string]any{
-			"content": `{"contract_version":"ai-trend-draft-v1","sub_queries":[{"id":"languages","dimension":"technology","expressions":["cpp"],"ranking":{"metric":"avg_daily_active_jobs","order":"desc","limit":1}}],"time_range":{"kind":"month"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`,
+			"content": `{"contract_version":"ai-trend-agent-v1","response_modes":["trend"],"trend_intent":{"contract_version":"ai-trend-draft-v1","sub_queries":[{"id":"languages","dimension":"technology","expressions":["cpp"],"ranking":{"metric":"avg_daily_active_jobs","order":"desc","limit":1}}],"time_range":{"kind":"month"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}}`,
 		}, 21, 13)
 	}))
 	defer server.Close()

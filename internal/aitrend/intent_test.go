@@ -35,9 +35,30 @@ func TestHasConflictingRanges(t *testing.T) {
 
 func TestIntentPromptDefinesGenericScopeAndRankingRules(t *testing.T) {
 	prompt := IntentPromptV1()
-	for _, phrase := range []string{"具体正式值或已确认别名", "已登记类别", "[\"*\"]", "ranking.limit", "产品默认范围 month", "日期表达只决定时间范围", "avg_daily_active_jobs"} {
+	for _, phrase := range []string{"具体正式值或已确认别名", "已登记类别", "[\"*\"]", "ranking.limit", "产品默认范围 month", "日期表达只决定时间范围", "avg_daily_active_jobs", "response_modes", "ai-trend-agent-v1", "guidance"} {
 		if !strings.Contains(prompt, phrase) {
 			t.Fatalf("intent prompt missing %q", phrase)
+		}
+	}
+}
+
+func TestAgentContextV1IsStableAndStateless(t *testing.T) {
+	first := AgentContextV1()
+	second := AgentContextV1()
+	if first == "" || first != second {
+		t.Fatalf("Agent context is not stable: %q/%q", first, second)
+	}
+	for _, phrase := range []string{"趋势看板助手", "每日活跃岗位数量", "不记住其他请求", "guidance"} {
+		if !strings.Contains(first, phrase) {
+			t.Fatalf("Agent context missing %q: %s", phrase, first)
+		}
+	}
+}
+
+func TestAssistantReplyPromptGuidanceProvidesCopyableExamples(t *testing.T) {
+	for _, phrase := range []string{"仅包含 guidance", "比较 Go 和 Python 的岗位数量", "哪些项目的岗位最多？", "哪些数据库正在使用？", "不要自动执行示例"} {
+		if !strings.Contains(assistantReplyPrompt, phrase) {
+			t.Fatalf("assistant reply prompt missing %q", phrase)
 		}
 	}
 }

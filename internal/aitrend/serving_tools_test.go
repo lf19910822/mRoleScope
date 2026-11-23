@@ -89,8 +89,8 @@ func TestToolRegistryDescriptorsExposeOnlyRegisteredTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	descriptors := registry.Descriptors()
-	if len(descriptors) != 10 {
-		t.Fatalf("descriptor count = %d, want 10", len(descriptors))
+	if len(descriptors) != 11 {
+		t.Fatalf("descriptor count = %d, want 11", len(descriptors))
 	}
 	for _, descriptor := range descriptors {
 		if descriptor.Name == ToolAnalyzeIntent || descriptor.Name == ToolExplainDraft || len(descriptor.Parameters) == 0 {

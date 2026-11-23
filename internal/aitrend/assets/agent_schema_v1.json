@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "response_modes"],
+  "properties": {
+    "contract_version": {"const": "ai-trend-agent-v1"},
+    "response_modes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {"enum": ["trend", "guidance"]}
+    },
+    "trend_intent": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contract_version", "sub_queries", "time_range", "output"],
+          "properties": {
+            "contract_version": {"const": "ai-trend-draft-v1"},
+            "sub_queries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "dimension", "expressions", "ranking"],
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "dimension": {"enum": ["technology", "project", "job_family", "location"]},
+                  "expressions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "exclusions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "include_secondary": {"type": "boolean"},
+                  "operator": {"enum": ["eq", "gt", "gte", "lt", "lte"]},
+                  "ranking": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["metric", "order", "limit"],
+                    "properties": {
+                      "metric": {"enum": ["avg_daily_active_jobs", "period_end_active_jobs", "peak_daily_active_jobs", "period_unique_jobs", "entered_jobs", "modified_jobs", "left_jobs", "reopened_jobs", "absolute_change", "relative_change"]},
+                      "order": {"enum": ["asc", "desc"]},
+                      "limit": {"type": "integer", "minimum": 1, "maximum": 8}
+                    }
+                  }
+                }
+              }
+            },
+            "time_range": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": {"enum": ["week", "month", "quarter", "year", "all", "custom"]},
+                "start_date": {"type": "string"},
+                "end_date": {"type": "string"}
+              }
+            },
+            "output": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["series_metric", "chart_type"],
+              "properties": {
+                "series_metric": {"const": "daily_active_jobs"},
+                "chart_type": {"const": "line"}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

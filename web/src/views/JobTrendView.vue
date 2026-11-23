@@ -207,6 +207,7 @@ const aiDraftSelectedCount = computed(
 )
 const aiDraftCanApply = computed(() => aiDraftSelectedCount.value > 0 && !isRefreshing.value)
 const aiChatReply = computed(() => {
+  if (aiTrend.assistantMessage) return aiTrend.assistantMessage
   if (aiTrend.draft?.explanation) return aiTrend.draft.explanation
   if (aiTrend.error) return aiTrend.error
   if (aiTrend.status === 'running') return `正在分析：${aiTrend.query}`
