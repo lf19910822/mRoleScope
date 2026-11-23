@@ -6,9 +6,45 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"mrolescope/internal/aitrend"
 )
+
+type delayedIntentProvider struct {
+	delay time.Duration
+	intent aitrend.Intent
+}
+
+func (provider delayedIntentProvider) AnalyzeIntent(context.Context, string, *aitrend.ContractError) ([]byte, error) {
+	time.Sleep(provider.delay)
+	return json.Marshal(provider.intent)
+}
+
+func TestRunnerMeasuresFirstModelEventAfterInitialOperation(t *testing.T) {
+	delay := 15 * time.Millisecond
+	provider := delayedIntentProvider{delay: delay, intent: aitrend.Intent{
+		ContractVersion: aitrend.ContractVersionV1,
+		SubQueries: []aitrend.SubQuery{{ID: "go", Dimension: aitrend.DimensionTechnology, Expressions: []string{"go"}, Ranking: aitrend.RankingIntent{Metric: aitrend.MetricAverageDailyActiveJobs, Order: aitrend.OrderDescending, Limit: 1}}},
+		TimeRange: aitrend.TimeRange{Kind: aitrend.RangeAll},
+		Output: aitrend.OutputIntent{SeriesMetric: aitrend.SeriesMetricDailyActiveJobs, ChartType: aitrend.ChartTypeLine},
+	}}
+	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := NewRunner(provider, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), "Go 的岗位趋势")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FirstEventLatency < delay {
+		t.Fatalf("first model event latency = %s, want at least %s", result.FirstEventLatency, delay)
+	}
+}
 
 type intentOnlyProvider struct{ intent aitrend.Intent }
 

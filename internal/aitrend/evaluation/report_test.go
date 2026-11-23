@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestBuildReportAggregatesCasesAndExcludesInfrastructureFailures(t *testing.T) {
+func TestBuildReportSeparatesFunctionalScoresAndResourceTotals(t *testing.T) {
 	version, err := NewEvaluationVersion(completeVersionInput(), time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -18,7 +18,7 @@ func TestBuildReportAggregatesCasesAndExcludesInfrastructureFailures(t *testing.
 		makeTrace("E01", "explicit-values", true, TraceSuccess, 10, 100),
 		makeTrace("E01", "explicit-values", false, TraceSemanticFailure, 20, 200),
 		makeTrace("E01", "explicit-values", true, TraceSuccess, 30, 300),
-		makeTrace("C01", "category-scope", false, TraceInfrastructure, 0, 0),
+		makeTrace("C01", "category-scope", false, TraceInfrastructure, 0, 400),
 	}
 	report, err := BuildReport(cases, traces, version)
 	if err != nil {
@@ -27,10 +27,10 @@ func TestBuildReportAggregatesCasesAndExcludesInfrastructureFailures(t *testing.
 	if report.OverallPassRate != 0.6666666666666666 || report.IncompleteCases != 1 {
 		t.Fatalf("report = %#v", report)
 	}
-	if report.Latency.P50TotalMS != 200 || report.Latency.P95TotalMS != 200 {
+	if report.Latency.P50TotalMS != 200 || report.Latency.P95TotalMS != 300 {
 		t.Fatalf("latency = %#v", report.Latency)
 	}
-	if report.TotalToolCalls != 6 || report.TotalInputTokens != 30 {
+	if report.TotalToolCalls != 8 || report.TotalInputTokens != 40 || report.TotalCostNanoRMB != 48 {
 		t.Fatalf("totals = %#v", report)
 	}
 }

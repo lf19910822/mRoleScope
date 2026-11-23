@@ -154,6 +154,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 		} else {
 			if result.Name == ToolBatchTrendSummary {
 				result.SafeError = batchTrendPayloadFailure(result.Payload)
+				if result.SafeError == nil && batchTrendPayloadHasItemErrors(result.Payload) {
+					partial = true
+				}
 			}
 			if result.Name == ToolRankTrendValues {
 				result.SafeError = rankedTrendPayloadFailure(result.Payload)
@@ -162,6 +165,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 				partial = true
 				result.SafeError = &SafeError{Code: ErrorLimitExceeded, Field: "tool_output_tokens", Message: "tool output exceeded budget"}
 				result.Available = false
+			}
+			if result.SafeError != nil {
+				partial = true
 			}
 			status := StreamCompleted
 			if result.SafeError != nil {
@@ -280,6 +286,8 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 						}
 						if toolResult.SafeError != nil {
 							result.Partial = true
+						} else if batchTrendPayloadHasItemErrors(toolResult.Payload) {
+							result.Partial = true
 						}
 					}
 					if toolResult.Name == ToolRankTrendValues {
@@ -393,12 +401,35 @@ func batchTrendPayloadFailure(payload json.RawMessage) *SafeError {
 	if err := json.Unmarshal(payload, &summaries); err != nil {
 		return nil
 	}
+	var firstError *SafeError
 	for _, summary := range summaries {
-		if summary.Error != nil {
-			return summary.Error
+		if summary.Error == nil {
+			// A batch may contain unavailable values alongside usable summaries.
+			// Keep the usable rows available to the planner and let it filter the
+			// individual failed candidates from the draft.
+			return nil
+		}
+		if firstError == nil {
+			firstError = summary.Error
 		}
 	}
-	return nil
+	if firstError != nil {
+		return firstError
+	}
+	return &SafeError{Code: ErrorBackendFailure, Field: "summaries", Message: "trend summary batch returned no usable result"}
+}
+
+func batchTrendPayloadHasItemErrors(payload json.RawMessage) bool {
+	var summaries []summaryToolResponse
+	if err := json.Unmarshal(payload, &summaries); err != nil {
+		return false
+	}
+	for _, summary := range summaries {
+		if summary.Error != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func rankedTrendPayloadFailure(payload json.RawMessage) *SafeError {
