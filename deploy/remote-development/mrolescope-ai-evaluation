@@ -60,9 +60,9 @@ compose() {
 
 case "$1" in
   run-trend)
-    exec compose --profile ai-trend-evaluation run --rm --no-deps ai-trend-evaluation
+    compose --profile ai-trend-evaluation run --rm --no-deps ai-trend-evaluation
     ;;
   run-agent)
-    exec compose --profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation
+    compose --profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation
     ;;
 esac

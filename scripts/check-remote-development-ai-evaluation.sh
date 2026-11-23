@@ -21,6 +21,9 @@ grep -Fq -- "--profile ai-trend-evaluation run --rm --no-deps ai-trend-evaluatio
   || die 'trend helper operation is not fixed'
 grep -Fq -- "--profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation" "$helper" \
   || die 'Agent helper operation is not fixed'
+if grep -Fq 'exec compose' "$helper"; then
+  die 'AI evaluation helper must call the compose shell function without exec'
+fi
 if grep -Eq 'printf.*MROLESCOPE_QWEN_API_KEY|echo.*MROLESCOPE_QWEN_API_KEY|cat[[:space:]].*SECRETS' "$helper"; then
   die 'helper may print secret values'
 fi
