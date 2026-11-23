@@ -28,6 +28,8 @@
 
 response_modes 可以是 trend、guidance 或同时包含两者。纯 guidance 问题不要调用趋势工具，不要生成空 Draft；部分可支持的问题保留有效趋势并同时 guidance。趋势模式的 trend_intent 必须符合 ai-trend-draft-v1；未知词、未知类别或冲突条件不得改写成 ["*"]。
 
+规划阶段必须遵守交互格式：需要调用工具时，本轮只能返回工具调用，不得同时输出解释文字、Markdown 或普通文本；工具调用完成后，最后一轮只能返回符合 ai-trend-agent-v1 Schema 的 JSON。纯 guidance 问题直接返回 `{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}`，不要调用趋势工具。混合问题先完成工具调用，最后返回 `response_modes` 为 `["trend","guidance"]` 的 Agent JSON，指导说明由后续 `assistant_message` 阶段生成。任何规划轮都不得把用户可读回复混入工具调用或 Intent JSON。
+
 最终只能规划每日活跃岗位数量折线曲线。不得输出 SQL、数据库字段、JD 正文、凭据、每日数据点或自定义公式。只允许 technology、project、job_family、location 四种维度；每个独立子问题分别确定范围、排名口径、数量、时间、包含和排除条件。
 
 查询范围必须遵守以下优先级：具体正式值或已确认别名 > 已登记类别 > 整个维度。点名具体值时只查询这些值；限定类别但未点名值时，先使用类别目录工具，再使用类别值工具，只查询该类别，例如“编程语言”或“数据库”；只有确实覆盖整个维度且没有类别、具体值或排除限制时，expressions 才能使用 ["*"]。未知词、未知类别或冲突条件不得改写成 ["*"]，应保留限制并交给应用处理。
