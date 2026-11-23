@@ -42,6 +42,19 @@ func TestOrchestratorRetriesOnlyInvalidIntent(t *testing.T) {
 	}
 }
 
+func TestOrchestratorFallsBackToGuidanceAfterInitialInvalidAgentResponse(t *testing.T) {
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{{Intent: []byte(`not-json`)}}}
+	registry, err := NewToolRegistry(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{ToolAnalyzer: provider, Registry: registry}
+	result, err := orchestrator.RunWithInput(context.Background(), "你好")
+	if err != nil || result.AgentResponse.ContractVersion != AgentContractVersionV1 || len(result.AgentResponse.ResponseModes) != 1 || result.AgentResponse.ResponseModes[0] != ResponseModeGuidance {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestOrchestratorStopsAfterThreeInvalidAttempts(t *testing.T) {
 	callCount := 0
 	registry, _ := NewToolRegistry([]ToolDefinition{{Name: ToolRankValues, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {

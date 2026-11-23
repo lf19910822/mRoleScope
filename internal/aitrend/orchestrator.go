@@ -328,6 +328,11 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 			if !ok {
 				return result, decodeErr
 			}
+			if len(history) == 0 && recoverInitialAgentContract(contractErr) {
+				result.AgentResponse = AgentResponse{ContractVersion: AgentContractVersionV1, ResponseModes: []ResponseMode{ResponseModeGuidance}}
+				result.AIAttempts = modelTurns + 1
+				return result, nil
+			}
 			correctionAttempts++
 			_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
 			if correctionAttempts >= MaxAIAttempts {
@@ -359,6 +364,18 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 		return result, nil
 	}
 	return result, &ContractError{Code: ErrorLimitExceeded, Field: "model_turns", Message: "AI model turn limit exceeded"}
+}
+
+func recoverInitialAgentContract(err *ContractError) bool {
+	if err == nil {
+		return false
+	}
+	switch err.Code {
+	case ErrorInvalidJSON, ErrorInvalidEnum, ErrorInvalidCombination, ErrorMissingField:
+		return true
+	default:
+		return false
+	}
 }
 
 func historyHasTrendSummaryCall(history []ToolConversation) bool {

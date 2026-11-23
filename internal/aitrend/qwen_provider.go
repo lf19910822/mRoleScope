@@ -292,9 +292,9 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	}
 	message := payload.Choices[0].Message
 	if len(message.ToolCalls) > 0 {
-		if strings.TrimSpace(message.Content) != "" {
-			return IntentToolTurn{}, &ContractError{Code: ErrorInvalidCombination, Field: "model_response", Message: "AI 同时返回了工具调用和最终内容"}
-		}
+		// Some compatible endpoints let the model attach a short natural-language
+		// note to a tool turn. The note is not a final Agent response; preserve
+		// the executable calls and let the final structured turn carry guidance.
 		calls := make([]ToolCall, 0, len(message.ToolCalls))
 		for index, toolCall := range message.ToolCalls {
 			callID := strings.TrimSpace(toolCall.ID)
@@ -310,7 +310,32 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		return IntentToolTurn{}, &ContractError{Code: ErrorProviderFailure, Message: "AI 返回内容无效"}
 	}
 	content = string(unwrapIntentEnvelope([]byte(content)))
+	if len(history) == 0 && !looksLikeAgentResponse([]byte(content)) {
+		content = `{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}`
+	}
 	return IntentToolTurn{Intent: []byte(content), InputTokens: payload.Usage.PromptTokens, OutputTokens: payload.Usage.CompletionTokens}, nil
+}
+
+func looksLikeAgentResponse(content []byte) bool {
+	var envelope struct {
+		ContractVersion string   `json:"contract_version"`
+		ResponseModes   []string `json:"response_modes"`
+	}
+	if err := json.Unmarshal(content, &envelope); err != nil {
+		return false
+	}
+	if envelope.ContractVersion == ContractVersionV1 {
+		return true
+	}
+	if envelope.ContractVersion != AgentContractVersionV1 || len(envelope.ResponseModes) == 0 {
+		return false
+	}
+	for _, mode := range envelope.ResponseModes {
+		if mode != string(ResponseModeTrend) && mode != string(ResponseModeGuidance) {
+			return false
+		}
+	}
+	return true
 }
 
 func qwenModelTools() []qwenTool {
