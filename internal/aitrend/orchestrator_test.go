@@ -84,6 +84,27 @@ func TestOrchestratorDoesNotRetryBackendToolFailure(t *testing.T) {
 	}
 }
 
+func TestBatchTrendPayloadFailureAllowsUsablePartialResults(t *testing.T) {
+	payload := json.RawMessage(`[
+    {"curve":{"dimension":"technology","value":"unknown"},"error":{"code":"backend_failure","message":"summary unavailable"}},
+    {"curve":{"dimension":"technology","value":"go"},"average_daily_active_jobs":12}
+  ]`)
+	if err := batchTrendPayloadFailure(payload); err != nil {
+		t.Fatalf("partial batch was treated as failed: %#v", err)
+	}
+}
+
+func TestBatchTrendPayloadFailureReportsAllFailedBatch(t *testing.T) {
+	payload := json.RawMessage(`[
+    {"curve":{"dimension":"technology","value":"unknown"},"error":{"code":"backend_failure","message":"summary unavailable"}},
+    {"curve":{"dimension":"technology","value":"missing"},"error":{"code":"unavailable_value","message":"value unavailable"}}
+  ]`)
+	err := batchTrendPayloadFailure(payload)
+	if err == nil || err.Code != ErrorBackendFailure {
+		t.Fatalf("all-failed batch error = %#v, want backend_failure", err)
+	}
+}
+
 func TestOrchestratorEmitsValidationAndOperationEvents(t *testing.T) {
 	valid, err := json.Marshal(validIntent())
 	if err != nil {

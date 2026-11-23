@@ -117,11 +117,12 @@ func buildReport(cases []Case, traces []Trace, version EvaluationVersion, catego
 		report.CategoryReports = append(report.CategoryReports, categoryReport)
 	}
 	for _, trace := range traces {
-		if trace.Status == TraceIncomplete || trace.Status == TraceInfrastructure {
-			continue
+		if trace.FirstEventLatencyMS > 0 {
+			totals.first = append(totals.first, float64(trace.FirstEventLatencyMS))
 		}
-		totals.first = append(totals.first, float64(trace.FirstEventLatencyMS))
-		totals.total = append(totals.total, float64(trace.TotalDurationMS))
+		if trace.TotalDurationMS > 0 {
+			totals.total = append(totals.total, float64(trace.TotalDurationMS))
+		}
 		report.TotalToolCalls += trace.ToolCalls
 		report.TotalInputTokens += trace.InputTokens
 		report.TotalOutputTokens += trace.OutputTokens

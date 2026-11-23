@@ -54,7 +54,7 @@ func (runner *Runner) Run(ctx context.Context, query string) (Result, error) {
 	productionRunner.MaxDuration = runner.MaxDuration
 	productionRunner.StatsSink = func(stats aitrend.TrendRunStats) { result.Stats = stats }
 	err = productionRunner.Run(ctx, query, func(event aitrend.StreamEvent) error {
-		if len(result.Events) == 0 {
+		if result.FirstEventLatency == 0 && isFirstModelEvent(event) {
 			result.FirstEventLatency = time.Since(started)
 		}
 		result.Events = append(result.Events, event)
@@ -66,6 +66,10 @@ func (runner *Runner) Run(ctx context.Context, query string) (Result, error) {
 	})
 	result.TotalDuration = time.Since(started)
 	return result, err
+}
+
+func isFirstModelEvent(event aitrend.StreamEvent) bool {
+	return !(event.Type == aitrend.StreamEventOperation && event.Tool == string(aitrend.ToolAnalyzeIntent) && event.Status == aitrend.StreamRunning)
 }
 
 type faultInjectingProvider struct {
