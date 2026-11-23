@@ -16,6 +16,7 @@ readonly BACKFILL_HELPER_DESTINATION='/usr/local/sbin/mrolescope-backfill-versio
 readonly DICTIONARY_HELPER_DESTINATION='/usr/local/sbin/mrolescope-dictionary'
 readonly RELEASE_HELPER_DESTINATION='/usr/local/sbin/mrolescope-release'
 readonly AI_ANALYSIS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-ai-analysis'
+readonly AI_EVALUATION_HELPER_DESTINATION='/usr/local/sbin/mrolescope-ai-evaluation'
 readonly OPERATIONS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-operations'
 readonly CERT_ISSUE_HELPER_DESTINATION='/usr/local/sbin/mrolescope-cert-issue'
 readonly CERT_RENEW_HELPER_DESTINATION='/usr/local/sbin/mrolescope-cert-renew'
@@ -36,6 +37,7 @@ readonly CERT_RENEW_TIMER_DESTINATION='/etc/systemd/system/mrolescope-cert-renew
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
 readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'
+readonly EVALUATION_DIR='/var/lib/mrolescope/ai-evaluation'
 readonly TLS_DIR='/etc/mrolescope/tls'
 readonly ACME_CHALLENGE_DIR='/var/lib/mrolescope/acme-challenge'
 readonly ACME_STATE_DIR='/var/lib/mrolescope/acme'
@@ -155,6 +157,7 @@ download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content'
 download_asset 'deploy/remote-development/mrolescope-dictionary' "$staging_dir/mrolescope-dictionary"
 download_asset 'deploy/remote-development/mrolescope-release' "$staging_dir/mrolescope-release"
 download_asset 'deploy/remote-development/mrolescope-ai-analysis' "$staging_dir/mrolescope-ai-analysis"
+  download_asset 'deploy/remote-development/mrolescope-ai-evaluation' "$staging_dir/mrolescope-ai-evaluation"
 download_asset 'deploy/remote-development/mrolescope-operations' "$staging_dir/mrolescope-operations"
 download_asset 'deploy/remote-development/mrolescope-cert-issue' "$staging_dir/mrolescope-cert-issue"
 download_asset 'deploy/remote-development/mrolescope-cert-renew' "$staging_dir/mrolescope-cert-renew"
@@ -179,6 +182,7 @@ bash -n "$staging_dir/mrolescope-backfill-versioned-content"
 bash -n "$staging_dir/mrolescope-dictionary"
 bash -n "$staging_dir/mrolescope-release"
 bash -n "$staging_dir/mrolescope-ai-analysis"
+bash -n "$staging_dir/mrolescope-ai-evaluation"
 bash -n "$staging_dir/mrolescope-operations"
 bash -n "$staging_dir/mrolescope-cert-issue"
 bash -n "$staging_dir/mrolescope-cert-renew"
@@ -193,6 +197,7 @@ install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0750 /opt/mrolescope-runner
 
 install -d -o root -g root -m 0755 /opt/mrolescope /etc/mrolescope /var/lib/mrolescope
 install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR" "$TLS_DIR" "$ACME_CHALLENGE_DIR"
+install -d -o root -g root -m 0700 "$EVALUATION_DIR"
 install -d -o root -g root -m 0700 "$ACME_STATE_DIR"
 if [[ -d "$ACME_CHALLENGE_DIR" ]]; then
   chmod 0755 "$ACME_CHALLENGE_DIR"
@@ -205,6 +210,7 @@ install -o root -g root -m 0750 "$staging_dir/mrolescope-backfill-versioned-cont
 install -o root -g root -m 0750 "$staging_dir/mrolescope-dictionary" "$DICTIONARY_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-release" "$RELEASE_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-ai-analysis" "$AI_ANALYSIS_HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-ai-evaluation" "$AI_EVALUATION_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-operations" "$OPERATIONS_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-cert-issue" "$CERT_ISSUE_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-cert-renew" "$CERT_RENEW_HELPER_DESTINATION"
