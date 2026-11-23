@@ -24,6 +24,13 @@ grep -Fq -- "--profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluatio
 if grep -Fq 'exec compose' "$helper"; then
   die 'AI evaluation helper must call the compose shell function without exec'
 fi
+for mapping in \
+  '  export MROLESCOPE_API_IMAGE="$api_image"' \
+  '  export MROLESCOPE_MIGRATE_IMAGE="$migrate_image"' \
+  '  export MROLESCOPE_WORKER_IMAGE="$worker_image"' \
+  '  export MROLESCOPE_WEB_EDGE_IMAGE="$web_edge_image"'; do
+  grep -Fqx "$mapping" "$helper" || die "AI evaluation helper must export verified image mapping: ${mapping}"
+done
 if grep -Eq 'printf.*MROLESCOPE_QWEN_API_KEY|echo.*MROLESCOPE_QWEN_API_KEY|cat[[:space:]].*SECRETS' "$helper"; then
   die 'helper may print secret values'
 fi
