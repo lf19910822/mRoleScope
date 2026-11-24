@@ -15,12 +15,16 @@ die() {
 [[ -f "$compose_file" ]] || die 'Compose file is missing'
 [[ -f "$bootstrap" ]] || die 'bootstrap is missing'
 [[ -f "$worker_dockerfile" ]] || die 'worker Dockerfile is missing'
-grep -Fqx "[[ \"\$#\" -eq 1 && ( \"\$1\" == 'run-trend' || \"\$1\" == 'run-agent' ) ]] || die 'operation is not allowlisted'" "$helper" \
-  || die 'helper must allowlist exactly run-trend and run-agent'
+grep -Fqx "[[ \"\$#\" -eq 1 && ( \"\$1\" == 'run-trend' || \"\$1\" == 'run-agent' || \"\$1\" == 'run-trend-sample' || \"\$1\" == 'run-agent-sample' ) ]] || die 'operation is not allowlisted'" "$helper" \
+  || die 'helper must allowlist only fixed full and sample evaluation operations'
 grep -Fq -- "--profile ai-trend-evaluation run --rm --no-deps ai-trend-evaluation" "$helper" \
   || die 'trend helper operation is not fixed'
 grep -Fq -- "--profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation" "$helper" \
   || die 'Agent helper operation is not fixed'
+grep -Fq -- "-case-ids E01,C01,R01,M01,U01,D01" "$helper" \
+  || die 'trend sample IDs are not fixed'
+grep -Fq -- "-case-ids G01,O01,M01" "$helper" \
+  || die 'Agent sample IDs are not fixed'
 if grep -Fq 'exec compose' "$helper"; then
   die 'AI evaluation helper must call the compose shell function without exec'
 fi

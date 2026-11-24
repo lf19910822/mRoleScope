@@ -57,7 +57,7 @@ load_release() {
 }
 
 [[ "${EUID}" -eq 0 ]] || die 'must run as root'
-[[ "$#" -eq 1 && ( "$1" == 'run-trend' || "$1" == 'run-agent' ) ]] || die 'operation is not allowlisted'
+[[ "$#" -eq 1 && ( "$1" == 'run-trend' || "$1" == 'run-agent' || "$1" == 'run-trend-sample' || "$1" == 'run-agent-sample' ) ]] || die 'operation is not allowlisted'
 is_root_owned_mode "$COMPOSE_FILE" 644 || die 'Compose definition is not trusted'
 is_root_owned_mode "$SECRETS_FILE" 600 || die 'runtime secrets are not trusted'
 is_root_owned_mode "$CURRENT_FILE" 600 || die 'no verified release is available'
@@ -81,5 +81,21 @@ case "$1" in
     ;;
   run-agent)
     compose --profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation
+    ;;
+  run-trend-sample)
+    compose --profile ai-trend-evaluation run --rm --no-deps ai-trend-evaluation \
+      -provider qwen -suite trend \
+      -cases /app/evaluation/AI趋势智能体Benchmark-v1.md \
+      -snapshot /app/evaluation/serving-snapshot-v3.json \
+      -case-ids E01,C01,R01,M01,U01,D01 \
+      -output /var/lib/mrolescope/ai-evaluation/trend-sample
+    ;;
+  run-agent-sample)
+    compose --profile ai-trend-evaluation run --rm --no-deps ai-agent-evaluation \
+      -provider qwen -suite agent \
+      -cases /app/evaluation/AI趋势智能体AgentBenchmark-v1.md \
+      -snapshot /app/evaluation/serving-snapshot-v3.json \
+      -case-ids G01,O01,M01 \
+      -output /var/lib/mrolescope/ai-evaluation/agent-sample
     ;;
 esac

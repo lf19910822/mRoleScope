@@ -9,6 +9,33 @@ import (
 	"mrolescope/internal/aitrend/evaluation"
 )
 
+func TestSelectCasesByIDPreservesFixedSampleOrder(t *testing.T) {
+	cases := []evaluation.Case{
+		{ID: "E01"}, {ID: "C01"}, {ID: "R01"}, {ID: "M01"}, {ID: "U01"}, {ID: "D01"},
+	}
+	selected, err := selectCasesByID(cases, "E01,C01,R01,M01,U01,D01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 6 {
+		t.Fatalf("selected %d cases, want 6", len(selected))
+	}
+	for index, want := range []string{"E01", "C01", "R01", "M01", "U01", "D01"} {
+		if selected[index].ID != want {
+			t.Fatalf("selected[%d] = %q, want %q", index, selected[index].ID, want)
+		}
+	}
+}
+
+func TestSelectCasesByIDRejectsUnknownAndDuplicateIDs(t *testing.T) {
+	cases := []evaluation.Case{{ID: "E01"}, {ID: "C01"}}
+	for _, raw := range []string{"E01,E01", "E01,missing"} {
+		if _, err := selectCasesByID(cases, raw); err == nil {
+			t.Fatalf("selectCasesByID(%q) succeeded, want error", raw)
+		}
+	}
+}
+
 func TestFixtureProviderFollowsTrendSummaryHandshakeForCategorySubset(t *testing.T) {
 	provider := &fixtureProvider{item: evaluation.Case{
 		ID: "D05", Dimension: "technology", ExpectedCategory: "databases-and-storage",
