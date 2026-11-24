@@ -327,13 +327,14 @@ func minLimit(value int) int {
 }
 
 func main() {
-	var casesPath, snapshotPath, outputDir, runID, suite, providerMode string
+	var casesPath, snapshotPath, outputDir, runID, suite, providerMode, caseIDs string
 	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
 	flag.StringVar(&suite, "suite", "trend", "benchmark suite: trend or agent")
 	flag.StringVar(&providerMode, "provider", evaluationProviderFixture, "model provider: fixture or qwen")
 	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v3.json", "evaluation-only Serving snapshot path")
 	flag.StringVar(&outputDir, "output", evaluation.DefaultArtifactRoot, "independent evaluation artifact directory")
 	flag.StringVar(&runID, "run-id", "", "evaluation run ID (default: generated from UTC time)")
+	flag.StringVar(&caseIDs, "case-ids", "", "optional comma-separated case IDs for a bounded review sample")
 	flag.Parse()
 	if suite != "trend" && suite != "agent" {
 		fatal(fmt.Errorf("unknown benchmark suite %q", suite))
@@ -354,6 +355,12 @@ func main() {
 	}
 	if err != nil {
 		fatal(err)
+	}
+	if caseIDs != "" {
+		cases, err = selectCasesByID(cases, caseIDs)
+		if err != nil {
+			fatal(err)
+		}
 	}
 	snapshot, err := evaluation.LoadSnapshot(snapshotPath)
 	if err != nil {
@@ -425,6 +432,37 @@ func main() {
 		fatal(err)
 	}
 	fmt.Printf("evaluation=%s cases=%d traces=%d output=%s\n", version.ID(), len(cases), len(traces), filepath.Clean(outputDir))
+}
+
+func selectCasesByID(cases []evaluation.Case, raw string) ([]evaluation.Case, error) {
+	requested := strings.Split(raw, ",")
+	if len(requested) == 0 || len(requested) > 6 {
+		return nil, fmt.Errorf("case-ids must contain between 1 and 6 IDs")
+	}
+	seen := make(map[string]struct{}, len(requested))
+	for index := range requested {
+		requested[index] = strings.TrimSpace(requested[index])
+		if requested[index] == "" {
+			return nil, fmt.Errorf("case-ids contains an empty ID")
+		}
+		if _, ok := seen[requested[index]]; ok {
+			return nil, fmt.Errorf("case-ids contains duplicate ID %q", requested[index])
+		}
+		seen[requested[index]] = struct{}{}
+	}
+	byID := make(map[string]evaluation.Case, len(cases))
+	for _, item := range cases {
+		byID[item.ID] = item
+	}
+	selected := make([]evaluation.Case, 0, len(requested))
+	for _, id := range requested {
+		item, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("case-ids references unknown case %q", id)
+		}
+		selected = append(selected, item)
+	}
+	return selected, nil
 }
 
 func evaluationModelName(providerMode string) string {
