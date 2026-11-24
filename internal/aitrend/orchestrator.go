@@ -154,6 +154,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 		} else {
 			if result.Name == ToolBatchTrendSummary {
 				result.SafeError = batchTrendPayloadFailure(result.Payload)
+				if result.SafeError == nil {
+					result.SafeError = batchTrendPayloadPartialFailure(result.Payload)
+				}
 				if result.SafeError == nil && batchTrendPayloadHasItemErrors(result.Payload) {
 					partial = true
 				}
@@ -283,6 +286,9 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 					if toolResult.Name == ToolBatchTrendSummary {
 						if toolResult.SafeError == nil {
 							toolResult.SafeError = batchTrendPayloadFailure(toolResult.Payload)
+						}
+						if toolResult.SafeError == nil {
+							toolResult.SafeError = batchTrendPayloadPartialFailure(toolResult.Payload)
 						}
 						if toolResult.SafeError != nil {
 							result.Partial = true
@@ -447,6 +453,28 @@ func batchTrendPayloadHasItemErrors(payload json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+func batchTrendPayloadPartialFailure(payload json.RawMessage) *SafeError {
+	var summaries []summaryToolResponse
+	if err := json.Unmarshal(payload, &summaries); err != nil {
+		return nil
+	}
+	var firstError *SafeError
+	hasUsable := false
+	for _, summary := range summaries {
+		if summary.Error == nil {
+			hasUsable = true
+			continue
+		}
+		if firstError == nil {
+			firstError = summary.Error
+		}
+	}
+	if hasUsable {
+		return firstError
+	}
+	return nil
 }
 
 func rankedTrendPayloadFailure(payload json.RawMessage) *SafeError {

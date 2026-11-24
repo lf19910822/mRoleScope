@@ -107,6 +107,17 @@ func TestBatchTrendPayloadFailureAllowsUsablePartialResults(t *testing.T) {
 	}
 }
 
+func TestBatchTrendPayloadPartialFailureExposesItemError(t *testing.T) {
+	payload := json.RawMessage(`[
+    {"curve":{"dimension":"technology","value":"unknown"},"error":{"code":"unavailable_value","message":"value unavailable"}},
+    {"curve":{"dimension":"technology","value":"go"},"average_daily_active_jobs":12}
+  ]`)
+	err := batchTrendPayloadPartialFailure(payload)
+	if err == nil || err.Code != ErrorUnavailableValue {
+		t.Fatalf("partial batch error = %#v, want unavailable_value", err)
+	}
+}
+
 func TestBatchTrendPayloadFailureReportsAllFailedBatch(t *testing.T) {
 	payload := json.RawMessage(`[
     {"curve":{"dimension":"technology","value":"unknown"},"error":{"code":"backend_failure","message":"summary unavailable"}},

@@ -32,7 +32,6 @@
 | `limit` | 用户要求的候选数量 | `2` 表示最多取 2 项 |
 | `max_curves` | 看板容量上限 | 固定为 `8`，不是用户要求的数量 |
 | `expected_total_at_least` | 至少应交付多少条候选 | `8` |
-| `fixed_order_required` | 是否必须使用产品固定顺序 | `true` |
 
 `limit` 是“用户想看多少”，`max_curves` 是“看板最多放多少”。例如用户要求全部项目，仍然最多展示 8 条，但应说明总候选数量和未展示数量。
 
@@ -109,13 +108,13 @@ AI 读取的是 Serving 返回的聚合结果，不读取每日原始数据点�
 ### E01 比较 Go 和 Python
 
 ```json
-{"id":"E01","category":"explicit-values","query":"比较 Go 和 Python 的岗位数量","dimension":"technology","expected_category":"programming-languages","expressions":["go","python"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["go","python"],"expected_scope":"explicit","max_curves":8,"expected_status":"complete","explanation_required":true}
+{"id":"E01","category":"explicit-values","query":"比较 Go 和 Python 的岗位数量","dimension":"technology","expressions":["go","python"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["go","python"],"expected_scope":"explicit","max_curves":8,"expected_status":"complete","explanation_required":true}
 ```
 
 ### E02 比较 Redis 和 MySQL
 
 ```json
-{"id":"E02","category":"explicit-values","query":"比较 Redis 和 MySQL 的岗位趋势","dimension":"technology","expected_category":"databases-and-storage","expressions":["redis","mysql"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["redis","mysql"],"expected_scope":"explicit","max_curves":8,"expected_status":"complete","explanation_required":true}
+{"id":"E02","category":"explicit-values","query":"比较 Redis 和 MySQL 的岗位趋势","dimension":"technology","expressions":["redis","mysql"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["redis","mysql"],"expected_scope":"explicit","max_curves":8,"expected_status":"complete","explanation_required":true}
 ```
 
 ### E03 比较两个项目
@@ -261,7 +260,7 @@ AI 读取的是 Serving 返回的聚合结果，不读取每日原始数据点�
 ### U05 非法工具参数修正
 
 ```json
-{"id":"U05","category":"unsupported-recovery","query":"比较 Go 和 Python 的岗位数量，并校验草稿","dimension":"technology","expected_category":"programming-languages","expressions":["go","python"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["go","python"],"expected_scope":"explicit-after-correction","max_curves":8,"expected_status":"complete","expected_errors":["invalid_tool_params_then_corrected"],"fault_injection":"invalid_tool_params_once","expected_response_modes":["trend","guidance"],"expected_terminal_status":"success","expected_draft":true,"reply_required":true,"reply_language":"zh-CN","reply_max_runes":1000,"explanation_required":true}
+{"id":"U05","category":"unsupported-recovery","query":"比较 Go 和 Python 的岗位数量，并校验草稿","dimension":"technology","expressions":["go","python"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["go","python"],"expected_scope":"explicit-after-correction","max_curves":8,"expected_status":"complete","expected_errors":["invalid_tool_params_then_corrected"],"fault_injection":"invalid_tool_params_once","expected_response_modes":["trend","guidance"],"expected_terminal_status":"success","expected_draft":true,"reply_required":true,"reply_language":"zh-CN","reply_max_runes":1000,"explanation_required":true}
 ```
 
 ## 草稿、容量与解释校验（5题）
@@ -275,7 +274,7 @@ AI 读取的是 Serving 返回的聚合结果，不读取每日原始数据点�
 ### D02 全零候选也按固定顺序
 
 ```json
-{"id":"D02","category":"draft-validation","query":"列出数据库技术岗位趋势，结果中允许出现零岗位值","dimension":"technology","expressions":["databases-and-storage"],"expected_category":"databases-and-storage","ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":8,"expected_values":[],"expected_scope":"category-zero-values","max_curves":8,"expected_status":"complete","fixed_order_required":true,"explanation_required":true}
+{"id":"D02","category":"draft-validation","query":"列出数据库技术岗位趋势，结果中允许出现零岗位值","dimension":"technology","expressions":["databases-and-storage"],"expected_category":"databases-and-storage","ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":8,"expected_values":[],"expected_scope":"category-zero-values","max_curves":8,"expected_status":"complete","explanation_required":true}
 ```
 
 ### D03 别名归一化

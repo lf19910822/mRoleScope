@@ -50,6 +50,25 @@ func TestScoreCaseRequiresTechnologySubcategoryLookupWhenDeclared(t *testing.T) 
 	}
 }
 
+func TestScoreCaseAcceptsFormalValuesAfterCategoryLookupAndCandidateShortage(t *testing.T) {
+	intent := aitrend.Intent{SubQueries: []aitrend.SubQuery{{Dimension: aitrend.DimensionTechnology, Expressions: []string{"go", "python"}, Ranking: aitrend.RankingIntent{Metric: aitrend.MetricAverageDailyActiveJobs, Order: aitrend.OrderDescending, Limit: 2}}}}
+	result := Result{
+		Draft: &aitrend.Draft{Status: aitrend.DraftComplete, Explanation: "按编程语言类别整理。", Curves: []aitrend.DraftCurve{
+			{Condition: aitrend.CurveCondition{Dimension: aitrend.DimensionTechnology, Value: "go"}},
+			{Condition: aitrend.CurveCondition{Dimension: aitrend.DimensionTechnology, Value: "python"}},
+		}},
+		Stats: aitrend.TrendRunStats{ToolCalls: 3, Intent: &intent},
+		Events: []aitrend.StreamEvent{
+			{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolListCategoryValues), Params: json.RawMessage(`{"category":"programming-languages"}`)},
+			{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolBatchTrendSummary), Params: json.RawMessage(`[{"dimension":"technology","value":"go"},{"dimension":"technology","value":"python"}]`)},
+		},
+	}
+	item := Case{ID: "C01", Dimension: "technology", ExpectedCategory: "programming-languages", ExpectedScope: "category", RankingMetric: "avg_daily_active_jobs", RankingOrder: "desc", Limit: 8, ExpectedStatus: "complete", ExplanationRequired: true}
+	if score := ScoreCase(item, result, nil); !score.Scope.Pass || !score.Ranking.Pass || !score.Pass {
+		t.Fatalf("formal category result was rejected: %#v", score)
+	}
+}
+
 func TestScoreCaseAcceptsFixedCapacityForZeroValues(t *testing.T) {
 	intent := aitrend.Intent{SubQueries: []aitrend.SubQuery{{Dimension: aitrend.DimensionProject, Expressions: []string{"*"}, Ranking: aitrend.RankingIntent{Metric: aitrend.MetricAverageDailyActiveJobs, Order: aitrend.OrderDescending, Limit: 8}}}}
 	curves := make([]aitrend.DraftCurve, 8)
