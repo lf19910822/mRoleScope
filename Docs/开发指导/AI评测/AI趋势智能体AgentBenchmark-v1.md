@@ -60,7 +60,7 @@
 ```
 
 ```json
-{"id":"M02","category":"mixed-trend-guidance","query":"比较 Go 和 Python 的岗位数量，并解释你为什么选择这些曲线。","dimension":"technology","expected_category":"programming-languages","expressions":["go","python"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["go","python"],"expected_scope":"explicit","max_curves":8,"expected_status":"complete","expected_response_modes":["trend","guidance"],"expected_terminal_status":"success","expected_draft":true,"reply_required":true,"reply_language":"zh-CN","reply_max_runes":1000}
+{"id":"M02","category":"mixed-trend-guidance","query":"比较 Go 和 Python 的岗位数量，并解释你为什么选择这些曲线。","dimension":"technology","expressions":["go","python"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"none","limit":2,"expected_values":["go","python"],"expected_scope":"explicit","max_curves":8,"expected_status":"complete","expected_response_modes":["trend","guidance"],"expected_terminal_status":"success","expected_draft":true,"reply_required":true,"reply_language":"zh-CN","reply_max_runes":1000}
 ```
 
 ```json

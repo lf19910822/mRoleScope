@@ -57,6 +57,9 @@ func (provider *fixtureProvider) AnalyzeIntentTurn(_ context.Context, _ string, 
 		// The first category request is corrupted by faultInjectingProvider;
 		// keep the fixture conversation alive so the correction can be observed
 		// before the summary and final Intent turns.
+		if len(categories) == 0 {
+			categories = append(categories, fixtureInferredCategory(provider.item))
+		}
 		provider.turn++
 		category := categories[0]
 		return aitrend.IntentToolTurn{ToolCalls: []aitrend.ToolCall{{ID: "category-corrected", Name: aitrend.ToolListCategoryValues, Params: mustJSON(map[string]string{"category": category})}}, InputTokens: 10, OutputTokens: 4}, nil
@@ -186,6 +189,23 @@ func fixtureCategoryValues(category string) []string {
 	}
 }
 
+func fixtureInferredCategory(item evaluation.Case) string {
+	if item.Dimension != string(aitrend.DimensionTechnology) {
+		return "programming-languages"
+	}
+	for _, expression := range item.Expressions {
+		switch expression {
+		case "redis", "mysql":
+			return "databases-and-storage"
+		case "unreal-engine":
+			return "game-engines"
+		case "docker":
+			return "cloud-native"
+		}
+	}
+	return "programming-languages"
+}
+
 func containsFixtureWildcard(values []string) bool {
 	for _, value := range values {
 		if value == "*" {
@@ -295,7 +315,7 @@ func main() {
 	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
 	flag.StringVar(&suite, "suite", "trend", "benchmark suite: trend or agent")
 	flag.StringVar(&providerMode, "provider", evaluationProviderFixture, "model provider: fixture or qwen")
-	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v2.json", "evaluation-only Serving snapshot path")
+	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v3.json", "evaluation-only Serving snapshot path")
 	flag.StringVar(&outputDir, "output", evaluation.DefaultArtifactRoot, "independent evaluation artifact directory")
 	flag.StringVar(&runID, "run-id", "", "evaluation run ID (default: generated from UTC time)")
 	flag.Parse()

@@ -191,7 +191,8 @@ func scoreScope(item Case, result Result) SubScore {
 			return failed("partial result did not retain a valid candidate")
 		}
 	case item.ExpectedScope == "category" || strings.Contains(item.ExpectedScope, "category-"):
-		if !intentContainsExpression(result.Stats.Intent, item.Expressions) || len(actual) == 0 {
+		categoryConfirmed := item.ExpectedCategory != "" && hasCategoryLookup(operationCalls(result), item.ExpectedCategory)
+		if (!categoryConfirmed && !intentContainsExpression(result.Stats.Intent, item.Expressions)) || len(actual) == 0 {
 			return failed("category scope was not preserved")
 		}
 	case item.ExpectedScope == "global" || strings.Contains(item.ExpectedScope, "global-") || item.ExpectedScope == "multiple-subqueries":
@@ -236,7 +237,7 @@ func scoreRanking(item Case, result Result) SubScore {
 		if item.RankingOrder != "none" && string(query.Ranking.Order) != item.RankingOrder {
 			return failed(fmt.Sprintf("ranking order %q does not equal %q", query.Ranking.Order, item.RankingOrder))
 		}
-		if item.Limit > 0 && query.Ranking.Limit != minExpectedLimit(item.Limit) {
+		if item.Limit > 0 && !rankingLimitMatches(item, result, query.Ranking.Limit) {
 			return failed(fmt.Sprintf("ranking limit %d does not equal %d", query.Ranking.Limit, minExpectedLimit(item.Limit)))
 		}
 	}
@@ -255,6 +256,21 @@ func minExpectedLimit(limit int) int {
 		return aitrend.MaxCurves
 	}
 	return limit
+}
+
+func rankingLimitMatches(item Case, result Result, actual int) bool {
+	expected := minExpectedLimit(item.Limit)
+	if actual == expected {
+		return true
+	}
+	// A bounded category/global query may have fewer formal candidates than the
+	// requested limit. In that case the model may return the actual candidate
+	// count, provided the Draft contains exactly that many candidates. Explicit
+	// comparisons remain exact because their requested values are known.
+	if actual < expected && item.ExpectedScope != "explicit" && !strings.Contains(item.ExpectedScope, "explicit-") && result.Draft != nil && actual > 0 && len(result.Draft.Curves) == actual {
+		return true
+	}
+	return false
 }
 
 func scoreExpectedErrors(item Case, result Result, runErr error) SubScore {

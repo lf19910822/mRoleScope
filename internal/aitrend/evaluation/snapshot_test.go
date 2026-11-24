@@ -60,7 +60,7 @@ func TestEvaluationSnapshotV2SupportsDefaultMonthRange(t *testing.T) {
 		t.Fatal(err)
 	}
 	summary, err := snapshot.ReadTrendSummary(context.Background(), jdserving.TrendQuery{
-		Range: jdserving.TrendRangeMonth,
+		Range:     jdserving.TrendRangeMonth,
 		Condition: jdserving.TrendCondition{Dimension: jdserving.TrendDimensionTechnology, Value: "go"},
 	})
 	if err != nil {
@@ -70,7 +70,7 @@ func TestEvaluationSnapshotV2SupportsDefaultMonthRange(t *testing.T) {
 		t.Fatal("month snapshot summary has no average")
 	}
 	allSummary, err := snapshot.ReadTrendSummary(context.Background(), jdserving.TrendQuery{
-		Range: jdserving.TrendRangeAll,
+		Range:     jdserving.TrendRangeAll,
 		Condition: jdserving.TrendCondition{Dimension: jdserving.TrendDimensionTechnology, Value: "go"},
 	})
 	if err != nil {
@@ -78,5 +78,19 @@ func TestEvaluationSnapshotV2SupportsDefaultMonthRange(t *testing.T) {
 	}
 	if allSummary.ValidObservationDays <= summary.ValidObservationDays {
 		t.Fatalf("daily range derivation = all %d days, month %d days", allSummary.ValidObservationDays, summary.ValidObservationDays)
+	}
+}
+
+func TestEvaluationSnapshotV3ProvidesCapacityCandidates(t *testing.T) {
+	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v3.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := snapshot.ListFilterOptions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Projects) < 8 {
+		t.Fatalf("snapshot project candidates = %d, want at least 8", len(options.Projects))
 	}
 }
