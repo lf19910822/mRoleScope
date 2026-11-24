@@ -14,8 +14,8 @@ WORKDIR /app
 COPY --from=build /out/mrolescope-worker /usr/local/bin/mrolescope-worker
 COPY --from=build /out/mrolescope-ai-evaluation /usr/local/bin/mrolescope-ai-evaluation
 COPY collector /app/collector
-COPY Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md /app/evaluation/AI趋势智能体Benchmark-v1.md
-COPY Docs/开发指导/AI评测/AI趋势智能体AgentBenchmark-v1.md /app/evaluation/AI趋势智能体AgentBenchmark-v1.md
+COPY Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md /app/evaluation/AI趋势智能体Benchmark-v1.md
+COPY Docs/开发指导/AI评测/benchmarks/AI趋势智能体AgentBenchmark-v1.md /app/evaluation/AI趋势智能体AgentBenchmark-v1.md
 COPY internal/aitrend/evaluation/testdata/serving-snapshot-v3.json /app/evaluation/serving-snapshot-v3.json
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/mrolescope-worker"]

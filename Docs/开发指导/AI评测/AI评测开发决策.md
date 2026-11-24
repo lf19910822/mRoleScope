@@ -299,7 +299,7 @@
 
 ## 决策 49：Agent 专题题目文档
 
-- Agent 专题题目单独保存为 `Docs/开发指导/AI评测/AI趋势智能体AgentBenchmark-v1.md`。
+- Agent 专题题目单独保存为 `Docs/开发指导/AI评测/benchmarks/AI趋势智能体AgentBenchmark-v1.md`。
 - 该文件只描述 Agent 响应模式、回复、工具边界和必要的趋势结果约束。
 - 现有 `AI趋势智能体Benchmark-v1.md` 继续作为 30 道趋势曲线题的审阅源。
 
