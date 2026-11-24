@@ -442,13 +442,26 @@ func historyHasToolFailure(history []ToolConversation) bool {
 	return false
 }
 
+func historyHasModelToolFailure(history []ToolConversation) bool {
+	if len(history) == 0 {
+		return false
+	}
+	last := history[len(history)-1]
+	for _, result := range last.Results {
+		if result.SafeError != nil && isModelToolContractError(&ContractError{Code: result.SafeError.Code}) {
+			return true
+		}
+	}
+	return false
+}
+
 func isModelToolContractError(err error) bool {
 	contractErr, ok := err.(*ContractError)
 	if !ok {
 		return false
 	}
 	switch contractErr.Code {
-	case ErrorInvalidJSON, ErrorMissingField, ErrorInvalidEnum, ErrorInvalidCombination, ErrorUnavailableValue:
+	case ErrorInvalidJSON, ErrorMissingField, ErrorInvalidEnum, ErrorInvalidCombination, ErrorInvalidValue, ErrorUnavailableValue:
 		return true
 	default:
 		return false

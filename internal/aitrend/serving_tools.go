@@ -198,7 +198,7 @@ func (service ServingToolService) listCategoryValues(ctx context.Context, params
 	}
 	values, _, ok := snapshot.categoryValues(request.Category)
 	if !ok {
-		return nil, contractError(ErrorUnavailableValue, "category", "technology category is unavailable")
+		return nil, contractError(ErrorInvalidValue, "category", "technology category must be a current formal category value or label")
 	}
 	return marshalBounded(values, MaxToolCandidates)
 }
@@ -338,7 +338,7 @@ func (service ServingToolService) validateCurveDraft(_ context.Context, params j
 	}
 	for _, curve := range draft.Curves {
 		if !service.hasFormalValue(curve.Condition.Dimension, curve.Condition.Value) {
-			return nil, contractError(ErrorUnavailableValue, "curves", "draft contains an unavailable formal value")
+			return nil, contractError(ErrorInvalidValue, "curves", "draft contains a value that is not in the current formal vocabulary")
 		}
 	}
 	return json.Marshal(draft)

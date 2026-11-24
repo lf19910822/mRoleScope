@@ -97,6 +97,43 @@ func TestOrchestratorDoesNotRetryBackendToolFailure(t *testing.T) {
 	}
 }
 
+func TestOrchestratorRecoversFromModelCorrectableToolValueError(t *testing.T) {
+	valid, err := json.Marshal(validIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewToolRegistry([]ToolDefinition{
+		{Name: ToolListCategoryValues, Handler: func(_ context.Context, params json.RawMessage) (json.RawMessage, error) {
+			if string(params) == `{"category":"database"}` {
+				return nil, &ContractError{Code: ErrorInvalidValue, Field: "category", Message: "technology category must be a current formal category value or label"}
+			}
+			return []byte(`[{"value":"mysql","label":"MySQL"}]`), nil
+		}},
+		{Name: ToolBatchTrendSummary, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return []byte(`[{"curve":{"dimension":"technology","value":"mysql"},"average_daily_active_jobs":1}]`), nil
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "bad-category", Name: ToolListCategoryValues, Params: []byte(`{"category":"database"}`)}}},
+		{ToolCalls: []ToolCall{{ID: "good-category", Name: ToolListCategoryValues, Params: []byte(`{"category":"databases-and-storage"}`)}}},
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"mysql","range":"month"}]`)}}},
+		{Intent: valid},
+	}}
+	result, err := (Orchestrator{ToolAnalyzer: provider, Registry: registry}).RunWithInput(context.Background(), "哪些数据库？")
+	if err != nil || result.Partial || len(result.ToolResults) != 3 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if result.ToolResults[0].SafeError == nil || result.ToolResults[0].SafeError.Code != ErrorInvalidValue {
+		t.Fatalf("first tool result=%#v", result.ToolResults[0])
+	}
+	if len(provider.history) < 2 || len(provider.history[1]) != 1 || provider.history[1][0].Results[0].SafeError == nil {
+		t.Fatalf("provider history did not receive correction evidence: %#v", provider.history)
+	}
+}
+
 func TestBatchTrendPayloadFailureAllowsUsablePartialResults(t *testing.T) {
 	payload := json.RawMessage(`[
     {"curve":{"dimension":"technology","value":"unknown"},"error":{"code":"backend_failure","message":"summary unavailable"}},
