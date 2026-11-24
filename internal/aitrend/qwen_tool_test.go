@@ -129,6 +129,58 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 	}
 }
 
+func TestQwenIntentProviderAddsRepairInstructionAfterModelCorrectableToolError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []qwenTrendMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Messages) < 2 || !strings.Contains(body.Messages[1].Content, "上一轮工具调用失败") || !strings.Contains(body.Messages[1].Content, "修正参数") {
+			t.Fatalf("repair instruction missing from model prompt: %#v", body.Messages)
+		}
+		writeQwenResponse(writer, map[string]any{"content": "", "tool_calls": []any{map[string]any{
+			"id": "call-formal-category", "type": "function",
+			"function": map[string]string{"name": string(ToolListCategoryValues), "arguments": `{"category":"databases-and-storage"}`},
+		}}}, 4, 2)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	history := []ToolConversation{{
+		Calls:   []ToolCall{{ID: "bad-category", Name: ToolListCategoryValues, Params: json.RawMessage(`{"category":"database"}`)}},
+		Results: []ToolCallResult{{Name: ToolListCategoryValues, Available: false, SafeError: &SafeError{Code: ErrorInvalidValue, Field: "category", Message: "technology category must be a current formal category value or label"}}},
+	}}
+	turn, err := provider.AnalyzeIntentTurn(context.Background(), "哪些数据库？", nil, history, true)
+	if err != nil || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolListCategoryValues {
+		t.Fatalf("corrective tool turn=%#v err=%v", turn, err)
+	}
+}
+
+func TestQwenIntentProviderDoesNotTreatBackendFailureAsParameterCorrection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []qwenTrendMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(body.Messages[1].Content, "修正参数") {
+			t.Fatalf("backend failure was presented as parameter correction: %#v", body.Messages[1])
+		}
+		writeQwenResponse(writer, map[string]any{"content": `{"contract_version":"ai-trend-agent-v1","response_modes":["guidance"]}`}, 4, 2)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	history := []ToolConversation{{
+		Calls:   []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: json.RawMessage(`[]`)}},
+		Results: []ToolCallResult{{Name: ToolBatchTrendSummary, Available: false, SafeError: &SafeError{Code: ErrorBackendFailure, Field: "serving", Message: "tool execution failed"}}},
+	}}
+	if _, err := provider.AnalyzeIntentTurn(context.Background(), "哪些项目？", nil, history, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQwenIntentProviderClassifiesServiceModesWithStrictNoToolRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body struct {

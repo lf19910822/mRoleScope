@@ -77,8 +77,24 @@ func TestServingToolCategoryRejectsUnknownWithoutWildcard(t *testing.T) {
 		t.Fatalf("unknown category result = %#v, err=%v", result, err)
 	}
 	contractErr, ok := err.(*ContractError)
-	if !ok || contractErr.Code != ErrorUnavailableValue {
+	if !ok || contractErr.Code != ErrorInvalidValue {
 		t.Fatalf("unknown category error = %#v", err)
+	}
+}
+
+func TestServingToolCategoryErrorIsDistinctFromUnavailableFormalValue(t *testing.T) {
+	service := ServingToolService{Options: fakeFilterOptions{}}
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.Call(context.Background(), ToolCall{Name: ToolListCategoryValues, Params: json.RawMessage(`{"category":"database"}`)})
+	if err == nil || result.Available {
+		t.Fatalf("invalid category result = %#v, err=%v", result, err)
+	}
+	contractErr, ok := err.(*ContractError)
+	if !ok || contractErr.Code != ErrorInvalidValue || contractErr.Field != "category" {
+		t.Fatalf("invalid category error = %#v, want invalid_value/category", err)
 	}
 }
 
@@ -116,6 +132,24 @@ func TestServingToolRegistryExposesOnlyBoundedFormalValues(t *testing.T) {
 	}
 	if _, err := registry.Call(context.Background(), ToolCall{Name: ToolListAvailableValues, Params: json.RawMessage(`{"dimension":"technology","raw_sql":"select 1"}`)}); err == nil {
 		t.Fatal("unknown tool parameter was accepted")
+	}
+}
+
+func TestServingToolDraftRejectsUnknownFormalValueAsInvalidValue(t *testing.T) {
+	service := ServingToolService{Resolver: Resolver{Values: map[Dimension][]Candidate{
+		DimensionTechnology: {{Dimension: DimensionTechnology, Value: "mysql", Label: "MySQL"}},
+	}}}
+	registry, err := service.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.Call(context.Background(), ToolCall{Name: ToolValidateCurveDraft, Params: json.RawMessage(`{"contract_version":"ai-trend-draft-v1","status":"complete","curves":[{"condition":{"dimension":"technology","value":"database"},"label":"database","selected":true,"match_status":"exact","reason":"test","sub_query_ids":["q1"]}]}`)})
+	if err == nil || result.Available {
+		t.Fatalf("unknown formal value result=%#v err=%v", result, err)
+	}
+	contractErr, ok := err.(*ContractError)
+	if !ok || contractErr.Code != ErrorInvalidValue {
+		t.Fatalf("unknown formal value error=%#v, want invalid_value", err)
 	}
 }
 

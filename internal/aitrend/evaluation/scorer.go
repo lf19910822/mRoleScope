@@ -355,7 +355,7 @@ func scoreExpectedErrors(item Case, result Result, runErr error) SubScore {
 
 func isModelContractErrorCode(code aitrend.SafeErrorCode) bool {
 	switch code {
-	case aitrend.ErrorInvalidJSON, aitrend.ErrorMissingField, aitrend.ErrorInvalidEnum, aitrend.ErrorInvalidCombination, aitrend.ErrorUnavailableValue:
+	case aitrend.ErrorInvalidJSON, aitrend.ErrorMissingField, aitrend.ErrorInvalidEnum, aitrend.ErrorInvalidCombination, aitrend.ErrorInvalidValue, aitrend.ErrorUnavailableValue:
 		return true
 	default:
 		return false

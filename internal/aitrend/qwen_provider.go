@@ -437,10 +437,13 @@ func toolLoopUserPrompt(query string, correction *ContractError, history []ToolC
 	if correction != nil && len(history) == 0 {
 		return value + "\n\n上一版意图校验失败，当前还没有任何工具结果。请先调用必要的正式值或趋势摘要工具核对用户点名内容，完成 batch_trend_summary 后再返回最终 Intent；不要在没有工具结果时直接返回 Intent。"
 	}
-	if historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary) {
-		return value + "\n\n已收到趋势摘要结果。现在只返回符合 Schema 的最终 Intent 对象，不要再调用工具。"
-	}
 	if len(history) > 0 {
+		if historyHasModelToolFailure(history) {
+			return value + "\n\n上一轮工具调用失败。请先根据工具返回的 error.code 和 error.field 修正参数，再重新调用合适的目录或正式值工具；不要直接返回最终 Intent，也不要把无效值改写成通配符。"
+		}
+		if historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary) {
+			return value + "\n\n已收到趋势摘要结果。现在只返回符合 Schema 的最终 Intent 对象，不要再调用工具。"
+		}
 		return value + "\n\n候选范围已经通过工具确认。返回最终 Intent 前，必须先调用 batch_trend_summary 获取这些候选的每日活跃岗位数量摘要，用于按用户要求排序；工具调用阶段不要输出最终 Intent。"
 	}
 	return value

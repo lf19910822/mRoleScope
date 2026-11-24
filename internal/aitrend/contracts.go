@@ -139,6 +139,7 @@ const (
 	ErrorInvalidEnum          SafeErrorCode = "invalid_enum"
 	ErrorInvalidCombination   SafeErrorCode = "invalid_combination"
 	ErrorLimitExceeded        SafeErrorCode = "limit_exceeded"
+	ErrorInvalidValue         SafeErrorCode = "invalid_value"
 	ErrorUnavailableValue     SafeErrorCode = "unavailable_value"
 	ErrorBackendFailure       SafeErrorCode = "backend_failure"
 	ErrorProviderFailure      SafeErrorCode = "provider_failure"
