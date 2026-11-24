@@ -2472,28 +2472,33 @@ type AiTechnologyRequirementOption struct {
 }
 
 type AiTrendRequestAudit struct {
-	ID                 pgtype.UUID
-	RequestHash        string
-	IntentHash         pgtype.Text
-	DraftHash          pgtype.Text
-	ContractVersion    string
-	ValidationStatus   string
-	Status             AiTrendAuditStatus
-	SafeErrorCode      pgtype.Text
-	AiAttemptCount     int32
-	ToolCallCount      int32
-	ToolFailureCount   int32
-	InputTokenCount    int32
-	OutputTokenCount   int32
-	DurationMs         int64
-	DraftCurveCount    int32
-	DraftSelectedCount int32
-	DraftWarningCount  int32
-	CreatedAt          pgtype.Timestamptz
-	CompletedAt        pgtype.Timestamptz
-	ExpiresAt          pgtype.Timestamptz
-	ResponseModes      []string
-	ReplyWarningCount  int32
+	ID                             pgtype.UUID
+	RequestHash                    string
+	IntentHash                     pgtype.Text
+	DraftHash                      pgtype.Text
+	ContractVersion                string
+	ValidationStatus               string
+	Status                         AiTrendAuditStatus
+	SafeErrorCode                  pgtype.Text
+	AiAttemptCount                 int32
+	ToolCallCount                  int32
+	ToolFailureCount               int32
+	InputTokenCount                int32
+	OutputTokenCount               int32
+	DurationMs                     int64
+	DraftCurveCount                int32
+	DraftSelectedCount             int32
+	DraftWarningCount              int32
+	CreatedAt                      pgtype.Timestamptz
+	CompletedAt                    pgtype.Timestamptz
+	ExpiresAt                      pgtype.Timestamptz
+	ResponseModes                  []string
+	ReplyWarningCount              int32
+	ServiceTags                    []string
+	ClassificationStatus           pgtype.Text
+	ClassificationInputTokenCount  int32
+	ClassificationOutputTokenCount int32
+	ClassificationDurationMs       int64
 }
 
 type AiTrendRequestAuditTool struct {
