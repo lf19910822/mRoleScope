@@ -76,7 +76,7 @@ func (r Router) aiTrendDraft(context *gin.Context) {
 
 func safeAITrendTool(tool string) bool {
 	switch aitrend.ToolName(tool) {
-	case aitrend.ToolAnalyzeIntent, aitrend.ToolExplainDraft, aitrend.ToolListTechnologyCategories, aitrend.ToolListCategoryValues,
+	case aitrend.ToolClassifyServiceModes, aitrend.ToolAnalyzeIntent, aitrend.ToolExplainDraft, aitrend.ToolListTechnologyCategories, aitrend.ToolListCategoryValues,
 		aitrend.ToolListAvailableValues, aitrend.ToolRankValues, aitrend.ToolRankTrendValues,
 		aitrend.ToolReadTrendSummary, aitrend.ToolReadEventSummary,
 		aitrend.ToolValidateCurveDraft, aitrend.ToolBatchTrendSummary,

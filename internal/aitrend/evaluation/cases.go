@@ -11,6 +11,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"mrolescope/internal/aitrend"
 )
 
 const (
@@ -65,6 +67,7 @@ type Case struct {
 	MaxCurves              int               `json:"max_curves"`
 	ExpectedStatus         string            `json:"expected_status"`
 	ExpectedResponseModes  []string          `json:"expected_response_modes,omitempty"`
+	ExpectedServiceTags    []string          `json:"expected_service_tags,omitempty"`
 	ExpectedTerminalStatus string            `json:"expected_terminal_status,omitempty"`
 	ExpectedNoTrendTools   bool              `json:"expected_no_trend_tools,omitempty"`
 	ExpectedDraft          *bool             `json:"expected_draft,omitempty"`
@@ -206,6 +209,9 @@ func ValidateAgent(cases []Case) error {
 		if len(item.ExpectedResponseModes) == 0 || len(item.ExpectedResponseModes) > 2 || !uniqueStrings(item.ExpectedResponseModes) {
 			return fmt.Errorf("Agent case %s has invalid response modes", item.ID)
 		}
+		if err := validateExpectedServiceTags(item); err != nil {
+			return err
+		}
 		for _, mode := range item.ExpectedResponseModes {
 			if mode != "trend" && mode != "guidance" {
 				return fmt.Errorf("Agent case %s has invalid response mode %q", item.ID, mode)
@@ -228,6 +234,18 @@ func ValidateAgent(cases []Case) error {
 	for _, category := range agentBenchmarkCategories {
 		if counts[category] != wants[category] {
 			return fmt.Errorf("Agent category %s has %d cases, want %d", category, counts[category], wants[category])
+		}
+	}
+	return nil
+}
+
+func validateExpectedServiceTags(item Case) error {
+	if len(item.ExpectedServiceTags) == 0 || len(item.ExpectedServiceTags) > 2 || !uniqueStrings(item.ExpectedServiceTags) {
+		return fmt.Errorf("case %s has invalid expected service tags", item.ID)
+	}
+	for _, tag := range item.ExpectedServiceTags {
+		if tag != string(aitrend.ServiceTagTrend) && tag != string(aitrend.ServiceTagGuidance) {
+			return fmt.Errorf("case %s has invalid expected service tag %q", item.ID, tag)
 		}
 	}
 	return nil
@@ -296,6 +314,9 @@ func Validate(cases []Case) error {
 			if mode != "trend" && mode != "guidance" {
 				return fmt.Errorf("case %s has invalid expected response mode %q", item.ID, mode)
 			}
+		}
+		if err := validateExpectedServiceTags(item); err != nil {
+			return err
 		}
 		if item.ReplyMaxRunes < 0 {
 			return fmt.Errorf("case %s has invalid reply rune limit", item.ID)

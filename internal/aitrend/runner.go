@@ -17,11 +17,12 @@ import (
 // It deliberately builds only formal-value conditions and lets the existing
 // dashboard remain the owner of curve points and application semantics.
 type TrendRunner struct {
-	Provider    IntentProvider
-	Tools       ServingToolService
-	Audit       *AuditStore
-	MaxDuration time.Duration
-	StatsSink   func(TrendRunStats)
+	Provider            IntentProvider
+	Tools               ServingToolService
+	Audit               *AuditStore
+	ServiceModeFeedback *ServiceModeFeedback
+	MaxDuration         time.Duration
+	StatsSink           func(TrendRunStats)
 }
 
 // TrendRunStats is an in-memory handoff for evaluation and diagnostics. It is
@@ -29,6 +30,11 @@ type TrendRunner struct {
 type TrendRunStats struct {
 	InputTokens          int
 	OutputTokens         int
+	ServiceTags          []ServiceTag
+	ClassificationStatus string
+	ClassificationInput  int
+	ClassificationOutput int
+	ClassificationTime   time.Duration
 	ToolCalls            int
 	ToolFailures         int
 	DraftCurveCount      int
@@ -49,6 +55,10 @@ func NewTrendRunner(provider IntentProvider, options FilterOptionsReader, summar
 func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(StreamEvent) error) error {
 	startedAt := time.Now()
 	var inputTokens, outputTokens int
+	var serviceTags []ServiceTag
+	classificationStatus := ""
+	var classificationInput, classificationOutput int
+	var classificationDuration time.Duration
 	var result OrchestrationResult
 	var draft *Draft
 	var replyQualityWarnings []string
@@ -73,6 +83,8 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		}
 		runner.StatsSink(TrendRunStats{
 			InputTokens: totalInputTokens, OutputTokens: totalOutputTokens,
+			ServiceTags: append([]ServiceTag(nil), result.ServiceTags...), ClassificationStatus: classificationStatus,
+			ClassificationInput: classificationInput, ClassificationOutput: classificationOutput, ClassificationTime: classificationDuration,
 			ToolCalls: len(result.ToolResults), ToolFailures: failures,
 			DraftCurveCount: func() int {
 				if draft == nil {
@@ -95,22 +107,12 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	if runner == nil || runner.Provider == nil || runner.Tools.Options == nil || runner.Tools.Summary == nil {
 		return &ContractError{Code: ErrorConfigurationFailure, Message: "trend AI is not configured"}
 	}
-	options, err := runner.Tools.Options.ListFilterOptions(ctx)
-	if err != nil {
-		return &ContractError{Code: ErrorBackendFailure, Message: "读取正式筛选值失败"}
-	}
-	resolver := resolverFromOptions(options)
-	tools := runner.Tools
-	tools.Snapshot = newServingSnapshot(options)
-	tools.Resolver = resolver
-	registry, err := tools.Registry()
-	if err != nil {
-		return err
-	}
-
 	var groups []CandidateGroup
 	var plannedIntent Intent
 	toolProvider, usesToolSession := runner.Provider.(IntentToolProvider)
+	var resolver Resolver
+	var registry *ToolRegistry
+	var err error
 	auditOperations := make([]auditOperation, 0, MaxToolCalls+1)
 	auditStarted := time.Now()
 	streamEmit := func(event StreamEvent) error {
@@ -118,6 +120,75 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 			auditOperations = appendAuditOperation(auditOperations, event)
 		}
 		return emit(event)
+	}
+	classifier, hasClassifier := runner.Provider.(IntentServiceModeClassifier)
+	if hasClassifier {
+		classificationStarted := time.Now()
+		classificationStatus = "running"
+		if err := streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolClassifyServiceModes)}); err != nil {
+			return err
+		}
+		classification, input, output, classifyErr := classifier.ClassifyServiceModes(ctx, query)
+		classificationInput, classificationOutput = input, output
+		inputTokens += input
+		outputTokens += output
+		classificationDuration = time.Since(classificationStarted)
+		if classifyErr != nil {
+			classificationStatus = "failed"
+			serviceTags = []ServiceTag{ServiceTagGuidance}
+			_ = streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolClassifyServiceModes), Error: safeErrorFrom(classifyErr)})
+		} else {
+			serviceTags, classifyErr = NormalizeServiceTags(classification.ServiceTags)
+			if classifyErr != nil {
+				classificationStatus = "failed"
+				serviceTags = []ServiceTag{ServiceTagGuidance}
+				_ = streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolClassifyServiceModes), Error: safeErrorFrom(classifyErr)})
+			} else {
+				classificationStatus = "completed"
+				_ = streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(ToolClassifyServiceModes)})
+			}
+		}
+		result.ServiceTags = append([]ServiceTag(nil), serviceTags...)
+		result.ClassificationStatus = classificationStatus
+		result.ClassificationInput = classificationInput
+		result.ClassificationOutput = classificationOutput
+		result.ClassificationTime = classificationDuration
+	}
+	if hasClassifier && !serviceTagsContain(serviceTags, ServiceTagTrend) {
+		modes, modeErr := ResponseModesFromServiceTags(serviceTags)
+		if modeErr != nil {
+			return modeErr
+		}
+		result = OrchestrationResult{AgentResponse: AgentResponse{ContractVersion: AgentContractVersionV1, ResponseModes: modes}, ServiceTags: append([]ServiceTag(nil), serviceTags...), ClassificationStatus: classificationStatus, ClassificationInput: classificationInput, ClassificationOutput: classificationOutput, ClassificationTime: classificationDuration}
+		guidanceInput, guidanceOutput, warnings, replyErr := runner.streamAssistantReply(ctx, query, modes, nil, false, streamEmit)
+		inputTokens += guidanceInput
+		outputTokens += guidanceOutput
+		replyQualityWarnings = append(replyQualityWarnings, warnings...)
+		result.ReplyQualityWarnings = append([]string(nil), replyQualityWarnings...)
+		if replyErr != nil {
+			if errors.Is(replyErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				_ = streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamStopped})
+				runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, nil)
+				return nil
+			}
+			runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, replyErr)
+			return replyErr
+		}
+		err = streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamSuccess})
+		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
+		return err
+	}
+	options, err := runner.Tools.Options.ListFilterOptions(ctx)
+	if err != nil {
+		return &ContractError{Code: ErrorBackendFailure, Message: "读取正式筛选值失败"}
+	}
+	resolver = resolverFromOptions(options)
+	tools := runner.Tools
+	tools.Snapshot = newServingSnapshot(options)
+	tools.Resolver = resolver
+	registry, err = tools.Registry()
+	if err != nil {
+		return err
 	}
 	orchestrator := Orchestrator{
 		ToolAnalyzer: toolProvider,
@@ -141,8 +212,14 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		MaxInputTokens:  12_000,
 		MaxOutputTokens: 16_000,
 		Emit:            streamEmit,
+		ServiceTags:     append([]ServiceTag(nil), serviceTags...),
 	}
 	result, err = orchestrator.RunWithInput(ctx, query)
+	result.ServiceTags = append([]ServiceTag(nil), serviceTags...)
+	result.ClassificationStatus = classificationStatus
+	result.ClassificationInput = classificationInput
+	result.ClassificationOutput = classificationOutput
+	result.ClassificationTime = classificationDuration
 	if err != nil {
 		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
@@ -329,7 +406,7 @@ func isGuidanceOnly(response AgentResponse) bool {
 }
 
 func (runner *TrendRunner) streamAssistantReply(ctx context.Context, query string, modes []ResponseMode, draftContext *DraftExplanationContext, emitOperation bool, emit func(StreamEvent) error) (int, int, []string, error) {
-	replyContext := AssistantReplyContext{Query: query, ResponseModes: append([]ResponseMode(nil), modes...), Draft: draftContext}
+	replyContext := AssistantReplyContext{Query: query, ResponseModes: append([]ResponseMode(nil), modes...), Draft: draftContext, ServiceModeFeedback: safeServiceModeFeedback(runner.ServiceModeFeedback)}
 	var fullReply strings.Builder
 	if provider, ok := runner.Provider.(AssistantReplyStreamProvider); ok {
 		if emitOperation {
@@ -502,7 +579,7 @@ type auditOperation struct {
 }
 
 func appendAuditOperation(operations []auditOperation, event StreamEvent) []auditOperation {
-	if event.Tool == string(ToolAnalyzeIntent) || event.Tool == string(ToolExplainDraft) {
+	if event.Tool == string(ToolClassifyServiceModes) || event.Tool == string(ToolAnalyzeIntent) || event.Tool == string(ToolExplainDraft) {
 		// Model progress is user-visible but is not a Serving tool call. Keep it
 		// out of the tool audit so the 20-call budget and tool metrics remain
 		// comparable with previous requests.
@@ -557,7 +634,10 @@ func (runner *TrendRunner) persistAudit(ctx context.Context, query string, resul
 		RequestHash: requestHash, ContractVersion: contractVersion, ValidationStatus: "valid",
 		Status: status, AIAttemptCount: result.AIAttempts, ToolCallCount: len(operations),
 		InputTokenCount: inputTokens, OutputTokenCount: outputTokens, Duration: completedAt.Sub(createdAt),
-		ResponseModes:     append([]ResponseMode(nil), result.AgentResponse.ResponseModes...),
+		ResponseModes:        append([]ResponseMode(nil), result.AgentResponse.ResponseModes...),
+		ServiceTags:          append([]ServiceTag(nil), result.ServiceTags...),
+		ClassificationStatus: result.ClassificationStatus, ClassificationInputTokenCount: result.ClassificationInput,
+		ClassificationOutputTokenCount: result.ClassificationOutput, ClassificationDuration: result.ClassificationTime,
 		ReplyWarningCount: len(result.ReplyQualityWarnings),
 		CreatedAt:         createdAt, CompletedAt: &completedAt, ExpiresAt: createdAt.Add(AuditRetention),
 	}

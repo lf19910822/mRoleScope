@@ -16,6 +16,7 @@ type SubScore struct {
 
 type Score struct {
 	Pass         bool     `json:"pass"`
+	ServiceTags  SubScore `json:"service_tags"`
 	Agent        SubScore `json:"agent"`
 	ToolCalls    SubScore `json:"tool_calls"`
 	Scope        SubScore `json:"scope"`
@@ -30,6 +31,7 @@ type Score struct {
 // not use a model judge and keeps explanation quality advisory.
 func ScoreCase(item Case, result Result, runErr error) Score {
 	score := Score{}
+	score.ServiceTags = scoreServiceTags(item, result)
 	score.Agent = scoreAgentResponse(item, result)
 	score.ToolCalls = scoreToolCalls(item, result)
 	score.Scope = scoreScope(item, result)
@@ -43,6 +45,9 @@ func ScoreCase(item Case, result Result, runErr error) Score {
 }
 
 func scoreFunctionalPass(item Case, result Result, runErr error, score Score) bool {
+	if !score.ServiceTags.Pass {
+		return false
+	}
 	if len(item.ExpectedResponseModes) > 0 || item.ExpectedDraft != nil || item.ReplyRequired {
 		if runErr != nil {
 			return false
@@ -58,6 +63,20 @@ func scoreFunctionalPass(item Case, result Result, runErr error, score Score) bo
 		return false
 	}
 	return score.ToolCalls.Pass && score.Scope.Pass && score.Ranking.Pass && score.Draft.Pass && score.Errors.Pass
+}
+
+func scoreServiceTags(item Case, result Result) SubScore {
+	if len(item.ExpectedServiceTags) == 0 {
+		return passed()
+	}
+	actual := make(map[string]struct{}, len(result.Stats.ServiceTags))
+	for _, tag := range result.Stats.ServiceTags {
+		actual[string(tag)] = struct{}{}
+	}
+	if !sameSet(actual, normalizedSet(item.ExpectedServiceTags)) {
+		return failed(fmt.Sprintf("service tags %v do not equal expected %v", actual, item.ExpectedServiceTags))
+	}
+	return passed()
 }
 
 func scoreAgentResponse(item Case, result Result) SubScore {
@@ -76,7 +95,7 @@ func scoreAgentResponse(item Case, result Result) SubScore {
 	}
 	if item.ExpectedNoTrendTools {
 		for _, call := range operationCalls(result) {
-			if call.Tool != string(aitrend.ToolAnalyzeIntent) && call.Tool != string(aitrend.ToolExplainDraft) {
+			if call.Tool != string(aitrend.ToolAnalyzeIntent) && call.Tool != string(aitrend.ToolExplainDraft) && call.Tool != string(aitrend.ToolClassifyServiceModes) {
 				return failed(fmt.Sprintf("guidance-only response called trend tool %q", call.Tool))
 			}
 		}
@@ -422,7 +441,7 @@ type operationCall struct {
 func operationCalls(result Result) []operationCall {
 	calls := make([]operationCall, 0)
 	for _, event := range result.Events {
-		if event.Type != aitrend.StreamEventOperation || event.Status != aitrend.StreamRunning || event.Tool == string(aitrend.ToolAnalyzeIntent) || event.Tool == string(aitrend.ToolExplainDraft) {
+		if event.Type != aitrend.StreamEventOperation || event.Status != aitrend.StreamRunning || event.Tool == string(aitrend.ToolAnalyzeIntent) || event.Tool == string(aitrend.ToolExplainDraft) || event.Tool == string(aitrend.ToolClassifyServiceModes) {
 			continue
 		}
 		calls = append(calls, operationCall{Tool: event.Tool, Params: event.Params})

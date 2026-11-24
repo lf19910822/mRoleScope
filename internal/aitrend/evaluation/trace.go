@@ -44,28 +44,34 @@ func (rates UsageRates) Estimate(inputTokens, outputTokens int) (int64, error) {
 }
 
 type Trace struct {
-	CaseID               string                 `json:"case_id"`
-	Repetition           int                    `json:"repetition"`
-	Retry                int                    `json:"retry"`
-	Version              VersionInput           `json:"version"`
-	EvaluationVersionID  string                 `json:"evaluation_version_id"`
-	Status               TraceStatus            `json:"status"`
-	ErrorCode            string                 `json:"error_code,omitempty"`
-	Intent               *aitrend.Intent        `json:"intent,omitempty"`
-	Operations           []TraceOperation       `json:"operations"`
-	ResponseModes        []aitrend.ResponseMode `json:"response_modes,omitempty"`
-	AssistantReplyStatus string                 `json:"assistant_reply_status,omitempty"`
-	ReplyQualityWarnings []string               `json:"reply_quality_warnings,omitempty"`
-	Draft                *aitrend.Draft         `json:"draft,omitempty"`
-	Score                Score                  `json:"score"`
-	InputTokens          int                    `json:"input_tokens"`
-	OutputTokens         int                    `json:"output_tokens"`
-	ToolCalls            int                    `json:"tool_calls"`
-	ToolFailures         int                    `json:"tool_failures"`
-	EstimatedCostNanoRMB int64                  `json:"estimated_cost_nano_rmb"`
-	FirstEventLatencyMS  int64                  `json:"first_event_latency_ms"`
-	TotalDurationMS      int64                  `json:"total_duration_ms"`
-	CreatedAt            time.Time              `json:"created_at"`
+	CaseID                             string                 `json:"case_id"`
+	Repetition                         int                    `json:"repetition"`
+	Retry                              int                    `json:"retry"`
+	Version                            VersionInput           `json:"version"`
+	EvaluationVersionID                string                 `json:"evaluation_version_id"`
+	Status                             TraceStatus            `json:"status"`
+	ErrorCode                          string                 `json:"error_code,omitempty"`
+	Intent                             *aitrend.Intent        `json:"intent,omitempty"`
+	Operations                         []TraceOperation       `json:"operations"`
+	ResponseModes                      []aitrend.ResponseMode `json:"response_modes,omitempty"`
+	ServiceTags                        []aitrend.ServiceTag   `json:"service_tags,omitempty"`
+	ClassificationStatus               string                 `json:"classification_status,omitempty"`
+	ClassificationInputTokens          int                    `json:"classification_input_tokens"`
+	ClassificationOutputTokens         int                    `json:"classification_output_tokens"`
+	ClassificationDurationMS           int64                  `json:"classification_duration_ms"`
+	AssistantReplyStatus               string                 `json:"assistant_reply_status,omitempty"`
+	ReplyQualityWarnings               []string               `json:"reply_quality_warnings,omitempty"`
+	Draft                              *aitrend.Draft         `json:"draft,omitempty"`
+	Score                              Score                  `json:"score"`
+	InputTokens                        int                    `json:"input_tokens"`
+	OutputTokens                       int                    `json:"output_tokens"`
+	ToolCalls                          int                    `json:"tool_calls"`
+	ToolFailures                       int                    `json:"tool_failures"`
+	EstimatedCostNanoRMB               int64                  `json:"estimated_cost_nano_rmb"`
+	EstimatedClassificationCostNanoRMB int64                  `json:"estimated_classification_cost_nano_rmb"`
+	FirstEventLatencyMS                int64                  `json:"first_event_latency_ms"`
+	TotalDurationMS                    int64                  `json:"total_duration_ms"`
+	CreatedAt                          time.Time              `json:"created_at"`
 }
 
 type TraceOperation struct {
@@ -86,6 +92,10 @@ func BuildTrace(item Case, version EvaluationVersion, attempt Attempt, score Sco
 	if err != nil {
 		return Trace{}, err
 	}
+	classificationCost, err := rates.Estimate(attempt.Result.Stats.ClassificationInput, attempt.Result.Stats.ClassificationOutput)
+	if err != nil {
+		return Trace{}, err
+	}
 	status := traceStatus(attempt.Status)
 	trace := Trace{
 		CaseID: item.ID, Repetition: attempt.Repetition, Retry: attempt.Retry,
@@ -93,10 +103,15 @@ func BuildTrace(item Case, version EvaluationVersion, attempt Attempt, score Sco
 		ErrorCode: attempt.ErrorCode, Score: score,
 		InputTokens: attempt.Result.Stats.InputTokens, OutputTokens: attempt.Result.Stats.OutputTokens,
 		ToolCalls: attempt.Result.Stats.ToolCalls, ToolFailures: attempt.Result.Stats.ToolFailures,
-		ResponseModes:        append([]aitrend.ResponseMode(nil), attempt.Result.Stats.ResponseModes...),
-		AssistantReplyStatus: assistantReplyStatus(attempt.Result.Events),
-		ReplyQualityWarnings: append([]string(nil), attempt.Result.Stats.ReplyQualityWarnings...),
-		EstimatedCostNanoRMB: cost, FirstEventLatencyMS: attempt.Result.FirstEventLatency.Milliseconds(), TotalDurationMS: attempt.Result.TotalDuration.Milliseconds(),
+		ResponseModes:              append([]aitrend.ResponseMode(nil), attempt.Result.Stats.ResponseModes...),
+		ServiceTags:                append([]aitrend.ServiceTag(nil), attempt.Result.Stats.ServiceTags...),
+		ClassificationStatus:       attempt.Result.Stats.ClassificationStatus,
+		ClassificationInputTokens:  attempt.Result.Stats.ClassificationInput,
+		ClassificationOutputTokens: attempt.Result.Stats.ClassificationOutput,
+		ClassificationDurationMS:   attempt.Result.Stats.ClassificationTime.Milliseconds(),
+		AssistantReplyStatus:       assistantReplyStatus(attempt.Result.Events),
+		ReplyQualityWarnings:       append([]string(nil), attempt.Result.Stats.ReplyQualityWarnings...),
+		EstimatedCostNanoRMB:       cost, EstimatedClassificationCostNanoRMB: classificationCost, FirstEventLatencyMS: attempt.Result.FirstEventLatency.Milliseconds(), TotalDurationMS: attempt.Result.TotalDuration.Milliseconds(),
 		CreatedAt: time.Now().UTC(), Operations: traceOperations(attempt.Result.Events),
 	}
 	if attempt.Result.Stats.Intent != nil {
@@ -139,7 +154,7 @@ func (attempt Attempt) ResultStatsValidate() error {
 	if attempt.CaseID == "" || attempt.Repetition < 1 || attempt.Repetition > 3 || attempt.Retry < 0 || attempt.Retry > 2 {
 		return fmt.Errorf("invalid trace attempt identity")
 	}
-	if attempt.Result.Stats.ToolCalls < 0 || attempt.Result.Stats.ToolCalls > MaxEvaluationToolCalls || attempt.Result.Stats.InputTokens < 0 || attempt.Result.Stats.OutputTokens < 0 {
+	if attempt.Result.Stats.ToolCalls < 0 || attempt.Result.Stats.ToolCalls > MaxEvaluationToolCalls || attempt.Result.Stats.InputTokens < 0 || attempt.Result.Stats.OutputTokens < 0 || attempt.Result.Stats.ClassificationInput < 0 || attempt.Result.Stats.ClassificationOutput < 0 || attempt.Result.Stats.ClassificationTime < 0 {
 		return fmt.Errorf("trace accounting exceeds limits")
 	}
 	return nil
@@ -152,11 +167,22 @@ func (trace Trace) Validate() error {
 	if trace.ToolCalls < 0 || trace.ToolCalls > MaxEvaluationToolCalls || trace.ToolFailures < 0 || trace.InputTokens < 0 || trace.OutputTokens < 0 || trace.EstimatedCostNanoRMB < 0 {
 		return fmt.Errorf("trace counters exceed limits")
 	}
+	if trace.ClassificationInputTokens < 0 || trace.ClassificationOutputTokens < 0 || trace.ClassificationDurationMS < 0 || trace.EstimatedClassificationCostNanoRMB < 0 {
+		return fmt.Errorf("classification trace counters exceed limits")
+	}
 	if trace.Status == "" {
 		return fmt.Errorf("trace status is empty")
 	}
 	if len(trace.ResponseModes) > 2 {
 		return fmt.Errorf("invalid Agent reply trace summary")
+	}
+	if len(trace.ServiceTags) > 0 {
+		if _, err := aitrend.NormalizeServiceTags(trace.ServiceTags); err != nil {
+			return fmt.Errorf("invalid service tags: %w", err)
+		}
+	}
+	if trace.ClassificationStatus != "" && trace.ClassificationStatus != "running" && trace.ClassificationStatus != "completed" && trace.ClassificationStatus != "failed" {
+		return fmt.Errorf("invalid classification status %q", trace.ClassificationStatus)
 	}
 	seenModes := make(map[aitrend.ResponseMode]struct{}, len(trace.ResponseModes))
 	for _, mode := range trace.ResponseModes {

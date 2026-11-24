@@ -35,6 +35,21 @@ func TestBuildReportSeparatesFunctionalScoresAndResourceTotals(t *testing.T) {
 	}
 }
 
+func TestBuildReportSeparatesClassificationUsageTotals(t *testing.T) {
+	version, err := NewEvaluationVersion(completeVersionInput(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace := Trace{CaseID: "E01", EvaluationVersionID: version.ID(), Status: TraceSuccess, Repetition: 1, Version: version.Metadata(), Score: Score{Pass: true}, ClassificationInputTokens: 4, ClassificationOutputTokens: 3, EstimatedClassificationCostNanoRMB: 9500}
+	report, err := BuildReport([]Case{{ID: "E01", Category: "explicit-values"}}, []Trace{trace}, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalClassificationInputTokens != 4 || report.TotalClassificationOutputTokens != 3 || report.TotalClassificationCostNanoRMB != 9500 {
+		t.Fatalf("classification totals = %#v", report)
+	}
+}
+
 func TestBuildAgentReportKeepsAgentCategoriesSeparate(t *testing.T) {
 	version, err := NewEvaluationVersion(completeVersionInput(), time.Now())
 	if err != nil {

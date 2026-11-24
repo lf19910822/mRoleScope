@@ -30,9 +30,10 @@ type DraftExplanationContext struct {
 // AssistantReplyContext is the bounded input for a user-facing streamed
 // reply. Draft is optional for guidance-only requests.
 type AssistantReplyContext struct {
-	Query         string                   `json:"query"`
-	ResponseModes []ResponseMode           `json:"response_modes"`
-	Draft         *DraftExplanationContext `json:"draft,omitempty"`
+	Query               string                   `json:"query"`
+	ResponseModes       []ResponseMode           `json:"response_modes"`
+	Draft               *DraftExplanationContext `json:"draft,omitempty"`
+	ServiceModeFeedback *ServiceModeFeedback     `json:"service_feedback,omitempty"`
 }
 
 // SafeForModel removes operation names from the user-facing reply context;
@@ -44,6 +45,7 @@ func (context AssistantReplyContext) SafeForModel() AssistantReplyContext {
 		draft.ToolOperations = nil
 		safe.Draft = &draft
 	}
+	safe.ServiceModeFeedback = safeServiceModeFeedback(context.ServiceModeFeedback)
 	return safe
 }
 

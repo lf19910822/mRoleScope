@@ -68,3 +68,26 @@ func TestAgentAuditMigrationAddsOnlyBoundedResponseSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceModeAuditMigrationAddsOnlyBoundedClassificationSummary(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	migrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "migrations", "000040_ai_trend_service_mode_audit.up.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(migration)
+	for _, required := range []string{"service_tags", "classification_status", "classification_input_token_count", "classification_output_token_count", "classification_duration_ms", "classification_status_valid"} {
+		if !strings.Contains(schema, required) {
+			t.Fatalf("migration missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"raw_user_text", "prompt_text", "model_response", "jd_body", "connection_string", "password", "secret"} {
+		if strings.Contains(strings.ToLower(schema), forbidden) {
+			t.Fatalf("migration contains forbidden audit field %q", forbidden)
+		}
+	}
+}

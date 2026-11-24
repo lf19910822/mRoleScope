@@ -43,3 +43,20 @@ func TestAuditRecordUsesMigrationValidationStatuses(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditRecordStoresBoundedServiceClassificationSummary(t *testing.T) {
+	created := time.Now().UTC()
+	record := AuditRecord{
+		RequestHash: HashRequest([]byte("分类")), ContractVersion: ContractVersionV1, ValidationStatus: "valid", Status: "success",
+		ServiceTags: []ServiceTag{ServiceTagTrend, ServiceTagGuidance}, ClassificationStatus: "completed",
+		ClassificationInputTokenCount: 12, ClassificationOutputTokenCount: 4, ClassificationDuration: 250 * time.Millisecond,
+		CreatedAt: created, ExpiresAt: created.Add(AuditRetention), ResponseModes: []ResponseMode{ResponseModeTrend, ResponseModeGuidance},
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatalf("bounded classification record rejected: %v", err)
+	}
+	record.ServiceTags = []ServiceTag{ServiceTagTrend, ServiceTagTrend}
+	if err := record.Validate(); err == nil {
+		t.Fatal("duplicate service tags accepted")
+	}
+}

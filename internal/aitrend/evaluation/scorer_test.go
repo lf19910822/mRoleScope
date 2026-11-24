@@ -154,7 +154,7 @@ func TestScoreCaseSeparatesAgentBoundaryFromAdvisoryReplyQuality(t *testing.T) {
 }
 
 func TestScorerCoversEveryReviewedBenchmarkCase(t *testing.T) {
-	cases, err := LoadFile(filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "AI趋势智能体Benchmark-v1.md"))
+	cases, err := LoadFile(filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "benchmarks", "AI趋势智能体Benchmark-v1.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,5 +163,20 @@ func TestScorerCoversEveryReviewedBenchmarkCase(t *testing.T) {
 		if score.ToolCalls.Reasons == nil && score.Scope.Reasons == nil && score.Ranking.Reasons == nil && score.Draft.Reasons == nil && score.Explanation.Reasons == nil {
 			t.Fatalf("case %s produced no deterministic score details", item.ID)
 		}
+	}
+}
+
+func TestScoreCaseTreatsServiceTagsAsIndependentHardConstraint(t *testing.T) {
+	expectedDraft := false
+	item := Case{ID: "G01", Category: "pure-guidance", Query: "你好", ExpectedServiceTags: []string{"guidance"}, ExpectedResponseModes: []string{"guidance"}, ExpectedDraft: &expectedDraft, ReplyRequired: true, ExpectedTerminalStatus: "success"}
+	result := Result{Stats: aitrend.TrendRunStats{ServiceTags: []aitrend.ServiceTag{aitrend.ServiceTagTrend}, ResponseModes: []aitrend.ResponseMode{aitrend.ResponseModeGuidance}}, Events: []aitrend.StreamEvent{{Type: aitrend.StreamEventAssistant, Status: aitrend.StreamRunning, Delta: "可以帮助你。"}, {Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess}}}
+	score := ScoreCase(item, result, nil)
+	if score.ServiceTags.Pass || score.Pass {
+		t.Fatalf("wrong service tags passed: %#v", score)
+	}
+	result.Stats.ServiceTags = []aitrend.ServiceTag{aitrend.ServiceTagGuidance}
+	score = ScoreCase(item, result, nil)
+	if !score.ServiceTags.Pass || !score.Pass {
+		t.Fatalf("correct service tags failed: %#v", score)
 	}
 }

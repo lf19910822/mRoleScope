@@ -3,10 +3,12 @@ package aitrend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
@@ -124,6 +126,100 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 	}
 	if requests != 4 {
 		t.Fatalf("provider requests = %d, want 4", requests)
+	}
+}
+
+func TestQwenIntentProviderClassifiesServiceModesWithStrictNoToolRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []qwenTrendMessage `json:"messages"`
+			Tools    []qwenTool         `json:"tools"`
+			Format   json.RawMessage    `json:"response_format"`
+			Max      int                `json:"max_tokens"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Messages) != 2 || len(body.Tools) != 0 || body.Max != 180 || !strings.Contains(body.Messages[0].Content, "service_tags") || !strings.Contains(string(body.Format), ServiceModeContractVersionV1) {
+			t.Fatalf("classification request = %#v format=%s", body, body.Format)
+		}
+		writeQwenResponse(writer, map[string]any{"content": `{"contract_version":"ai-trend-service-mode-v1","service_tags":["guidance","trend"]}`}, 41, 8)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	classification, input, output, err := provider.ClassifyServiceModes(context.Background(), "比较 Go 和 Python，并说明如何修改")
+	if err != nil || input != 41 || output != 8 || len(classification.ServiceTags) != 2 || classification.ServiceTags[0] != ServiceTagTrend || classification.ServiceTags[1] != ServiceTagGuidance {
+		t.Fatalf("classification=%#v usage=%d/%d err=%v", classification, input, output, err)
+	}
+}
+
+func TestQwenIntentProviderUsesServerDeterminedServiceTagsInPlannerPrompt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []qwenTrendMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Messages) != 2 || !strings.Contains(body.Messages[1].Content, `service_tags 为 ["trend","guidance"]`) || !strings.Contains(body.Messages[1].Content, "不要重新判断或修改服务类别") {
+			t.Fatalf("planner prompt did not carry server tags: %#v", body.Messages)
+		}
+		writeQwenResponse(writer, map[string]any{"content": "", "tool_calls": []any{map[string]any{
+			"id": "call-summary", "type": "function",
+			"function": map[string]string{"name": string(ToolBatchTrendSummary), "arguments": `[{"dimension":"technology","value":"go","range":"month"}]`},
+		}}}, 4, 2)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	ctx := withServiceTags(context.Background(), []ServiceTag{ServiceTagTrend, ServiceTagGuidance})
+	turn, err := provider.AnalyzeIntentTurn(ctx, "比较 Go 并说明如何修改", nil, nil, true)
+	if err != nil || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolBatchTrendSummary {
+		t.Fatalf("planner turn = %#v err=%v", turn, err)
+	}
+}
+
+func TestQwenIntentProviderMapsClassificationFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantCode   SafeErrorCode
+	}{
+		{name: "provider failure", statusCode: http.StatusBadGateway, body: `upstream unavailable`, wantCode: ErrorProviderFailure},
+		{name: "invalid json", statusCode: http.StatusOK, body: `{"choices":[{"message":{"content":"not-json"}}],"usage":{"prompt_tokens":2,"completion_tokens":1}}`, wantCode: ErrorInvalidJSON},
+		{name: "unknown tag", statusCode: http.StatusOK, body: `{"choices":[{"message":{"content":"{\"contract_version\":\"ai-trend-service-mode-v1\",\"service_tags\":[\"trend\",\"export\"]}"}}],"usage":{"prompt_tokens":2,"completion_tokens":1}}`, wantCode: ErrorInvalidEnum},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(test.statusCode)
+				_, _ = writer.Write([]byte(test.body))
+			}))
+			defer server.Close()
+			provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+			_, _, _, err := provider.ClassifyServiceModes(context.Background(), "你好")
+			if err == nil {
+				t.Fatal("classification failure was accepted")
+			}
+			contractErr, ok := err.(*ContractError)
+			if !ok || contractErr.Code != test.wantCode {
+				t.Fatalf("classification error = %#v, want %s", err, test.wantCode)
+			}
+		})
+	}
+}
+
+func TestQwenIntentProviderPropagatesClassificationTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	_, _, _, err := provider.ClassifyServiceModes(ctx, "你好")
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("classification timeout = %v, want deadline exceeded", err)
 	}
 }
 

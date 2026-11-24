@@ -16,6 +16,12 @@ type runnerOptionsReader struct {
 	options jdserving.FilterOptionsResponse
 }
 
+type failingRunnerOptionsReader struct{}
+
+func (failingRunnerOptionsReader) ListFilterOptions(context.Context) (jdserving.FilterOptionsResponse, error) {
+	return jdserving.FilterOptionsResponse{}, fmt.Errorf("options backend unavailable")
+}
+
 func (reader runnerOptionsReader) ListFilterOptions(context.Context) (jdserving.FilterOptionsResponse, error) {
 	return reader.options, nil
 }
@@ -203,6 +209,163 @@ type runnerIntentProvider struct {
 
 func (provider runnerIntentProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
 	return json.Marshal(provider.intent)
+}
+
+type runnerClassifierProvider struct {
+	tags              []ServiceTag
+	classificationErr error
+	classifyCalls     int
+	analyzeCalls      int
+	turns             []IntentToolTurn
+	turnCalls         int
+}
+
+func (provider *runnerClassifierProvider) AnalyzeIntent(context.Context, string, *ContractError) ([]byte, error) {
+	provider.analyzeCalls++
+	return []byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["trend"]}`), nil
+}
+
+func (provider *runnerClassifierProvider) ClassifyServiceModes(context.Context, string) (ServiceModeClassification, int, int, error) {
+	provider.classifyCalls++
+	if provider.classificationErr != nil {
+		return ServiceModeClassification{}, 7, 3, provider.classificationErr
+	}
+	return ServiceModeClassification{ContractVersion: ServiceModeContractVersionV1, ServiceTags: append([]ServiceTag(nil), provider.tags...)}, 7, 3, nil
+}
+
+func (provider *runnerClassifierProvider) AnalyzeIntentTurn(_ context.Context, _ string, _ *ContractError, _ []ToolConversation, _ bool) (IntentToolTurn, error) {
+	provider.turnCalls++
+	if len(provider.turns) == 0 {
+		return IntentToolTurn{}, fmt.Errorf("classifier provider exhausted")
+	}
+	turn := provider.turns[0]
+	provider.turns = provider.turns[1:]
+	return turn, nil
+}
+
+func TestTrendRunnerClassificationFailuresFallbackToGuidanceWithoutTools(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "timeout", err: context.DeadlineExceeded},
+		{name: "provider", err: &ContractError{Code: ErrorProviderFailure, Message: "provider unavailable"}},
+		{name: "invalid json", err: &ContractError{Code: ErrorInvalidJSON, Message: "invalid classification"}},
+		{name: "unknown tag", err: &ContractError{Code: ErrorInvalidEnum, Field: "service_tags", Message: "unknown tag"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &runnerClassifierProvider{classificationErr: test.err}
+			runner, err := NewTrendRunner(provider, runnerOptionsReader{}, runnerSummaryReader{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var events []StreamEvent
+			var stats TrendRunStats
+			runner.StatsSink = func(value TrendRunStats) { stats = value }
+			if err := runner.Run(context.Background(), "你好", func(event StreamEvent) error {
+				events = append(events, event)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if provider.classifyCalls != 1 || provider.analyzeCalls != 0 {
+				t.Fatalf("provider calls = classify:%d analyze:%d", provider.classifyCalls, provider.analyzeCalls)
+			}
+			for _, event := range events {
+				if event.Type == StreamEventOperation && event.Tool != string(ToolClassifyServiceModes) {
+					t.Fatalf("classification fallback entered downstream operation: %#v", events)
+				}
+				if event.Type == StreamEventDraft {
+					t.Fatalf("classification fallback emitted draft: %#v", events)
+				}
+			}
+			if stats.ClassificationStatus != "failed" || len(stats.ServiceTags) != 1 || stats.ServiceTags[0] != ServiceTagGuidance || stats.ClassificationInput != 7 || stats.ClassificationOutput != 3 {
+				t.Fatalf("classification stats = %#v", stats)
+			}
+			if len(events) == 0 || events[len(events)-1].Type != StreamEventDone || events[len(events)-1].Status != StreamSuccess {
+				t.Fatalf("classification fallback events = %#v", events)
+			}
+		})
+	}
+}
+
+func TestTrendRunnerGuidanceClassificationSkipsTrendFlow(t *testing.T) {
+	provider := &runnerClassifierProvider{tags: []ServiceTag{ServiceTagGuidance}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "怎么使用趋势看板？", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.classifyCalls != 1 || provider.analyzeCalls != 0 {
+		t.Fatalf("provider calls = classify:%d analyze:%d", provider.classifyCalls, provider.analyzeCalls)
+	}
+	for _, event := range events {
+		if event.Type == StreamEventOperation && event.Tool != string(ToolClassifyServiceModes) && event.Tool != string(ToolExplainDraft) {
+			t.Fatalf("guidance classification entered trend flow: %#v", events)
+		}
+	}
+}
+
+func TestTrendRunnerClassifiesBeforeServingOptions(t *testing.T) {
+	provider := &runnerClassifierProvider{tags: []ServiceTag{ServiceTagGuidance}}
+	runner, err := NewTrendRunner(provider, failingRunnerOptionsReader{}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "你好", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.classifyCalls != 1 || len(events) < 2 || events[0].Tool != string(ToolClassifyServiceModes) || events[0].Status != StreamRunning {
+		t.Fatalf("classification did not precede options lookup: calls=%d events=%#v", provider.classifyCalls, events)
+	}
+}
+
+func TestTrendRunnerRunsClassificationOnceBeforeTrendTools(t *testing.T) {
+	intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "projects", Dimension: DimensionTechnology, Expressions: []string{"redis"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeMonth}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+	intentJSON, err := json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &runnerClassifierProvider{
+		tags: []ServiceTag{ServiceTagTrend},
+		turns: []IntentToolTurn{
+			{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"redis","range":"month"}]`)}}, InputTokens: 2, OutputTokens: 1},
+			{Intent: intentJSON, InputTokens: 2, OutputTokens: 1},
+		},
+	}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{}, runnerSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stats TrendRunStats
+	runner.StatsSink = func(value TrendRunStats) { stats = value }
+	var events []StreamEvent
+	if err := runner.Run(context.Background(), "哪些技术的岗位最多？", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.classifyCalls != 1 || provider.turnCalls != 2 {
+		t.Fatalf("provider calls = classify:%d turns:%d", provider.classifyCalls, provider.turnCalls)
+	}
+	if stats.ToolCalls != 1 || stats.ClassificationStatus != "completed" || stats.ClassificationInput != 7 || stats.ClassificationOutput != 3 || len(stats.ServiceTags) != 1 || stats.ServiceTags[0] != ServiceTagTrend {
+		t.Fatalf("run stats = %#v", stats)
+	}
+	if len(events) < 2 || events[0].Type != StreamEventOperation || events[0].Tool != string(ToolClassifyServiceModes) || events[0].Status != StreamRunning || events[1].Tool != string(ToolClassifyServiceModes) || events[1].Status != StreamCompleted {
+		t.Fatalf("classification events = %#v", events)
+	}
 }
 
 type runnerExplanationProvider struct {

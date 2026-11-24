@@ -19,6 +19,7 @@ type Orchestrator struct {
 	MaxOutputTokens int
 	TokenCounter    func([]byte) int
 	Emit            func(StreamEvent) error
+	ServiceTags     []ServiceTag
 }
 
 type OrchestrationResult struct {
@@ -31,6 +32,11 @@ type OrchestrationResult struct {
 	InputTokens          int
 	OutputTokens         int
 	ReplyQualityWarnings []string
+	ServiceTags          []ServiceTag
+	ClassificationStatus string
+	ClassificationInput  int
+	ClassificationOutput int
+	ClassificationTime   time.Duration
 }
 
 func (orchestrator Orchestrator) Run(ctx context.Context) (OrchestrationResult, error) {
@@ -57,6 +63,13 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 	if orchestrator.Registry == nil || (orchestrator.ToolAnalyzer == nil && (orchestrator.Analyzer == nil || orchestrator.Planner == nil)) {
 		return OrchestrationResult{}, &ContractError{Code: ErrorConfigurationFailure, Message: "orchestrator is not configured"}
 	}
+	if len(orchestrator.ServiceTags) > 0 {
+		normalized, err := NormalizeServiceTags(orchestrator.ServiceTags)
+		if err != nil {
+			return OrchestrationResult{}, err
+		}
+		orchestrator.ServiceTags = normalized
+	}
 	if orchestrator.MaxDuration <= 0 {
 		orchestrator.MaxDuration = 2 * time.Minute
 	}
@@ -71,6 +84,7 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 	}
 	ctx, cancel := context.WithTimeout(ctx, orchestrator.MaxDuration)
 	defer cancel()
+	ctx = withServiceTags(ctx, orchestrator.ServiceTags)
 	if orchestrator.ToolAnalyzer != nil {
 		return orchestrator.runToolSession(ctx, input)
 	}
@@ -190,7 +204,7 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 	if orchestrator.ToolAnalyzer == nil || orchestrator.Registry == nil {
 		return OrchestrationResult{}, &ContractError{Code: ErrorConfigurationFailure, Message: "tool analyzer is not configured"}
 	}
-	result := OrchestrationResult{}
+	result := OrchestrationResult{ServiceTags: append([]ServiceTag(nil), orchestrator.ServiceTags...)}
 	history := make([]ToolConversation, 0)
 	var correction *ContractError
 	correctionAttempts := 0
@@ -348,6 +362,28 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 			result.AIAttempts = correctionAttempts + 1
 			correction = contractErr
 			continue
+		}
+		if len(orchestrator.ServiceTags) > 0 {
+			expectedModes, modeErr := ResponseModesFromServiceTags(orchestrator.ServiceTags)
+			if modeErr != nil {
+				return result, modeErr
+			}
+			if serviceTagsContain(orchestrator.ServiceTags, ServiceTagTrend) && agentResponse.TrendIntent == nil {
+				contractErr := &ContractError{Code: ErrorMissingField, Field: "trend_intent", Message: "trend service tag requires a trend Intent"}
+				correctionAttempts++
+				_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
+				if correctionAttempts >= MaxAIAttempts {
+					result.AIAttempts = MaxAIAttempts
+					return result, contractErr
+				}
+				result.AIAttempts = correctionAttempts + 1
+				correction = contractErr
+				continue
+			}
+			if !serviceTagsContain(orchestrator.ServiceTags, ServiceTagTrend) {
+				agentResponse.TrendIntent = nil
+			}
+			agentResponse.ResponseModes = expectedModes
 		}
 		if agentResponse.TrendIntent == nil {
 			result.AgentResponse = agentResponse
