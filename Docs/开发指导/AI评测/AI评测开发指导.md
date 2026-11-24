@@ -23,12 +23,12 @@ Benchmark 默认使用离线 fixture，不会调用模型。需要进行真实�
 go run ./cmd/ai-evaluation \
   -provider qwen \
   -suite trend \
-  -cases Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md
+  -cases Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md
 
 go run ./cmd/ai-evaluation \
   -provider qwen \
   -suite agent \
-  -cases Docs/开发指导/AI评测/AI趋势智能体AgentBenchmark-v1.md
+  -cases Docs/开发指导/AI评测/benchmarks/AI趋势智能体AgentBenchmark-v1.md
 ```
 
 运行前由操作者在进程环境中配置 `MROLESCOPE_QWEN_API_KEY` 和 `MROLESCOPE_QWEN_WORKSPACE_ID`。程序只读取它们，不把值写入命令参数、日志、trace 或 report；缺少配置时会在发送请求前失败。

@@ -44,6 +44,10 @@ grep -Fq "go build -trimpath -ldflags='-s -w' -o /out/mrolescope-ai-evaluation .
   || die 'worker image does not build the evaluation binary'
 grep -Fq 'COPY --from=build /out/mrolescope-ai-evaluation /usr/local/bin/mrolescope-ai-evaluation' "$worker_dockerfile" \
   || die 'worker image does not ship the evaluation binary'
+grep -Fq 'COPY Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md /app/evaluation/AI趋势智能体Benchmark-v1.md' "$worker_dockerfile" \
+  || die 'worker image does not ship the trend benchmark from its reviewed path'
+grep -Fq 'COPY Docs/开发指导/AI评测/benchmarks/AI趋势智能体AgentBenchmark-v1.md /app/evaluation/AI趋势智能体AgentBenchmark-v1.md' "$worker_dockerfile" \
+  || die 'worker image does not ship the Agent benchmark from its reviewed path'
 
 for service in ai-trend-evaluation ai-agent-evaluation; do
   block="$(sed -n "/^  ${service}:/,/^  [a-z0-9-]*:/p" "$compose_file" | sed '$d')"
