@@ -292,6 +292,43 @@ func TestOrchestratorAcceptsMixedAgentResponseWithTrendIntent(t *testing.T) {
 	}
 }
 
+func TestOrchestratorDerivesResponseModesFromServiceTags(t *testing.T) {
+	intent, err := json.Marshal(validIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The planner model claims trend-only, but the service classifier has
+	// already determined that this is a mixed request. The server must own the
+	// outer response mode and normalize it to trend+guidance.
+	wrapped := append([]byte(`{"contract_version":"ai-trend-agent-v1","response_modes":["trend"],"trend_intent":`), intent...)
+	wrapped = append(wrapped, '}')
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"go","range":"month"}]`)}}, InputTokens: 1, OutputTokens: 1},
+		{Intent: wrapped, InputTokens: 1, OutputTokens: 1},
+	}}
+	registry, err := NewToolRegistry([]ToolDefinition{{Name: ToolBatchTrendSummary, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return []byte(`[{"curve":{"dimension":"technology","value":"go"},"average_daily_active_jobs":12}]`), nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := Orchestrator{
+		ToolAnalyzer: provider,
+		Registry:     registry,
+		ServiceTags:  []ServiceTag{ServiceTagGuidance, ServiceTagTrend},
+	}
+	result, err := orchestrator.RunWithInput(context.Background(), "比较 Go，并说明如何修改")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ServiceTags) != 2 || result.ServiceTags[0] != ServiceTagTrend || result.ServiceTags[1] != ServiceTagGuidance {
+		t.Fatalf("service tags = %#v", result.ServiceTags)
+	}
+	if len(result.AgentResponse.ResponseModes) != 2 || result.AgentResponse.ResponseModes[0] != ResponseModeTrend || result.AgentResponse.ResponseModes[1] != ResponseModeGuidance {
+		t.Fatalf("response modes = %#v", result.AgentResponse)
+	}
+}
+
 func TestOrchestratorRequiresTrendSummaryBeforeFinalIntent(t *testing.T) {
 	final, err := json.Marshal(validIntent())
 	if err != nil {

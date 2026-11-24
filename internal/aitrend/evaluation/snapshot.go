@@ -315,6 +315,26 @@ func (snapshot *Snapshot) ValidateCases(cases []Case) error {
 		known[string(aitrendDimensionLocation)][option.Value] = struct{}{}
 	}
 	for _, item := range cases {
+		if item.ExpectedTotalAtLeast > 0 {
+			available := 0
+			switch item.Dimension {
+			case string(aitrendDimensionTechnology):
+				for _, option := range snapshot.options.TechnologyKeywords {
+					if item.ExpectedCategory == "" || option.Category.Value == item.ExpectedCategory {
+						available++
+					}
+				}
+			case string(aitrendDimensionProject):
+				available = len(snapshot.options.Projects)
+			case string(aitrendDimensionJobFamily):
+				available = len(snapshot.options.JobFamilies)
+			case string(aitrendDimensionLocation):
+				available = len(snapshot.options.Locations)
+			}
+			if available < item.ExpectedTotalAtLeast {
+				return fmt.Errorf("case %s requires at least %d %s candidates, snapshot has %d", item.ID, item.ExpectedTotalAtLeast, item.Dimension, available)
+			}
+		}
 		if item.ExpectedCategory != "" {
 			if _, ok := known[aitrendDimensionTechnology][item.ExpectedCategory]; !ok {
 				return fmt.Errorf("case %s references unknown technology category %q", item.ID, item.ExpectedCategory)

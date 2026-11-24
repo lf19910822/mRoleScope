@@ -16,28 +16,33 @@ const (
 )
 
 type AuditRecord struct {
-	ID                 string
-	RequestHash        string
-	IntentHash         *string
-	DraftHash          *string
-	ContractVersion    string
-	ValidationStatus   string
-	Status             string
-	SafeErrorCode      *string
-	AIAttemptCount     int
-	ToolCallCount      int
-	ToolFailureCount   int
-	InputTokenCount    int
-	OutputTokenCount   int
-	Duration           time.Duration
-	DraftCurveCount    int
-	DraftSelectedCount int
-	DraftWarningCount  int
-	ResponseModes      []ResponseMode
-	ReplyWarningCount  int
-	CreatedAt          time.Time
-	CompletedAt        *time.Time
-	ExpiresAt          time.Time
+	ID                             string
+	RequestHash                    string
+	IntentHash                     *string
+	DraftHash                      *string
+	ContractVersion                string
+	ValidationStatus               string
+	Status                         string
+	SafeErrorCode                  *string
+	AIAttemptCount                 int
+	ToolCallCount                  int
+	ToolFailureCount               int
+	InputTokenCount                int
+	OutputTokenCount               int
+	Duration                       time.Duration
+	DraftCurveCount                int
+	DraftSelectedCount             int
+	DraftWarningCount              int
+	ResponseModes                  []ResponseMode
+	ServiceTags                    []ServiceTag
+	ClassificationStatus           string
+	ClassificationInputTokenCount  int
+	ClassificationOutputTokenCount int
+	ClassificationDuration         time.Duration
+	ReplyWarningCount              int
+	CreatedAt                      time.Time
+	CompletedAt                    *time.Time
+	ExpiresAt                      time.Time
 }
 
 type AuditToolRecord struct {
@@ -60,8 +65,16 @@ func (record AuditRecord) Validate() error {
 	if len(record.RequestHash) != 64 || record.ContractVersion == "" || record.ValidationStatus == "" || record.Status == "" || record.ExpiresAt.Before(record.CreatedAt) {
 		return fmt.Errorf("invalid bounded audit record")
 	}
-	if record.AIAttemptCount < 0 || record.AIAttemptCount > MaxAIAttempts || record.ToolCallCount < 0 || record.ToolCallCount > MaxToolCalls || record.DraftCurveCount < 0 || record.DraftCurveCount > MaxCurves || record.DraftSelectedCount < 0 || record.DraftSelectedCount > MaxCurves || len(record.ResponseModes) > 2 || record.ReplyWarningCount < 0 || record.ReplyWarningCount > 3 {
+	if record.AIAttemptCount < 0 || record.AIAttemptCount > MaxAIAttempts || record.ToolCallCount < 0 || record.ToolCallCount > MaxToolCalls || record.DraftCurveCount < 0 || record.DraftCurveCount > MaxCurves || record.DraftSelectedCount < 0 || record.DraftSelectedCount > MaxCurves || len(record.ResponseModes) > 2 || len(record.ServiceTags) > 2 || record.ReplyWarningCount < 0 || record.ReplyWarningCount > 3 || record.ClassificationInputTokenCount < 0 || record.ClassificationOutputTokenCount < 0 || record.ClassificationDuration < 0 {
 		return fmt.Errorf("audit record exceeds contract limit")
+	}
+	if record.ClassificationStatus != "" && record.ClassificationStatus != "running" && record.ClassificationStatus != "completed" && record.ClassificationStatus != "failed" {
+		return fmt.Errorf("audit record contains invalid classification status %q", record.ClassificationStatus)
+	}
+	if len(record.ServiceTags) > 0 {
+		if _, err := NormalizeServiceTags(record.ServiceTags); err != nil {
+			return fmt.Errorf("audit record contains invalid service tags: %w", err)
+		}
 	}
 	seenModes := make(map[ResponseMode]struct{}, len(record.ResponseModes))
 	for _, mode := range record.ResponseModes {
@@ -94,12 +107,15 @@ func (store *AuditStore) Insert(ctx context.Context, record AuditRecord) (string
 	err := store.pool.QueryRow(ctx, `INSERT INTO ai_trend_request_audits
         (request_hash, intent_hash, draft_hash, contract_version, validation_status, status, safe_error_code,
          ai_attempt_count, tool_call_count, tool_failure_count, input_token_count, output_token_count, duration_ms,
-        draft_curve_count, draft_selected_count, draft_warning_count, response_modes, reply_warning_count, created_at, completed_at, expires_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        draft_curve_count, draft_selected_count, draft_warning_count, response_modes, service_tags,
+        classification_status, classification_input_token_count, classification_output_token_count, classification_duration_ms,
+        reply_warning_count, created_at, completed_at, expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,''),$20,$21,$22,$23,$24,$25,$26)
         RETURNING id::text`,
 		record.RequestHash, record.IntentHash, record.DraftHash, record.ContractVersion, record.ValidationStatus, record.Status, record.SafeErrorCode,
 		record.AIAttemptCount, record.ToolCallCount, record.ToolFailureCount, record.InputTokenCount, record.OutputTokenCount, record.Duration.Milliseconds(),
-		record.DraftCurveCount, record.DraftSelectedCount, record.DraftWarningCount, responseModeStrings(record.ResponseModes), record.ReplyWarningCount, record.CreatedAt, record.CompletedAt, record.ExpiresAt).Scan(&id)
+		record.DraftCurveCount, record.DraftSelectedCount, record.DraftWarningCount, responseModeStrings(record.ResponseModes), serviceTagStrings(record.ServiceTags), record.ClassificationStatus,
+		record.ClassificationInputTokenCount, record.ClassificationOutputTokenCount, record.ClassificationDuration.Milliseconds(), record.ReplyWarningCount, record.CreatedAt, record.CompletedAt, record.ExpiresAt).Scan(&id)
 	return id, err
 }
 
@@ -107,6 +123,14 @@ func responseModeStrings(modes []ResponseMode) []string {
 	values := make([]string, 0, len(modes))
 	for _, mode := range modes {
 		values = append(values, string(mode))
+	}
+	return values
+}
+
+func serviceTagStrings(tags []ServiceTag) []string {
+	values := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		values = append(values, string(tag))
 	}
 	return values
 }

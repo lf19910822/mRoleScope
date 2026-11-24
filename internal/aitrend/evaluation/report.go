@@ -6,6 +6,7 @@ import (
 )
 
 type SubScoreRates struct {
+	ServiceTags  float64 `json:"service_tags"`
 	Agent        float64 `json:"agent"`
 	ToolCalls    float64 `json:"tool_calls"`
 	Scope        float64 `json:"scope"`
@@ -44,17 +45,20 @@ type LatencyReport struct {
 }
 
 type Report struct {
-	EvaluationVersionID string           `json:"evaluation_version_id"`
-	CaseReports         []CaseReport     `json:"case_reports"`
-	CategoryReports     []CategoryReport `json:"category_reports"`
-	OverallPassRate     float64          `json:"overall_pass_rate"`
-	IncompleteCases     int              `json:"incomplete_cases"`
-	Latency             LatencyReport    `json:"latency"`
-	TotalToolCalls      int              `json:"total_tool_calls"`
-	TotalInputTokens    int              `json:"total_input_tokens"`
-	TotalOutputTokens   int              `json:"total_output_tokens"`
-	TotalCostNanoRMB    int64            `json:"total_cost_nano_rmb"`
-	TotalReplyWarnings  int              `json:"total_reply_warnings"`
+	EvaluationVersionID             string           `json:"evaluation_version_id"`
+	CaseReports                     []CaseReport     `json:"case_reports"`
+	CategoryReports                 []CategoryReport `json:"category_reports"`
+	OverallPassRate                 float64          `json:"overall_pass_rate"`
+	IncompleteCases                 int              `json:"incomplete_cases"`
+	Latency                         LatencyReport    `json:"latency"`
+	TotalToolCalls                  int              `json:"total_tool_calls"`
+	TotalInputTokens                int              `json:"total_input_tokens"`
+	TotalOutputTokens               int              `json:"total_output_tokens"`
+	TotalCostNanoRMB                int64            `json:"total_cost_nano_rmb"`
+	TotalClassificationInputTokens  int              `json:"total_classification_input_tokens"`
+	TotalClassificationOutputTokens int              `json:"total_classification_output_tokens"`
+	TotalClassificationCostNanoRMB  int64            `json:"total_classification_cost_nano_rmb"`
+	TotalReplyWarnings              int              `json:"total_reply_warnings"`
 }
 
 func BuildReport(cases []Case, traces []Trace, version EvaluationVersion) (Report, error) {
@@ -127,6 +131,9 @@ func buildReport(cases []Case, traces []Trace, version EvaluationVersion, catego
 		report.TotalInputTokens += trace.InputTokens
 		report.TotalOutputTokens += trace.OutputTokens
 		report.TotalCostNanoRMB += trace.EstimatedCostNanoRMB
+		report.TotalClassificationInputTokens += trace.ClassificationInputTokens
+		report.TotalClassificationOutputTokens += trace.ClassificationOutputTokens
+		report.TotalClassificationCostNanoRMB += trace.EstimatedClassificationCostNanoRMB
 		report.TotalReplyWarnings += len(trace.ReplyQualityWarnings)
 	}
 	if len(casePassRates) > 0 {
@@ -153,6 +160,9 @@ func summarizeCase(item Case, traces []Trace) CaseReport {
 		if trace.Score.ToolCalls.Pass {
 			report.SubScoreRates.ToolCalls++
 		}
+		if trace.Score.ServiceTags.Pass {
+			report.SubScoreRates.ServiceTags++
+		}
 		if trace.Score.Agent.Pass {
 			report.SubScoreRates.Agent++
 		}
@@ -175,6 +185,7 @@ func summarizeCase(item Case, traces []Trace) CaseReport {
 		denominator := float64(report.ValidRuns)
 		report.PassRate = float64(report.PassCount) / denominator
 		report.SubScoreRates.ToolCalls /= denominator
+		report.SubScoreRates.ServiceTags /= denominator
 		report.SubScoreRates.Agent /= denominator
 		report.SubScoreRates.Scope /= denominator
 		report.SubScoreRates.Draft /= denominator

@@ -41,16 +41,35 @@ func TestEvaluationSnapshotIsDeterministicAndReadOnly(t *testing.T) {
 }
 
 func TestEvaluationSnapshotValidatesBenchmarkFormalIDs(t *testing.T) {
-	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v1.json"))
+	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v3.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cases, err := LoadFile(filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "AI趋势智能体Benchmark-v1.md"))
+	cases, err := LoadFile(filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "benchmarks", "AI趋势智能体Benchmark-v1.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := snapshot.ValidateCases(cases); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEvaluationSnapshotVersionsRemainIsolated(t *testing.T) {
+	v1, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v3, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v3.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v1.Version() == v3.Version() || v1.Version() != "serving-evaluation-snapshot-v1" || v3.Version() != "serving-evaluation-snapshot-v3" {
+		t.Fatalf("snapshot versions = %q/%q", v1.Version(), v3.Version())
+	}
+	v1Options, _ := v1.ListFilterOptions(context.Background())
+	v3Options, _ := v3.ListFilterOptions(context.Background())
+	if len(v1Options.Projects) >= len(v3Options.Projects) || len(v3Options.Projects) < 8 {
+		t.Fatalf("snapshot candidate isolation = %d/%d", len(v1Options.Projects), len(v3Options.Projects))
 	}
 }
 

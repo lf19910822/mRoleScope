@@ -92,6 +92,34 @@ func TestTraceStoresAgentReplySummaryWithoutReplyText(t *testing.T) {
 	}
 }
 
+func TestTraceStoresServiceClassificationSummarySeparately(t *testing.T) {
+	version, err := NewEvaluationVersion(completeVersionInput(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := Result{
+		Stats: aitrend.TrendRunStats{
+			ServiceTags: []aitrend.ServiceTag{aitrend.ServiceTagTrend, aitrend.ServiceTagGuidance}, ClassificationStatus: "completed",
+			ClassificationInput: 5, ClassificationOutput: 2, ClassificationTime: 150 * time.Millisecond,
+			InputTokens: 15, OutputTokens: 10, ToolCalls: 1,
+		},
+		Events: []aitrend.StreamEvent{
+			{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolClassifyServiceModes)},
+			{Type: aitrend.StreamEventOperation, Status: aitrend.StreamCompleted, Tool: string(aitrend.ToolClassifyServiceModes)},
+		},
+	}
+	trace, err := BuildTrace(Case{ID: "M01"}, version, Attempt{CaseID: "M01", Repetition: 1, Status: AttemptComplete, Result: result}, Score{Pass: true}, DefaultUsageRates())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.ClassificationStatus != "completed" || trace.ClassificationInputTokens != 5 || trace.ClassificationOutputTokens != 2 || trace.ClassificationDurationMS != 150 || trace.EstimatedClassificationCostNanoRMB != 8000 {
+		t.Fatalf("classification trace = %#v", trace)
+	}
+	if len(trace.Operations) != 2 || trace.Operations[0].Tool != string(aitrend.ToolClassifyServiceModes) || len(trace.Operations[0].Params) != 0 {
+		t.Fatalf("classification operations = %#v", trace.Operations)
+	}
+}
+
 func TestTraceTypesDoNotRequireProductContext(t *testing.T) {
 	_ = context.Background()
 }

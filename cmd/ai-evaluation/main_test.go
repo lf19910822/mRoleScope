@@ -42,3 +42,11 @@ func TestFixtureProviderFollowsTrendSummaryHandshakeForCategorySubset(t *testing
 		t.Fatalf("final intent turn = %#v, err=%v", finalTurn, err)
 	}
 }
+
+func TestFixtureProviderReturnsReviewedServiceTags(t *testing.T) {
+	provider := fixtureProvider{item: evaluation.Case{ID: "M01", ExpectedServiceTags: []string{"trend", "guidance"}}}
+	classification, input, output, err := provider.ClassifyServiceModes(context.Background(), "哪些项目？并说明怎么修改")
+	if err != nil || input != 3 || output != 1 || len(classification.ServiceTags) != 2 || classification.ServiceTags[0] != aitrend.ServiceTagTrend || classification.ServiceTags[1] != aitrend.ServiceTagGuidance {
+		t.Fatalf("fixture classification=%#v usage=%d/%d err=%v", classification, input, output, err)
+	}
+}

@@ -21,6 +21,22 @@ type fixtureProvider struct {
 	turn int
 }
 
+func (provider fixtureProvider) ClassifyServiceModes(context.Context, string) (aitrend.ServiceModeClassification, int, int, error) {
+	tags := append([]string(nil), provider.item.ExpectedServiceTags...)
+	if len(tags) == 0 {
+		if isFixtureGuidance(provider.item) {
+			tags = []string{string(aitrend.ServiceTagGuidance)}
+		} else {
+			tags = []string{string(aitrend.ServiceTagTrend)}
+		}
+	}
+	serviceTags := make([]aitrend.ServiceTag, 0, len(tags))
+	for _, tag := range tags {
+		serviceTags = append(serviceTags, aitrend.ServiceTag(tag))
+	}
+	return aitrend.ServiceModeClassification{ContractVersion: aitrend.ServiceModeContractVersionV1, ServiceTags: serviceTags}, 3, 1, nil
+}
+
 func (provider fixtureProvider) AnalyzeIntent(_ context.Context, _ string, _ *aitrend.ContractError) ([]byte, error) {
 	if isFixtureGuidance(provider.item) {
 		return json.Marshal(aitrend.AgentResponse{ContractVersion: aitrend.AgentContractVersionV1, ResponseModes: []aitrend.ResponseMode{aitrend.ResponseModeGuidance}})
@@ -312,7 +328,7 @@ func minLimit(value int) int {
 
 func main() {
 	var casesPath, snapshotPath, outputDir, runID, suite, providerMode string
-	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
+	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
 	flag.StringVar(&suite, "suite", "trend", "benchmark suite: trend or agent")
 	flag.StringVar(&providerMode, "provider", evaluationProviderFixture, "model provider: fixture or qwen")
 	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v3.json", "evaluation-only Serving snapshot path")
@@ -329,8 +345,8 @@ func main() {
 	var cases []evaluation.Case
 	var err error
 	if suite == "agent" {
-		if casesPath == "Docs/开发指导/AI评测/AI趋势智能体Benchmark-v1.md" {
-			casesPath = "Docs/开发指导/AI评测/AI趋势智能体AgentBenchmark-v1.md"
+		if casesPath == "Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md" {
+			casesPath = "Docs/开发指导/AI评测/benchmarks/AI趋势智能体AgentBenchmark-v1.md"
 		}
 		cases, err = evaluation.LoadAgentFile(casesPath)
 	} else {

@@ -45,7 +45,12 @@ func (runner *Runner) Run(ctx context.Context, query string) (Result, error) {
 		if !ok {
 			return result, fmt.Errorf("fault injection requires a tool-capable provider")
 		}
-		provider = &faultInjectingProvider{base: provider, tools: toolProvider}
+		faultProvider := &faultInjectingProvider{base: provider, tools: toolProvider}
+		if _, classified := provider.(aitrend.IntentServiceModeClassifier); classified {
+			provider = &faultInjectingClassifiedProvider{faultInjectingProvider: faultProvider}
+		} else {
+			provider = faultProvider
+		}
 	}
 	productionRunner, err := aitrend.NewTrendRunner(provider, runner.Snapshot, runner.Snapshot, nil)
 	if err != nil {
@@ -80,6 +85,18 @@ type faultInjectingProvider struct {
 
 func (provider *faultInjectingProvider) AnalyzeIntent(ctx context.Context, query string, correction *aitrend.ContractError) ([]byte, error) {
 	return provider.base.AnalyzeIntent(ctx, query, correction)
+}
+
+type faultInjectingClassifiedProvider struct {
+	*faultInjectingProvider
+}
+
+func (provider *faultInjectingClassifiedProvider) ClassifyServiceModes(ctx context.Context, query string) (aitrend.ServiceModeClassification, int, int, error) {
+	classifier, ok := provider.base.(aitrend.IntentServiceModeClassifier)
+	if !ok {
+		return aitrend.ServiceModeClassification{}, 0, 0, fmt.Errorf("classification provider is unavailable")
+	}
+	return classifier.ClassifyServiceModes(ctx, query)
 }
 
 func (provider *faultInjectingProvider) AnalyzeIntentTurn(ctx context.Context, query string, correction *aitrend.ContractError, history []aitrend.ToolConversation, allowTools bool) (aitrend.IntentToolTurn, error) {

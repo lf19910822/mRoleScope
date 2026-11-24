@@ -8,12 +8,12 @@ import (
 
 func benchmarkSourcePath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "AI趋势智能体Benchmark-v1.md")
+	return filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "benchmarks", "AI趋势智能体Benchmark-v1.md")
 }
 
 func agentBenchmarkSourcePath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "AI趋势智能体AgentBenchmark-v1.md")
+	return filepath.Join("..", "..", "..", "Docs", "开发指导", "AI评测", "benchmarks", "AI趋势智能体AgentBenchmark-v1.md")
 }
 
 func TestReviewableBenchmarkHasThirtyCasesAcrossSixCategories(t *testing.T) {

@@ -66,4 +66,8 @@ func TestAssistantReplyPromptGuidanceProvidesCopyableExamples(t *testing.T) {
 	if strings.Contains(trendPrompt, "比较 Go 和 Python 的岗位数量") || !strings.Contains(trendPrompt, "严禁列出提问示例") {
 		t.Fatalf("trend-only reply prompt exposes guidance examples: %s", trendPrompt)
 	}
+	mixedPrompt := assistantReplyPromptForModes([]ResponseMode{ResponseModeTrend, ResponseModeGuidance})
+	if strings.Contains(mixedPrompt, "比较 Go 和 Python 的岗位数量") || !strings.Contains(mixedPrompt, "严禁列出提问示例") {
+		t.Fatalf("mixed reply prompt exposes guidance examples: %s", mixedPrompt)
+	}
 }

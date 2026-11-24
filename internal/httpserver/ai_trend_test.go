@@ -26,6 +26,12 @@ func TestAITrendDraftStreamsNDJSONOperationEvents(t *testing.T) {
 		if query != "哪些数据库" {
 			return nil
 		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolClassifyServiceModes), Params: []byte(`{"service_tags":["trend"],"internal":"secret"}`)}); err != nil {
+			return err
+		}
+		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamCompleted, Tool: string(aitrend.ToolClassifyServiceModes)}); err != nil {
+			return err
+		}
 		if err := emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolAnalyzeIntent)}); err != nil {
 			return err
 		}
@@ -47,11 +53,14 @@ func TestAITrendDraftStreamsNDJSONOperationEvents(t *testing.T) {
 	if response.Header().Get("Content-Type") != "application/x-ndjson; charset=utf-8" {
 		t.Fatalf("content type = %q", response.Header().Get("Content-Type"))
 	}
-	if lines := strings.Count(response.Body.String(), "\n"); lines != 4 {
+	if lines := strings.Count(response.Body.String(), "\n"); lines != 6 {
 		t.Fatalf("stream lines = %d body=%s", lines, response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), `"tool":"analyze_intent"`) {
 		t.Fatalf("model operation missing: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"tool":"classify_service_modes"`) || strings.Contains(response.Body.String(), "service_tags") || strings.Contains(response.Body.String(), "internal") || strings.Contains(response.Body.String(), "secret") {
+		t.Fatalf("classification operation leaked raw content: %s", response.Body.String())
 	}
 }
 

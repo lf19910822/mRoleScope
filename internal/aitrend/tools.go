@@ -10,6 +10,9 @@ import (
 type ToolName string
 
 const (
+	// ToolClassifyServiceModes is a display-only operation emitted by the
+	// lightweight service classification call. It is not a Serving tool.
+	ToolClassifyServiceModes     ToolName = "classify_service_modes"
 	// ToolAnalyzeIntent is a display-only operation emitted while the model
 	// prepares the structured intent. It is not registered as a Serving tool.
 	ToolAnalyzeIntent ToolName = "analyze_intent"
