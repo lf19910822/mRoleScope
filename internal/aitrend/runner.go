@@ -304,6 +304,14 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		plannedIntent = normalizeIntentForQuery(query, result.Intent, resolver)
 		groups = candidateGroups(plannedIntent, resolver)
 	}
+	summaryCompletionPartial, completionErr := completeMissingTrendSummaries(ctx, registry, groups, plannedIntent, &result.ToolResults, streamEmit)
+	if completionErr != nil {
+		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, completionErr)
+		return completionErr
+	}
+	if summaryCompletionPartial {
+		result.Partial = true
+	}
 	applySummaryScores(groups, result.ToolResults, plannedIntent)
 	rankApplied := applyTrendRankResults(groups, result.ToolResults)
 	if !rankApplied {
@@ -316,6 +324,9 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 
 	partialFailure := result.Partial
 	warnings := make([]string, 0)
+	if summaryCompletionPartial {
+		warnings = append(warnings, "部分候选趋势摘要未能读取，结果可能不完整。")
+	}
 	for _, toolResult := range result.ToolResults {
 		if toolResult.SafeError != nil {
 			// A malformed model tool request is corrected in the tool session;
@@ -534,8 +545,66 @@ func normalizeIntentForQuery(query string, intent Intent, resolver Resolver) Int
 		if broad {
 			subQuery.Expressions = []string{category}
 		}
+		normalizeRankingLimitForQuery(query, subQuery, resolver)
 	}
 	return normalized
+}
+
+// normalizeRankingLimitForQuery supplies the numeric default that the model
+// cannot infer from the phrase “产品默认数量”. Explicit singular questions
+// remain top-one; plural/category questions that were accidentally emitted as
+// top-one receive the bounded product default before candidate allocation.
+func normalizeRankingLimitForQuery(query string, subQuery *SubQuery, resolver Resolver) {
+	if subQuery == nil {
+		return
+	}
+	value := normalizeExpression(query)
+	if hasExplicitRankingCount(value) || !isDefaultRankingQuery(value, subQuery, resolver) {
+		return
+	}
+	subQuery.Ranking.Limit = DefaultRankingLimit
+}
+
+func hasExplicitRankingCount(query string) bool {
+	for _, marker := range []string{"前1", "前2", "前3", "前4", "前5", "前6", "前7", "前8", "前 1", "前 2", "前 3", "前 4", "前 5", "前 6", "前 7", "前 8", "前一", "前二", "前三", "前四", "前五", "前六", "前七", "前八", "top 1", "top 2", "top 3", "top 4", "top 5", "top 6", "top 7", "top 8"} {
+		if strings.Contains(query, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDefaultRankingQuery(query string, subQuery *SubQuery, resolver Resolver) bool {
+	if isExplicitSingleRankingQuery(query) {
+		return false
+	}
+	if subQuery == nil {
+		return false
+	}
+	plural := strings.Contains(query, "哪些") || strings.Contains(query, "有哪些") || strings.Contains(query, "看看趋势") || strings.Contains(query, "全部") || strings.Contains(query, "所有")
+	if subQuery.Dimension == DimensionTechnology && len(technologyCategoriesFromQuery(query, resolver)) > 0 {
+		return true
+	}
+	if plural {
+		for _, expression := range subQuery.Expressions {
+			if isBroadExpression(expression) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isExplicitSingleRankingQuery(query string) bool {
+	if query == "" || strings.Contains(query, "哪些") || strings.Contains(query, "有哪些") || strings.Contains(query, "所有") || strings.Contains(query, "全部") {
+		return false
+	}
+	for _, marker := range []string{"哪一个", "哪个", "谁第一", "第一名", "top 1", "top one", "使用最多的", "岗位最多的"} {
+		if strings.Contains(query, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func technologyCategoriesFromQuery(query string, resolver Resolver) []string {
@@ -1021,6 +1090,146 @@ func candidateTrendRequest(timeRange TimeRange, candidate Candidate) trendToolRe
 	}
 }
 
+type trendSummaryCoverageKey struct {
+	Dimension        Dimension
+	Value            string
+	IncludeSecondary bool
+	Operator         string
+}
+
+func candidateSummaryCoverageKey(candidate Candidate) trendSummaryCoverageKey {
+	operator := ""
+	if candidate.Operator != nil {
+		operator = string(*candidate.Operator)
+	}
+	return trendSummaryCoverageKey{Dimension: candidate.Dimension, Value: candidate.Value, IncludeSecondary: candidate.IncludeSecondary, Operator: operator}
+}
+
+func summaryCoverageKey(summary summaryToolResponse) trendSummaryCoverageKey {
+	return trendSummaryCoverageKey{
+		Dimension: Dimension(summary.Curve.Dimension), Value: summary.Curve.Value,
+		IncludeSecondary: summary.Curve.IncludeSecondary, Operator: string(summary.Curve.Operator),
+	}
+}
+
+// completeMissingTrendSummaries makes the model's bounded tool exchange an
+// input to ranking rather than the ranking boundary. A category may contain
+// more values than the model chose to put in its first batch; the server owns
+// the formal snapshot, so it can safely fetch the remaining aggregates and
+// sort the complete candidate set before building the Draft.
+func completeMissingTrendSummaries(ctx context.Context, registry *ToolRegistry, groups []CandidateGroup, intent Intent, results *[]ToolCallResult, emit func(StreamEvent) error) (bool, error) {
+	if registry == nil || results == nil {
+		return false, nil
+	}
+	covered := make(map[trendSummaryCoverageKey]struct{})
+	rankedSubQueries := make(map[string]struct{})
+	for _, result := range *results {
+		if result.Name == ToolRankTrendValues && result.Available {
+			var ranked rankedTrendValuesResponse
+			if json.Unmarshal(result.Payload, &ranked) == nil {
+				for _, value := range ranked.Values {
+					rankedSubQueries[value.SubQueryID] = struct{}{}
+				}
+			}
+			continue
+		}
+		if !result.Available || (result.Name != ToolBatchTrendSummary && result.Name != ToolReadTrendSummary) {
+			continue
+		}
+		if result.Name == ToolReadTrendSummary {
+			var summary summaryToolResponse
+			if json.Unmarshal(result.Payload, &summary) == nil {
+				covered[summaryCoverageKey(summary)] = struct{}{}
+			}
+			continue
+		}
+		var summaries []summaryToolResponse
+		if json.Unmarshal(result.Payload, &summaries) != nil {
+			continue
+		}
+		for _, summary := range summaries {
+			covered[summaryCoverageKey(summary)] = struct{}{}
+		}
+	}
+
+	requests := make([]trendToolRequest, 0)
+	requestKeys := make(map[trendSummaryCoverageKey]struct{})
+	for _, group := range groups {
+		if _, ranked := rankedSubQueries[group.SubQueryID]; ranked {
+			continue
+		}
+		for _, candidate := range group.Candidates {
+			key := candidateSummaryCoverageKey(candidate)
+			if _, ok := covered[key]; ok {
+				continue
+			}
+			if _, ok := requestKeys[key]; ok {
+				continue
+			}
+			requestKeys[key] = struct{}{}
+			requests = append(requests, candidateTrendRequest(intent.TimeRange, candidate))
+		}
+	}
+	if len(requests) == 0 {
+		return false, nil
+	}
+
+	remainingCalls := MaxToolCalls - registry.Calls() - 1 // reserve final draft validation
+	if remainingCalls < 0 {
+		remainingCalls = 0
+	}
+	allowed := remainingCalls * MaxBatchCandidates
+	partial := false
+	if allowed < len(requests) {
+		partial = true
+		requests = requests[:allowed]
+	}
+	for start := 0; start < len(requests); start += MaxBatchCandidates {
+		end := start + MaxBatchCandidates
+		if end > len(requests) {
+			end = len(requests)
+		}
+		batch := requests[start:end]
+		params := mustMarshal(batch)
+		if err := recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolCall, Tool: string(ToolBatchTrendSummary), Params: debugJSON(params)}); err != nil {
+			return partial, err
+		}
+		if err := emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(ToolBatchTrendSummary), Params: params}); err != nil {
+			return partial, err
+		}
+		toolResult, callErr := registry.Call(ctx, ToolCall{Name: ToolBatchTrendSummary, Params: params})
+		if callErr != nil {
+			partial = true
+			toolResult.Name = ToolBatchTrendSummary
+			toolResult.SafeError = safeErrorFrom(callErr)
+			toolResult.Available = false
+		} else {
+			if toolResult.SafeError == nil {
+				toolResult.SafeError = batchTrendPayloadFailure(toolResult.Payload)
+			}
+			if toolResult.SafeError == nil {
+				toolResult.SafeError = batchTrendPayloadPartialFailure(toolResult.Payload)
+			}
+			if toolResult.SafeError != nil || batchTrendPayloadHasItemErrors(toolResult.Payload) {
+				partial = true
+			}
+		}
+		status := StreamCompleted
+		if toolResult.SafeError != nil {
+			status = StreamFailed
+		}
+		if err := emit(StreamEvent{Type: StreamEventOperation, Status: status, Tool: string(ToolBatchTrendSummary), Params: params, Error: toolResult.SafeError}); err != nil {
+			return partial, err
+		}
+		debugResult := DebugTraceEvent{Type: DebugEventToolResult, Tool: string(ToolBatchTrendSummary), Params: debugJSON(params), Result: debugJSON(toolResult.Payload), Status: string(status), Error: toolResult.SafeError}
+		if err := recordDebug(ctx, debugResult); err != nil {
+			return partial, err
+		}
+		*results = append(*results, toolResult)
+	}
+	return partial, nil
+}
+
 func applySummaryScores(groups []CandidateGroup, results []ToolCallResult, intent Intent) {
 	metricBySubQuery := make(map[string]Metric, len(intent.SubQueries))
 	orderBySubQuery := make(map[string]Order, len(intent.SubQueries))
@@ -1105,6 +1314,16 @@ func filterFailedSummaryCandidates(groups []CandidateGroup, results []ToolCallRe
 func filterCandidatesToSummaryResults(groups []CandidateGroup, results []ToolCallResult) {
 	queried := make(map[string]struct{})
 	for _, result := range results {
+		if result.Name == ToolRankTrendValues && result.Available {
+			var ranked rankedTrendValuesResponse
+			if json.Unmarshal(result.Payload, &ranked) == nil {
+				for _, value := range ranked.Values {
+					queried[explanationCurveKey(Dimension(value.Dimension), value.Value, false)] = struct{}{}
+					queried[explanationCurveKey(Dimension(value.Dimension), value.Value, true)] = struct{}{}
+				}
+			}
+			continue
+		}
 		if !result.Available || (result.Name != ToolBatchTrendSummary && result.Name != ToolReadTrendSummary) {
 			continue
 		}

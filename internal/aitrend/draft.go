@@ -73,10 +73,7 @@ func BuildDraft(groups []CandidateGroup, options DraftBuildOptions) (Draft, erro
 		if label == "" {
 			label = candidate.Value
 		}
-		subQueryIDs := append([]string(nil), candidate.SubQueryIDs...)
-		if len(subQueryIDs) == 0 && candidate.SubQueryID != "" {
-			subQueryIDs = []string{candidate.SubQueryID}
-		}
+		subQueryIDs := uniqueSubQueryIDs(candidate.SubQueryIDs, []string{candidate.SubQueryID})
 		if len(subQueryIDs) == 0 {
 			return Draft{}, fmt.Errorf("candidate %q has no sub-query", candidate.Value)
 		}

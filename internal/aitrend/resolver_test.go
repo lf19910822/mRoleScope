@@ -75,6 +75,13 @@ func TestMergeCandidatesKeepsDifferentJobFamilyScope(t *testing.T) {
 	}
 }
 
+func TestMergeCandidatesDeduplicatesSubQueryIDs(t *testing.T) {
+	got := MergeCandidates([]Candidate{{Dimension: DimensionTechnology, Value: "redis", SubQueryID: "q1", SubQueryIDs: []string{"q1"}}})
+	if len(got) != 1 || len(got[0].SubQueryIDs) != 1 || got[0].SubQueryIDs[0] != "q1" {
+		t.Fatalf("merged candidates = %#v", got)
+	}
+}
+
 func TestResolverNaturalExpansionAndAmbiguity(t *testing.T) {
 	resolver := Resolver{Values: map[Dimension][]Candidate{
 		DimensionTechnology: {

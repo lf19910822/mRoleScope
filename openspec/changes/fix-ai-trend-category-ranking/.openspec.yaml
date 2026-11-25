@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-11-25
+goal: 类别查询应返回所有有效候选中的默认数量，而不是因模型 limit=1 只保留第一名。

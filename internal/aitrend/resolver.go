@@ -216,9 +216,7 @@ func MergeCandidates(candidates []Candidate) []Candidate {
 			}
 			continue
 		}
-		if candidate.SubQueryID != "" {
-			candidate.SubQueryIDs = append(candidate.SubQueryIDs, candidate.SubQueryID)
-		}
+		candidate.SubQueryIDs = uniqueSubQueryIDs(candidate.SubQueryIDs, []string{candidate.SubQueryID})
 		seen[key] = struct{}{}
 		merged = append(merged, candidate)
 	}
@@ -226,26 +224,7 @@ func MergeCandidates(candidates []Candidate) []Candidate {
 }
 
 func mergeCandidateMetadata(left, right Candidate) Candidate {
-	ids := append([]string(nil), left.SubQueryIDs...)
-	if left.SubQueryID != "" && len(ids) == 0 {
-		ids = append(ids, left.SubQueryID)
-	}
-	for _, id := range append(right.SubQueryIDs, right.SubQueryID) {
-		if id == "" {
-			continue
-		}
-		found := false
-		for _, existing := range ids {
-			if existing == id {
-				found = true
-				break
-			}
-		}
-		if !found {
-			ids = append(ids, id)
-		}
-	}
-	left.SubQueryIDs = ids
+	left.SubQueryIDs = uniqueSubQueryIDs(left.SubQueryIDs, []string{left.SubQueryID}, right.SubQueryIDs, []string{right.SubQueryID})
 	if left.MatchStatus == MatchPossible && right.MatchStatus != MatchPossible {
 		left.MatchStatus = right.MatchStatus
 	}
@@ -256,6 +235,23 @@ func mergeCandidateMetadata(left, right Candidate) Candidate {
 		left.Scope = right.Scope
 	}
 	return left
+}
+
+func uniqueSubQueryIDs(groups ...[]string) []string {
+	ids := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for _, id := range group {
+			if id == "" {
+				continue
+			}
+			if _, exists := seen[id]; !exists {
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
 }
 
 // AllocateCandidates reserves one candidate for each sub-query in order,
