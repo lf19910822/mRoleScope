@@ -37,6 +37,37 @@ type QwenIntentProvider struct {
 	httpClient *http.Client
 }
 
+// do captures only provider request/response bodies when a controlled debug
+// sink is present. Authorization headers are deliberately never copied.
+func (provider *QwenIntentProvider) do(ctx context.Context, operation string, request *http.Request) (*http.Response, error) {
+	if debugTraceFromContext(ctx) == nil {
+		return provider.httpClient.Do(request)
+	}
+	requestBody, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	_ = request.Body.Close()
+	request.Body = io.NopCloser(bytes.NewReader(requestBody))
+	if err := recordDebug(ctx, DebugTraceEvent{Type: DebugEventModelRequest, Operation: operation, Body: debugJSON(requestBody)}); err != nil {
+		return nil, err
+	}
+	response, err := provider.httpClient.Do(request)
+	if response == nil {
+		return response, err
+	}
+	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, debugProviderBodyLimit+1))
+	_ = response.Body.Close()
+	response.Body = io.NopCloser(bytes.NewReader(responseBody))
+	if readErr != nil {
+		return response, readErr
+	}
+	if err := recordDebug(ctx, DebugTraceEvent{Type: DebugEventModelResponse, Operation: operation, HTTPStatus: response.StatusCode, Body: debugJSON(responseBody)}); err != nil {
+		return response, err
+	}
+	return response, err
+}
+
 func NewQwenIntentProvider(apiKey, workspaceID string, httpClient *http.Client) (*QwenIntentProvider, error) {
 	if strings.TrimSpace(apiKey) == "" || httpClient == nil {
 		return nil, &ContractError{Code: ErrorConfigurationFailure, Message: "AI provider is not configured"}
@@ -194,7 +225,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentUsage(ctx context.Context, quer
 	}
 	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := provider.httpClient.Do(request)
+	response, err := provider.do(ctx, "analyze_intent", request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, 0, 0, err
@@ -249,7 +280,7 @@ func (provider *QwenIntentProvider) ClassifyServiceModes(ctx context.Context, qu
 	}
 	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := provider.httpClient.Do(request)
+	response, err := provider.do(ctx, "classify_service_modes", request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return ServiceModeClassification{}, 0, 0, err
@@ -349,7 +380,7 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 	}
 	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := provider.httpClient.Do(request)
+	response, err := provider.do(ctx, "analyze_intent_turn", request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return IntentToolTurn{}, err
@@ -568,7 +599,7 @@ func (provider *QwenIntentProvider) ExplainDraftUsage(ctx context.Context, query
 	}
 	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := provider.httpClient.Do(request)
+	response, err := provider.do(ctx, "explain_draft", request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "", 0, 0, err
@@ -638,7 +669,7 @@ func (provider *QwenIntentProvider) StreamAssistantMessage(ctx context.Context, 
 	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
-	response, err := provider.httpClient.Do(request)
+	response, err := provider.do(ctx, "assistant_message", request)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return 0, 0, err

@@ -23,6 +23,8 @@ type TrendRunner struct {
 	ServiceModeFeedback *ServiceModeFeedback
 	MaxDuration         time.Duration
 	StatsSink           func(TrendRunStats)
+	Debug               DebugTraceSink
+	Langfuse            LangfuseDebugConfig
 }
 
 // TrendRunStats is an in-memory handoff for evaluation and diagnostics. It is
@@ -52,7 +54,44 @@ func NewTrendRunner(provider IntentProvider, options FilterOptionsReader, summar
 	return &TrendRunner{Provider: provider, Tools: ServingToolService{Options: options, Summary: summary, Events: events}}, nil
 }
 
+// RunDebug executes one bounded run with the supplied operator trace sink.
+// It deliberately uses a copy with Audit disabled so no production Intent
+// hash or aggregate audit row is created.
+func (runner *TrendRunner) RunDebug(ctx context.Context, query string, emit func(StreamEvent) error, sink DebugTraceSink) error {
+	if runner == nil || sink == nil {
+		return &ContractError{Code: ErrorConfigurationFailure, Message: "AI debug trace is not configured"}
+	}
+	debugRunner := *runner
+	debugRunner.Audit = nil
+	langfuseSink, langfuseErr := NewLangfuseDebugSink(debugRunner.Langfuse, nil)
+	if langfuseErr != nil {
+		langfuseSink, _ = NewLangfuseDebugSink(LangfuseDebugConfig{}, nil)
+	}
+	combined := NewDebugTraceFanout(sink, langfuseSink)
+	debugRunner.Debug = combined
+	err := debugRunner.Run(ctx, query, emit)
+	status := string(StreamSuccess)
+	var safeErr *SafeError
+	if err != nil {
+		status = string(StreamFailure)
+		safeErr = safeErrorFrom(err)
+	}
+	_ = combined.Record(DebugTraceEvent{Type: DebugEventTerminal, Status: status, Error: safeErr})
+	if langfuseSink != nil && debugRunner.Langfuse.Enabled() {
+		flushContext := ctx
+		if debugRunner.Langfuse.FlushTimeout > 0 {
+			var cancel context.CancelFunc
+			flushContext, cancel = context.WithTimeout(ctx, debugRunner.Langfuse.FlushTimeout)
+			defer cancel()
+		}
+		status := langfuseSink.Flush(flushContext)
+		_ = sink.Record(DebugTraceEvent{Type: DebugEventTraceLink, TraceID: status.TraceID, TraceURL: status.TraceURL, ExportStatus: status.Status, ExportErrorCode: status.ErrorCode})
+	}
+	return err
+}
+
 func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(StreamEvent) error) error {
+	ctx = withDebugTrace(ctx, runner.Debug)
 	startedAt := time.Now()
 	var inputTokens, outputTokens int
 	var serviceTags []ServiceTag
@@ -118,6 +157,14 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	streamEmit := func(event StreamEvent) error {
 		if event.Type == StreamEventOperation {
 			auditOperations = appendAuditOperation(auditOperations, event)
+		}
+		if err := recordDebug(ctx, DebugTraceEvent{Type: DebugEventStream, Stream: &event, Tool: event.Tool, Status: string(event.Status)}); err != nil {
+			return err
+		}
+		if event.Type == StreamEventValidation {
+			if err := recordDebug(ctx, DebugTraceEvent{Type: DebugEventValidation, Tool: event.Tool, Status: string(event.Status), Error: event.Error, Params: debugJSON(event.Params)}); err != nil {
+				return err
+			}
 		}
 		return emit(event)
 	}
@@ -311,6 +358,10 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		return err
 	}
 	draft = &builtDraft
+	if err := recordDebug(ctx, DebugTraceEvent{Type: DebugEventDraft, Draft: draft}); err != nil {
+		runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+		return err
+	}
 	if len(draft.Curves) > 0 {
 		if err := emitValidatedDraft(ctx, registry, *draft, streamEmit); err != nil {
 			return err

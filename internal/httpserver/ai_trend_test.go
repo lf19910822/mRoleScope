@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,70 @@ type aiTrendRunnerFunc func(context.Context, string, func(aitrend.StreamEvent) e
 
 func (function aiTrendRunnerFunc) Run(ctx context.Context, query string, emit func(aitrend.StreamEvent) error) error {
 	return function(ctx, query, emit)
+}
+
+type aiTrendDebugRunnerFunc func(context.Context, string, func(aitrend.StreamEvent) error, aitrend.DebugTraceSink) error
+
+func (function aiTrendDebugRunnerFunc) RunDebug(ctx context.Context, query string, emit func(aitrend.StreamEvent) error, sink aitrend.DebugTraceSink) error {
+	return function(ctx, query, emit, sink)
+}
+
+func TestAITrendDebugRejectsWhenDisabledOrNonLoopback(t *testing.T) {
+	runner := aiTrendDebugRunnerFunc(func(context.Context, string, func(aitrend.StreamEvent) error, aitrend.DebugTraceSink) error {
+		t.Fatal("debug runner was invoked")
+		return nil
+	})
+	for _, remote := range []string{"127.0.0.1:1234", "192.0.2.10:1234"} {
+		router := NewWithAccessAndAIAndDebug(nil, nil, nil, runner, AIDebugConfig{Enabled: remote == "192.0.2.10:1234", MaxEvents: 10, MaxBytes: 4096}, nil)
+		request := httptest.NewRequest(http.MethodPost, "/internal/ai-debug", strings.NewReader(`{"query":"哪些数据库"}`))
+		request.RemoteAddr = remote
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("remote=%s status=%d body=%s", remote, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestAITrendDebugStreamsDetailedEventsOnlyOnLoopback(t *testing.T) {
+	runner := aiTrendDebugRunnerFunc(func(_ context.Context, query string, emit func(aitrend.StreamEvent) error, sink aitrend.DebugTraceSink) error {
+		if query != "哪些数据库" {
+			t.Fatalf("query=%q", query)
+		}
+		if err := sink.Record(aitrend.DebugTraceEvent{Type: aitrend.DebugEventModelRequest, Operation: "analyze_intent", Body: json.RawMessage(`{"model":"qwen-plus"}`)}); err != nil {
+			return err
+		}
+		event := aitrend.StreamEvent{Type: aitrend.StreamEventDraft, Status: aitrend.StreamCompleted, Draft: &aitrend.Draft{ContractVersion: aitrend.ContractVersionV1, Status: aitrend.DraftComplete}}
+		if err := sink.Record(aitrend.DebugTraceEvent{Type: aitrend.DebugEventStream, Status: string(event.Status), Stream: &event}); err != nil {
+			return err
+		}
+		return emit(event)
+	})
+	router := NewWithAccessAndAIAndDebug(nil, nil, nil, runner, AIDebugConfig{Enabled: true, MaxEvents: 10, MaxBytes: 4096}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/internal/ai-debug", strings.NewReader(`{"query":"哪些数据库"}`))
+	request.RemoteAddr = "127.0.0.1:1234"
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"type":"model_request"`) || !strings.Contains(response.Body.String(), `"type":"stream_event"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAITrendDebugRejectsMalformedAndOversizedRequests(t *testing.T) {
+	runner := aiTrendDebugRunnerFunc(func(context.Context, string, func(aitrend.StreamEvent) error, aitrend.DebugTraceSink) error {
+		t.Fatal("debug runner was invoked")
+		return nil
+	})
+	router := NewWithAccessAndAIAndDebug(nil, nil, nil, runner, AIDebugConfig{Enabled: true, MaxEvents: 10, MaxBytes: 4096}, nil)
+	for _, body := range []string{"{", `{"query":"` + strings.Repeat("x", 9000) + `"}`} {
+		request := httptest.NewRequest(http.MethodPost, "/internal/ai-debug", strings.NewReader(body))
+		request.RemoteAddr = "127.0.0.1:1234"
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body length=%d status=%d body=%s", len(body), response.Code, response.Body.String())
+		}
+	}
 }
 
 func (aiTrendRunnerFunc) ListJobs(context.Context, jdserving.ListJobsQuery) (jdserving.JobListResponse, error) {

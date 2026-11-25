@@ -19,6 +19,50 @@ func TestLoadRequiresDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadDisablesAIDebugByDefault(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("MROLESCOPE_AI_DEBUG_ENABLED", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AIDebugEnabled || cfg.AIDebugMaxEvents < 1 || cfg.AIDebugMaxBytes < 1 || cfg.AIDebugTimeout <= 0 {
+		t.Fatalf("debug config = %#v", cfg)
+	}
+}
+
+func TestLoadRejectsInvalidAIDebugConfiguration(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("MROLESCOPE_AI_DEBUG_ENABLED", "yes")
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid debug enablement was accepted")
+	}
+}
+
+func TestLoadRejectsAIDebugInProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("MROLESCOPE_AI_DEBUG_ENABLED", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("production debug enablement was accepted")
+	}
+}
+
+func TestLoadReadsLangfuseRuntimeConfiguration(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("MROLESCOPE_LANGFUSE_BASE_URL", "https://jp.cloud.langfuse.com")
+	t.Setenv("MROLESCOPE_LANGFUSE_PROJECT_ID", "project-1")
+	t.Setenv("MROLESCOPE_LANGFUSE_PUBLIC_KEY", "pk-test")
+	t.Setenv("MROLESCOPE_LANGFUSE_SECRET_KEY", "sk-test")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LangfuseBaseURL != "https://jp.cloud.langfuse.com" || cfg.LangfuseProjectID != "project-1" || cfg.LangfusePublicKey != "pk-test" || cfg.LangfuseSecretKey != "sk-test" {
+		t.Fatalf("Langfuse configuration = %#v", cfg)
+	}
+}
+
 func TestValidateSyncRejectsUnsafeCOSConfiguration(t *testing.T) {
 	cfg := Config{
 		DatabaseURL: "postgres://example",

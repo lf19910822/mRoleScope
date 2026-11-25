@@ -141,6 +141,18 @@ grep -Fqx '      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
   || die 'API must receive the reviewed Qwen Workspace ID through root-owned runtime configuration'
 grep -Fqx '      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}' <<<"$api_block" \
   || die 'API must receive the reviewed Qwen key through root-owned runtime configuration'
+for variable in \
+  MROLESCOPE_AI_DEBUG_ENABLED \
+  MROLESCOPE_AI_DEBUG_MAX_EVENTS \
+  MROLESCOPE_AI_DEBUG_MAX_BYTES \
+  MROLESCOPE_AI_DEBUG_TIMEOUT \
+  MROLESCOPE_LANGFUSE_BASE_URL \
+  MROLESCOPE_LANGFUSE_PROJECT_ID \
+  MROLESCOPE_LANGFUSE_PUBLIC_KEY \
+  MROLESCOPE_LANGFUSE_SECRET_KEY; do
+  grep -Fqx "      ${variable}: \${${variable}:-}" <<<"$api_block" \
+    || die "API must receive ${variable} through root-owned runtime configuration"
+done
 
 check_private_one_shot() {
   local service="$1" profile="$2" command="$3" block
