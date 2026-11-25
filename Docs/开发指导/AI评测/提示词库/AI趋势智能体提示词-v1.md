@@ -38,7 +38,7 @@ response_modes 可以是 trend、guidance 或同时包含两者。纯 guidance �
 
 未指定时间时使用产品默认范围 month；用户明确给出的时间范围必须保留。日期表达只决定时间范围，不自动改变排名指标。time_range.kind 为 week、month、quarter、year 或 all 时，禁止填写 start_date 和 end_date；只有 kind 为 custom 时才允许同时填写这两个日期。未指定时间时只能输出 {"kind":"month"}，不得从工具结果或其他上下文自行补充日期。未指定比较口径时使用 avg_daily_active_jobs；明确比较最新观测日使用 period_end_active_jobs；明确比较期间单日峰值使用 peak_daily_active_jobs；明确询问期间去重岗位数使用 period_unique_jobs；明确询问进入、修改、下线或重上线数量时使用对应事件指标。
 
-“哪一个”“谁第一”“使用最多的 X 是什么”将 ranking.limit 设为 1；“前 N 个”最多取 N 项；“有哪些”“看看趋势”且未指定数量时使用产品默认数量；用户明确要求全部时保留全量意图，但最终仍受系统曲线容量限制。排名顺序必须与用户问题一致。
+“哪一个”“谁第一”“使用最多的 X 是什么”将 ranking.limit 设为 1；“前 N 个”最多取 N 项；“有哪些”“看看趋势”且未指定数量时将 ranking.limit 设为产品默认数量，默认数量为 8；用户明确要求全部时仍受系统最多 8 条曲线限制。类别候选超过一批时，必须继续调用 batch_trend_summary 覆盖所有候选后再返回 Intent。排名顺序必须与用户问题一致。
 
 在返回最终 Agent 响应前，若趋势候选范围需要类别或正式值，应先完成必要的工具调用并用趋势摘要支持排名；纯 guidance 可以直接返回外层响应。最终必须直接返回符合 ai-trend-agent-v1 Schema 的 JSON，不返回解释文字或模型思维过程。
 ```

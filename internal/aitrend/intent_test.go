@@ -35,10 +35,34 @@ func TestHasConflictingRanges(t *testing.T) {
 
 func TestIntentPromptDefinesGenericScopeAndRankingRules(t *testing.T) {
 	prompt := IntentPromptV1()
-	for _, phrase := range []string{"具体正式值或已确认别名", "已登记类别", "[\"*\"]", "ranking.limit", "产品默认范围 month", "日期表达只决定时间范围", "avg_daily_active_jobs", "response_modes", "ai-trend-agent-v1", "guidance", "只能返回工具调用", "不得同时输出解释文字", "assistant_message"} {
+	for _, phrase := range []string{"具体正式值或已确认别名", "已登记类别", "[\"*\"]", "ranking.limit", "产品默认范围 month", "默认数量为 8", "日期表达只决定时间范围", "avg_daily_active_jobs", "response_modes", "ai-trend-agent-v1", "guidance", "只能返回工具调用", "不得同时输出解释文字", "assistant_message"} {
 		if !strings.Contains(prompt, phrase) {
 			t.Fatalf("intent prompt missing %q", phrase)
 		}
+	}
+}
+
+func TestNormalizeIntentForQueryUsesEightForUnspecifiedPluralCategory(t *testing.T) {
+	intent := Intent{SubQueries: []SubQuery{{ID: "q1", Dimension: DimensionTechnology, Expressions: []string{"mysql"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}}
+	resolver := Resolver{
+		Aliases:         map[Dimension]map[string][]string{DimensionTechnology: {"数据库": {"mysql"}}},
+		CategoryAliases: map[Dimension]map[string]struct{}{DimensionTechnology: {"数据库": {}}},
+	}
+	got := normalizeIntentForQuery("哪些数据库正在被使用？", intent, resolver)
+	if got.SubQueries[0].Ranking.Limit != DefaultRankingLimit {
+		t.Fatalf("limit = %d, want %d", got.SubQueries[0].Ranking.Limit, DefaultRankingLimit)
+	}
+}
+
+func TestNormalizeIntentForQueryReplacesAnyModelCountForUnspecifiedPluralCategory(t *testing.T) {
+	intent := Intent{SubQueries: []SubQuery{{ID: "q1", Dimension: DimensionTechnology, Expressions: []string{"mysql"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 2}}}}
+	resolver := Resolver{
+		Aliases:         map[Dimension]map[string][]string{DimensionTechnology: {"数据库": {"mysql"}}},
+		CategoryAliases: map[Dimension]map[string]struct{}{DimensionTechnology: {"数据库": {}}},
+	}
+	got := normalizeIntentForQuery("哪些数据库正在被使用？", intent, resolver)
+	if got.SubQueries[0].Ranking.Limit != DefaultRankingLimit {
+		t.Fatalf("limit = %d, want %d", got.SubQueries[0].Ranking.Limit, DefaultRankingLimit)
 	}
 }
 

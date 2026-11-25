@@ -129,6 +129,79 @@ func (languageSummaryReader) ReadTrendSummary(_ context.Context, query jdserving
 	}, nil
 }
 
+type databaseCategorySummaryReader struct{}
+
+func (databaseCategorySummaryReader) ReadTrendSummary(_ context.Context, query jdserving.TrendQuery) (jdserving.TrendSummary, error) {
+	values := map[string]float64{
+		"alluxio": 2, "clickhouse": 1, "milvus": 0.64, "mongodb": 6,
+		"mysql": 9.12, "postgresql": 2.64, "redis": 10.12, "starrocks": 1.44,
+		"tidb": 8.5, "tikv": 7.5,
+	}
+	average := values[query.Condition.Value]
+	return jdserving.TrendSummary{
+		Curve:                  jdserving.TrendCurve{Dimension: jdserving.TrendDimensionTechnology, Value: query.Condition.Value, Label: query.Condition.Value},
+		AverageDailyActiveJobs: &average,
+		ValidObservationDays:   1,
+	}, nil
+}
+
+func TestTrendRunnerCompletesCategorySummaryBatchesBeforeRanking(t *testing.T) {
+	values := []jdserving.TechnologyKeywordFilterOption{
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "alluxio", Label: "Alluxio"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "clickhouse", Label: "ClickHouse"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "milvus", Label: "Milvus"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "mongodb", Label: "MongoDB"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "mysql", Label: "MySQL"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "postgresql", Label: "PostgreSQL"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "redis", Label: "Redis"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "starrocks", Label: "StarRocks"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "tidb", Label: "TiDB"},
+		{Category: jdserving.FilterOption{Value: "databases-and-storage", Label: "数据库与存储"}, Value: "tikv", Label: "TiKV"},
+	}
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: values}
+	allValues := []string{"alluxio", "clickhouse", "milvus", "mongodb", "mysql", "postgresql", "redis", "starrocks", "tidb", "tikv"}
+	firstBatch, _ := json.Marshal(func() []map[string]any {
+		result := make([]map[string]any, 0, 8)
+		for _, value := range allValues[:8] {
+			result = append(result, map[string]any{"dimension": "technology", "value": value, "range": "month"})
+		}
+		return result
+	}())
+	// Simulate the production failure: the model returned all formal values but
+	// incorrectly treated the plural question as top-one.
+	intent := toolIntentJSON("databases", DimensionTechnology, allValues, 1)
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: firstBatch}}},
+		{Intent: intent},
+	}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{options: options}, databaseCategorySummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	var summaryCalls int
+	if err := runner.Run(context.Background(), "哪些数据库正在被使用？", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		if event.Type == StreamEventOperation && event.Status == StreamRunning && event.Tool == string(ToolBatchTrendSummary) {
+			summaryCalls++
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 8 || summaryCalls != 2 {
+		t.Fatalf("draft=%#v summaryCalls=%d", draft, summaryCalls)
+	}
+	want := []string{"redis", "mysql", "tidb", "tikv", "mongodb", "postgresql", "alluxio", "starrocks"}
+	for index, value := range want {
+		if draft.Curves[index].Condition.Value != value {
+			t.Fatalf("curve[%d]=%q want %q; draft=%#v", index, draft.Curves[index].Condition.Value, value, draft)
+		}
+	}
+}
+
 func TestTrendRunnerUsesModelCategoryDiscoveryAndRankingLimit(t *testing.T) {
 	options := jdserving.FilterOptionsResponse{TechnologyKeywords: []jdserving.TechnologyKeywordFilterOption{
 		{Category: jdserving.FilterOption{Value: "programming-languages", Label: "编程语言"}, Value: "cpp", Label: "C++"},

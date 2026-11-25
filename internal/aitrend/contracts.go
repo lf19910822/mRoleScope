@@ -15,10 +15,14 @@ const (
 	ContractVersionV1      = "ai-trend-draft-v1"
 	AgentContractVersionV1 = "ai-trend-agent-v1"
 
-	MaxToolCalls            = 20
-	MaxToolCandidates       = 100
-	MaxBatchCandidates      = 8
-	MaxCurves               = 8
+	MaxToolCalls       = 20
+	MaxToolCandidates  = 100
+	MaxBatchCandidates = 8
+	MaxCurves          = 8
+	// DefaultRankingLimit is the product default for plural or otherwise
+	// unspecified ranking requests. It is deliberately the same as the
+	// maximum curve capacity so the model has an explicit, bounded value.
+	DefaultRankingLimit     = MaxCurves
 	MaxAIAttempts           = 3
 	MaxExpressionCandidates = 3
 	MaxExplanationRunes     = 100
