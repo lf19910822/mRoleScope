@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +20,14 @@ type Config struct {
 	DatabaseURL          string
 	TrendAIAPIKey        string
 	TrendAIWorkspaceID   string
+	AIDebugEnabled       bool
+	AIDebugMaxEvents     int
+	AIDebugMaxBytes      int
+	AIDebugTimeout       time.Duration
+	LangfuseBaseURL      string
+	LangfuseProjectID    string
+	LangfusePublicKey    string
+	LangfuseSecretKey    string
 	InviteBcryptHash     string
 	SessionSigningSecret string
 	CollectorPython      string
@@ -68,6 +77,14 @@ func Load() (Config, error) {
 		DatabaseURL:          os.Getenv("DATABASE_URL"),
 		TrendAIAPIKey:        os.Getenv("MROLESCOPE_QWEN_API_KEY"),
 		TrendAIWorkspaceID:   os.Getenv("MROLESCOPE_QWEN_WORKSPACE_ID"),
+		AIDebugEnabled:       false,
+		AIDebugMaxEvents:     256,
+		AIDebugMaxBytes:      8 << 20,
+		AIDebugTimeout:       2 * time.Minute,
+		LangfuseBaseURL:      os.Getenv("MROLESCOPE_LANGFUSE_BASE_URL"),
+		LangfuseProjectID:    os.Getenv("MROLESCOPE_LANGFUSE_PROJECT_ID"),
+		LangfusePublicKey:    os.Getenv("MROLESCOPE_LANGFUSE_PUBLIC_KEY"),
+		LangfuseSecretKey:    os.Getenv("MROLESCOPE_LANGFUSE_SECRET_KEY"),
 		InviteBcryptHash:     os.Getenv("MROLESCOPE_INVITE_BCRYPT_HASH"),
 		SessionSigningSecret: os.Getenv("MROLESCOPE_SESSION_SIGNING_SECRET"),
 		CollectorPython:      valueOrDefault("COLLECTOR_PYTHON", "python3"),
@@ -86,10 +103,49 @@ func Load() (Config, error) {
 		SyncTempRoot:    valueOrDefault("SYNC_TEMP_ROOT", "/run/mrolescope-sync"),
 		SyncTimeout:     syncTimeout,
 	}
+	debugEnabled, err := boolFromEnv("MROLESCOPE_AI_DEBUG_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AIDebugEnabled = debugEnabled
+	if cfg.AIDebugEnabled && strings.EqualFold(cfg.Environment, "production") {
+		return Config{}, fmt.Errorf("MROLESCOPE_AI_DEBUG_ENABLED cannot be enabled in production")
+	}
+	if value := os.Getenv("MROLESCOPE_AI_DEBUG_MAX_EVENTS"); value != "" {
+		parsed, parseErr := strconv.Atoi(value)
+		if parseErr != nil || parsed < 1 || parsed > 2048 {
+			return Config{}, fmt.Errorf("MROLESCOPE_AI_DEBUG_MAX_EVENTS must be between 1 and 2048")
+		}
+		cfg.AIDebugMaxEvents = parsed
+	}
+	if value := os.Getenv("MROLESCOPE_AI_DEBUG_MAX_BYTES"); value != "" {
+		parsed, parseErr := strconv.Atoi(value)
+		if parseErr != nil || parsed < 1024 || parsed > 64<<20 {
+			return Config{}, fmt.Errorf("MROLESCOPE_AI_DEBUG_MAX_BYTES must be between 1024 and 67108864")
+		}
+		cfg.AIDebugMaxBytes = parsed
+	}
+	if timeout, timeoutErr := durationFromEnv("MROLESCOPE_AI_DEBUG_TIMEOUT", cfg.AIDebugTimeout); timeoutErr != nil {
+		return Config{}, timeoutErr
+	} else {
+		cfg.AIDebugTimeout = timeout
+	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+func boolFromEnv(key string, fallback bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
+	return parsed, nil
 }
 
 func (cfg Config) ValidateAccess() error {

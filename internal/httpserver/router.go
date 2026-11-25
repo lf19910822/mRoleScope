@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"mrolescope/internal/access"
+	"mrolescope/internal/aitrend"
 	"mrolescope/internal/jdserving"
 )
 
@@ -79,6 +80,17 @@ type JDTrendEventReader interface {
 	ReadTrendEventStats(context.Context, jdserving.TrendEventStatsQuery) (jdserving.TrendEventStatsResponse, error)
 }
 
+type AITrendDebugRunner interface {
+	RunDebug(context.Context, string, func(aitrend.StreamEvent) error, aitrend.DebugTraceSink) error
+}
+
+type AIDebugConfig struct {
+	Enabled   bool
+	MaxEvents int
+	MaxBytes  int
+	Timeout   time.Duration
+}
+
 type Router struct {
 	readiness          ReadinessChecker
 	jdDetail           JDDetailReader
@@ -90,6 +102,8 @@ type Router struct {
 	jdTrend            JDTrendReader
 	jdTrendEvents      JDTrendEventReader
 	aiTrend            AITrendStreamRunner
+	aiDebug            AITrendDebugRunner
+	aiDebugConfig      AIDebugConfig
 	access             *access.Service
 	verificationLimits *verificationLimiter
 }
@@ -110,7 +124,15 @@ func NewWithAccessAndAI(readiness ReadinessChecker, accessService *access.Servic
 	return newRouter(readiness, accessService, aiRunner, readers...)
 }
 
+func NewWithAccessAndAIAndDebug(readiness ReadinessChecker, accessService *access.Service, aiRunner AITrendStreamRunner, debugRunner AITrendDebugRunner, debugConfig AIDebugConfig, readers ...JDListReader) *gin.Engine {
+	return newRouterWithDebug(readiness, accessService, aiRunner, debugRunner, debugConfig, readers...)
+}
+
 func newRouter(readiness ReadinessChecker, accessService *access.Service, aiRunner AITrendStreamRunner, readers ...JDListReader) *gin.Engine {
+	return newRouterWithDebug(readiness, accessService, aiRunner, nil, AIDebugConfig{}, readers...)
+}
+
+func newRouterWithDebug(readiness ReadinessChecker, accessService *access.Service, aiRunner AITrendStreamRunner, debugRunner AITrendDebugRunner, debugConfig AIDebugConfig, readers ...JDListReader) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		return fmt.Sprintf("method=%s path=%s status=%d latency=%s\n", param.Method, param.Path, param.StatusCode, param.Latency)
@@ -119,6 +141,8 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, aiRunn
 		readiness:          readiness,
 		access:             accessService,
 		aiTrend:            aiRunner,
+		aiDebug:            debugRunner,
+		aiDebugConfig:      debugConfig,
 		verificationLimits: newVerificationLimiter(),
 	}
 	if len(readers) > 0 {
@@ -149,6 +173,7 @@ func newRouter(readiness ReadinessChecker, accessService *access.Service, aiRunn
 	business.GET("/job-trends/events", server.jobTrendEvents)
 	business.GET("/job-trends/drilldown", server.jobTrendDrilldown)
 	business.POST("/job-trends/ai-draft", server.aiTrendDraft)
+	router.POST("/internal/ai-debug", server.aiTrendDebug)
 	return router
 }
 

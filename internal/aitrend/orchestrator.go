@@ -130,6 +130,9 @@ func (orchestrator Orchestrator) run(ctx context.Context, input string) (Orchest
 				return OrchestrationResult{AgentResponse: agentResponse, AIAttempts: attemptsUsed}, nil
 			}
 			intent = *agentResponse.TrendIntent
+			if debugErr := recordDebug(ctx, DebugTraceEvent{Type: DebugEventFinalIntent, Intent: &intent}); debugErr != nil {
+				return OrchestrationResult{Intent: intent, AgentResponse: agentResponse, AIAttempts: attemptsUsed}, debugErr
+			}
 			break
 		}
 		contractErr, ok := err.(*ContractError)
@@ -265,7 +268,11 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 					}
 					exchange.Results = append(exchange.Results, toolResult)
 					result.ToolResults = append(result.ToolResults, toolResult)
+					_ = recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolResult, Tool: string(call.Name), Status: string(StreamFailed), Params: debugJSON(call.Params), Error: toolResult.SafeError})
 					continue
+				}
+				if debugErr := recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolCall, Tool: string(call.Name), Params: debugJSON(call.Params)}); debugErr != nil {
+					return result, debugErr
 				}
 				var toolResult ToolCallResult
 				var callErr error
@@ -326,6 +333,13 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 				}
 				exchange.Results = append(exchange.Results, toolResult)
 				result.ToolResults = append(result.ToolResults, toolResult)
+				debugResult := DebugTraceEvent{Type: DebugEventToolResult, Tool: string(call.Name), Params: debugJSON(call.Params), Result: debugJSON(toolResult.Payload), Status: string(StreamCompleted), Error: toolResult.SafeError}
+				if callErr != nil {
+					debugResult.Status = string(StreamFailed)
+				}
+				if debugErr := recordDebug(ctx, debugResult); debugErr != nil {
+					return result, debugErr
+				}
 				if toolCallsUsed >= modelToolLimit {
 					toolBudgetExhausted = true
 				}
@@ -403,6 +417,9 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 		}
 		result.AgentResponse = agentResponse
 		result.Intent = *agentResponse.TrendIntent
+		if debugErr := recordDebug(ctx, DebugTraceEvent{Type: DebugEventFinalIntent, Intent: &result.Intent}); debugErr != nil {
+			return result, debugErr
+		}
 		return result, nil
 	}
 	return result, &ContractError{Code: ErrorLimitExceeded, Field: "model_turns", Message: "AI model turn limit exceeded"}

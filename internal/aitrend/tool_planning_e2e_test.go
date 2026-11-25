@@ -134,6 +134,30 @@ func TestTrendToolPlanningScopeScenarios(t *testing.T) {
 	})
 }
 
+func TestTrendRunnerDebugTraceIncludesIntentDraftAndToolExchange(t *testing.T) {
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: []byte(`[{"dimension":"technology","value":"go","range":"month"}]`)}}},
+		{Intent: toolIntentJSON("debug", DimensionTechnology, []string{"go"}, 1)},
+	}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{options: languageOptions()}, languageSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector := &debugEventCollector{}
+	if err := runner.RunDebug(context.Background(), "比较 Go", func(StreamEvent) error { return nil }, collector); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, event := range collector.events {
+		seen[event.Type] = true
+	}
+	for _, required := range []string{DebugEventStream, DebugEventToolCall, DebugEventToolResult, DebugEventFinalIntent, DebugEventDraft, DebugEventTerminal} {
+		if !seen[required] {
+			t.Fatalf("debug trace missing %q: %#v", required, collector.events)
+		}
+	}
+}
+
 func containsTool(tools []string, wanted string) bool {
 	for _, tool := range tools {
 		if strings.TrimSpace(tool) == wanted {
