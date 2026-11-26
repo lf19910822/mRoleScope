@@ -66,6 +66,9 @@ func (provider *fixtureProvider) AnalyzeIntentTurn(_ context.Context, _ string, 
 		categories = append(categories, provider.item.ExpectedCategory)
 	}
 	sort.Strings(categories)
+	if provider.item.FaultInjection == "invalid_tool_params_once" && len(categories) == 0 {
+		categories = append(categories, fixtureInferredCategory(provider.item))
+	}
 	if provider.turn < len(categories) {
 		category := categories[provider.turn]
 		provider.turn++
@@ -75,9 +78,6 @@ func (provider *fixtureProvider) AnalyzeIntentTurn(_ context.Context, _ string, 
 		// The first category request is corrupted by faultInjectingProvider;
 		// keep the fixture conversation alive so the correction can be observed
 		// before the summary and final Intent turns.
-		if len(categories) == 0 {
-			categories = append(categories, fixtureInferredCategory(provider.item))
-		}
 		provider.turn++
 		category := categories[0]
 		return aitrend.IntentToolTurn{ToolCalls: []aitrend.ToolCall{{ID: "category-corrected", Name: aitrend.ToolListCategoryValues, Params: mustJSON(map[string]string{"category": category})}}, InputTokens: 10, OutputTokens: 4}, nil
@@ -333,7 +333,7 @@ func main() {
 	flag.StringVar(&casesPath, "cases", "Docs/开发指导/AI评测/benchmarks/AI趋势智能体Benchmark-v1.md", "reviewed benchmark Markdown path")
 	flag.StringVar(&suite, "suite", "trend", "benchmark suite: trend or agent")
 	flag.StringVar(&providerMode, "provider", evaluationProviderFixture, "model provider: fixture or qwen")
-	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v3.json", "evaluation-only Serving snapshot path")
+	flag.StringVar(&snapshotPath, "snapshot", "internal/aitrend/evaluation/testdata/serving-snapshot-v4.json", "evaluation-only Serving snapshot path")
 	flag.StringVar(&outputDir, "output", evaluation.DefaultArtifactRoot, "independent evaluation artifact directory")
 	flag.StringVar(&runID, "run-id", "", "evaluation run ID (default: generated from UTC time)")
 	flag.StringVar(&caseIDs, "case-ids", "", "optional comma-separated case IDs for a bounded review sample")

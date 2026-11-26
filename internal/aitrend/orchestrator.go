@@ -295,6 +295,9 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 					}
 					toolResult.SafeError = safeErrorFrom(callErr)
 					toolResult.Available = false
+					if isModelToolContractError(callErr) {
+						_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+					}
 					if contractErr == nil {
 						_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
 					}

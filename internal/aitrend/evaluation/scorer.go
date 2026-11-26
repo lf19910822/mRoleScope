@@ -52,7 +52,13 @@ func scoreFunctionalPass(item Case, result Result, runErr error, score Score) bo
 		if runErr != nil {
 			return false
 		}
-		return score.Agent.Pass && score.Errors.Pass && score.Draft.Pass
+		if !score.Agent.Pass || !score.Errors.Pass || !score.Draft.Pass {
+			return false
+		}
+		if containsString(item.ExpectedResponseModes, "trend") {
+			return score.ToolCalls.Pass && score.Scope.Pass && score.Ranking.Pass
+		}
+		return true
 	}
 	if item.ExpectedStatus == "failure" {
 		// A clarification/error response may not contain a Draft. Explanation
@@ -134,6 +140,9 @@ func scoreToolCalls(item Case, result Result) SubScore {
 	}
 	calls := operationCalls(result)
 	if len(calls) == 0 {
+		if item.ExpectedNoTrendTools {
+			return passed()
+		}
 		return failed("no tool operation was recorded")
 	}
 	if item.ExpectedScope == "explicit" || strings.Contains(item.ExpectedScope, "explicit-") {

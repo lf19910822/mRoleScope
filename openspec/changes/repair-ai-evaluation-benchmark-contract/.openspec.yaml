@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-11-26
+goal: 让 Benchmark 能测试真实实现边界，避免题目字段不可生成、fixture 未注入故障或评分器误报。

@@ -41,7 +41,7 @@ func TestEvaluationSnapshotIsDeterministicAndReadOnly(t *testing.T) {
 }
 
 func TestEvaluationSnapshotValidatesBenchmarkFormalIDs(t *testing.T) {
-	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v3.json"))
+	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v4.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestEvaluationSnapshotV2SupportsDefaultMonthRange(t *testing.T) {
 }
 
 func TestEvaluationSnapshotV3ProvidesCapacityCandidates(t *testing.T) {
-	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v3.json"))
+	snapshot, err := LoadSnapshot(filepath.Join("testdata", "serving-snapshot-v4.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,16 @@ func TestEvaluationSnapshotV3ProvidesCapacityCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(options.Projects) < 8 {
-		t.Fatalf("snapshot project candidates = %d, want at least 8", len(options.Projects))
+	if len(options.Projects) <= 8 {
+		t.Fatalf("snapshot project candidates = %d, want more than 8", len(options.Projects))
+	}
+	databaseCount := 0
+	for _, option := range options.TechnologyKeywords {
+		if option.Category.Value == "databases-and-storage" {
+			databaseCount++
+		}
+	}
+	if databaseCount <= 8 {
+		t.Fatalf("snapshot database candidates = %d, want more than 8", databaseCount)
 	}
 }
