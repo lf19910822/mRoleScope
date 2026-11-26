@@ -156,6 +156,18 @@ func (resolver Resolver) ResolveWithExclusions(dimension Dimension, expression s
 		blocked[normalizeExpression(exclusion)] = struct{}{}
 	}
 	resolved := resolver.resolve(dimension, expression, subQueryID, true)
+	// A formal value or label is an exact scope boundary. Do not add fuzzy
+	// substring matches such as "go" for the formal value "mongodb" when the
+	// model has already selected a concrete candidate.
+	exact := resolved[:0]
+	for _, candidate := range resolved {
+		if candidate.Score == 100 {
+			exact = append(exact, candidate)
+		}
+	}
+	if len(exact) > 0 {
+		resolved = exact
+	}
 	filtered := resolved[:0]
 	for _, candidate := range resolved {
 		if _, excluded := blocked[normalizeExpression(candidate.Value)]; excluded {
