@@ -28,8 +28,10 @@
 | 字段 | 通俗解释 | 例子 |
 | --- | --- | --- |
 | `ranking_metric` | 用什么指标比较 | 见下方指标表 |
+| `requested_metric` | 用户原始但当前不支持的指标；只用于评测记录，不进入 Intent | `share` |
 | `ranking_order` | 是否要求排序 | `desc` 从高到低；`none` 表示只比较、不要求顺序 |
 | `limit` | 用户要求的候选数量 | `2` 表示最多取 2 项 |
+| `requested_limit` | 用户原始要求数量；可以超过 Intent 和看板容量，用于容量题记录 | `20` |
 | `max_curves` | 看板容量上限 | 固定为 `8`，不是用户要求的数量 |
 | `expected_total_at_least` | 至少应交付多少条候选 | `8` |
 
@@ -243,7 +245,7 @@ AI 读取的是 Serving 返回的聚合结果，不读取每日原始数据点�
 ### U02 不支持占比纵轴
 
 ```json
-{"id":"U02","category":"unsupported-recovery","query":"哪些项目的岗位占比最高？","dimension":"project","expressions":["*"],"ranking_metric":"unsupported_share","ranking_order":"desc","limit":8,"expected_values":["*"],"expected_scope":"unsupported-metric-fallback","max_curves":8,"expected_status":"partial","expected_errors":["unsupported_metric"],"expected_response_modes":["trend","guidance"],"expected_service_tags":["trend","guidance"],"expected_terminal_status":"partial","expected_draft":true,"reply_required":true,"reply_language":"zh-CN","reply_max_runes":1000,"explanation_required":true}
+{"id":"U02","category":"unsupported-recovery","query":"哪些项目的岗位占比最高？","dimension":"project","expressions":["*"],"requested_metric":"share","ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":8,"expected_values":["*"],"expected_scope":"unsupported-metric-fallback","max_curves":8,"expected_status":"partial","expected_errors":["unsupported_metric"],"expected_response_modes":["trend","guidance"],"expected_service_tags":["trend","guidance"],"expected_terminal_status":"partial","expected_draft":true,"reply_required":true,"reply_language":"zh-CN","reply_max_runes":1000,"explanation_required":true}
 ```
 
 ### U03 不支持柱状图
@@ -269,7 +271,7 @@ AI 读取的是 Serving 返回的聚合结果，不读取每日原始数据点�
 ### D01 超过八条候选
 
 ```json
-{"id":"D01","category":"draft-validation","query":"列出所有项目的岗位趋势","dimension":"project","expressions":["*"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":20,"expected_values":["*"],"expected_scope":"global-capacity","max_curves":8,"expected_status":"complete","expected_total_at_least":8,"expected_service_tags":["trend"],"explanation_required":true}
+{"id":"D01","category":"draft-validation","query":"列出所有项目的岗位趋势","dimension":"project","expressions":["*"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":8,"requested_limit":20,"expected_values":["*"],"expected_scope":"global-capacity","max_curves":8,"expected_status":"complete","expected_total_at_least":8,"expected_service_tags":["trend"],"explanation_required":true}
 ```
 
 ### D02 全零候选也按固定顺序
@@ -287,7 +289,7 @@ AI 读取的是 Serving 返回的聚合结果，不读取每日原始数据点�
 ### D04 重复候选合并
 
 ```json
-{"id":"D04","category":"draft-validation","query":"项目岗位最多和哪些项目岗位最多？","dimension":"project","expressions":["*"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":8,"expected_values":["*"],"expected_scope":"duplicate-subqueries-merged","max_curves":8,"expected_status":"complete","duplicates_must_merge":true,"expected_service_tags":["trend"],"explanation_required":true}
+{"id":"D04","category":"draft-validation","query":"项目岗位最多和哪些项目岗位最多？","expected_dimensions":["project","project"],"expected_subquery_count":2,"expressions":["*"],"ranking_metric":"avg_daily_active_jobs","ranking_order":"desc","limit":8,"expected_values":["*"],"expected_scope":"duplicate-subqueries-merged","max_curves":8,"expected_status":"complete","duplicates_must_merge":true,"expected_service_tags":["trend"],"explanation_required":true}
 ```
 
 ### D05 类别结果包含点名值

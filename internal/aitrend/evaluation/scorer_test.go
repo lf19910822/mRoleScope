@@ -135,6 +135,26 @@ func TestScoreCaseAcceptsGuidanceOnlyAgentResultWithoutDraft(t *testing.T) {
 	}
 }
 
+func TestScoreCaseGuidanceOnlyWithoutToolsPassesToolCalls(t *testing.T) {
+	noDraft := false
+	result := Result{Stats: aitrend.TrendRunStats{ResponseModes: []aitrend.ResponseMode{aitrend.ResponseModeGuidance}}, Events: []aitrend.StreamEvent{
+		{Type: aitrend.StreamEventAssistant, Status: aitrend.StreamRunning, Delta: "可以帮助你分析趋势。"},
+		{Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess},
+	}}
+	score := ScoreCase(Case{ID: "G01", ExpectedResponseModes: []string{"guidance"}, ExpectedNoTrendTools: true, ExpectedTerminalStatus: "success", ExpectedDraft: &noDraft, ReplyRequired: true}, result, nil)
+	if !score.Pass || !score.ToolCalls.Pass {
+		t.Fatalf("guidance-only score = %#v", score)
+	}
+}
+
+func TestScoreCaseAgentTrendRequiresScopeAndRanking(t *testing.T) {
+	result := Result{Draft: &aitrend.Draft{Status: aitrend.DraftComplete, Curves: []aitrend.DraftCurve{{Condition: aitrend.CurveCondition{Dimension: aitrend.DimensionTechnology, Value: "go"}}}}, Stats: aitrend.TrendRunStats{ResponseModes: []aitrend.ResponseMode{aitrend.ResponseModeTrend, aitrend.ResponseModeGuidance}, Intent: &aitrend.Intent{SubQueries: []aitrend.SubQuery{{Dimension: aitrend.DimensionTechnology, Expressions: []string{"go"}}}}}, Events: []aitrend.StreamEvent{{Type: aitrend.StreamEventDone, Status: aitrend.StreamSuccess}}}
+	score := ScoreCase(Case{ID: "M02", ExpectedResponseModes: []string{"trend", "guidance"}, ExpectedDraft: func() *bool { value := true; return &value }(), ReplyRequired: true, ExpectedScope: "explicit", ExpectedValues: []string{"go"}, RankingMetric: "avg_daily_active_jobs", RankingOrder: "desc", Limit: 1}, result, nil)
+	if score.Pass {
+		t.Fatalf("Agent trend accepted missing scope/ranking: %#v", score)
+	}
+}
+
 func TestScoreCaseSeparatesAgentBoundaryFromAdvisoryReplyQuality(t *testing.T) {
 	noDraft := false
 	item := Case{ID: "G01", Category: "pure-guidance", Query: "你好", ExpectedResponseModes: []string{"guidance"}, ExpectedTerminalStatus: "success", ExpectedNoTrendTools: true, ExpectedDraft: &noDraft, ReplyRequired: true, ReplyLanguage: "zh-CN", ReplyMaxRunes: 1000}
@@ -160,7 +180,7 @@ func TestScorerCoversEveryReviewedBenchmarkCase(t *testing.T) {
 	}
 	for _, item := range cases {
 		score := ScoreCase(item, Result{}, fmt.Errorf("fixture result unavailable"))
-		if score.ToolCalls.Reasons == nil && score.Scope.Reasons == nil && score.Ranking.Reasons == nil && score.Draft.Reasons == nil && score.Explanation.Reasons == nil {
+		if score.Agent.Reasons == nil && score.ToolCalls.Reasons == nil && score.Scope.Reasons == nil && score.Ranking.Reasons == nil && score.Draft.Reasons == nil && score.Explanation.Reasons == nil && score.Errors.Reasons == nil {
 			t.Fatalf("case %s produced no deterministic score details", item.ID)
 		}
 	}

@@ -56,8 +56,10 @@ type Case struct {
 	ExpectedTimeRange      string            `json:"expected_time_range,omitempty"`
 	IncludeSecondary       *bool             `json:"include_secondary,omitempty"`
 	RankingMetric          string            `json:"ranking_metric"`
+	RequestedMetric        string            `json:"requested_metric,omitempty"`
 	RankingOrder           string            `json:"ranking_order"`
 	Limit                  int               `json:"limit"`
+	RequestedLimit         int               `json:"requested_limit,omitempty"`
 	ExpectedValues         []string          `json:"expected_values"`
 	RequiredValues         []string          `json:"required_values,omitempty"`
 	ExpectedDimensions     []string          `json:"expected_dimensions,omitempty"`
@@ -326,6 +328,9 @@ func Validate(cases []Case) error {
 		}
 		if !agentCase && (item.Limit < 1 || item.Limit > 20) {
 			return fmt.Errorf("case %s has invalid limit %d", item.ID, item.Limit)
+		}
+		if !agentCase && item.RequestedLimit > 0 && item.RequestedLimit < item.Limit {
+			return fmt.Errorf("case %s requested_limit %d is below contract limit %d", item.ID, item.RequestedLimit, item.Limit)
 		}
 		if !agentCase && item.MaxCurves != MaxBenchmarkCurves {
 			return fmt.Errorf("case %s has max_curves=%d, want %d", item.ID, item.MaxCurves, MaxBenchmarkCurves)
