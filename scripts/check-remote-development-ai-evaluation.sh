@@ -62,6 +62,15 @@ for service in ai-trend-evaluation ai-agent-evaluation; do
   grep -Fqx '    entrypoint: ["/usr/local/bin/mrolescope-ai-evaluation"]' <<<"$block" || die "${service} must override the worker entrypoint"
   grep -Fqx '      - "-provider"' <<<"$block" || die "${service} must pass flags to the evaluation binary"
   grep -Fqx '        source: /var/lib/mrolescope/ai-evaluation' <<<"$block" || die "${service} report path is not fixed"
+  for variable in \
+    MROLESCOPE_LANGFUSE_EVALUATION_ENABLED \
+    MROLESCOPE_LANGFUSE_BASE_URL \
+    MROLESCOPE_LANGFUSE_PROJECT_ID \
+    MROLESCOPE_LANGFUSE_PUBLIC_KEY \
+    MROLESCOPE_LANGFUSE_SECRET_KEY; do
+    grep -Fqx "      ${variable}: \${${variable}:-}" <<<"$block" \
+      || die "${service} must receive ${variable} through root-owned runtime configuration"
+  done
   if grep -Eq '^[[:space:]]+ports:|DATABASE_URL|backend|raw|COS_' <<<"$block"; then
     die "${service} has an unsafe production boundary"
   fi
