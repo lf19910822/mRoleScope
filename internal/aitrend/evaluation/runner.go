@@ -16,7 +16,12 @@ type Runner struct {
 	Snapshot       *Snapshot
 	MaxDuration    time.Duration
 	FaultInjection string
+	Langfuse       aitrend.LangfuseDebugConfig
 }
+
+type discardDebugSink struct{}
+
+func (discardDebugSink) Record(aitrend.DebugTraceEvent) error { return nil }
 
 type Result struct {
 	Events            []aitrend.StreamEvent
@@ -58,7 +63,7 @@ func (runner *Runner) Run(ctx context.Context, query string) (Result, error) {
 	}
 	productionRunner.MaxDuration = runner.MaxDuration
 	productionRunner.StatsSink = func(stats aitrend.TrendRunStats) { result.Stats = stats }
-	err = productionRunner.Run(ctx, query, func(event aitrend.StreamEvent) error {
+	emit := func(event aitrend.StreamEvent) error {
 		if result.FirstEventLatency == 0 && isFirstModelEvent(event) {
 			result.FirstEventLatency = time.Since(started)
 		}
@@ -68,7 +73,14 @@ func (runner *Runner) Run(ctx context.Context, query string) (Result, error) {
 			result.Draft = &copy
 		}
 		return nil
-	})
+	}
+	if runner.Langfuse.Enabled() {
+		ctx = aitrend.WithLangfuseTraceContext(ctx, runner.Langfuse.TraceContext)
+		productionRunner.Langfuse = runner.Langfuse
+		err = productionRunner.RunDebug(ctx, query, emit, discardDebugSink{})
+	} else {
+		err = productionRunner.Run(ctx, query, emit)
+	}
 	result.TotalDuration = time.Since(started)
 	return result, err
 }

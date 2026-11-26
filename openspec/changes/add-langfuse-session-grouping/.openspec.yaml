@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-11-26
+goal: 让同一道评测题的重复与重试可在 Langfuse Session 中回放，同时保持普通 Debug trace 默认独立。

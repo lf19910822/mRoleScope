@@ -44,9 +44,11 @@ type CaseEvaluation struct {
 // ExecuteFunc is deliberately injectable so the retry policy can be tested
 // without network access while production calls still use Runner.Run.
 type ExecuteFunc func(context.Context, Case) (Result, error)
+type ExecuteAttemptFunc func(context.Context, Case, int, int) (Result, error)
 
 type Executor struct {
 	Execute                  ExecuteFunc
+	ExecuteAttempt           ExecuteAttemptFunc
 	Repetitions              int
 	MaxInfrastructureRetries int
 }
@@ -78,7 +80,13 @@ func (executor *Executor) RunCase(ctx context.Context, item Case) (CaseEvaluatio
 		completed := false
 		for retry := 0; retry <= retries; retry++ {
 			started := time.Now()
-			result, err := executor.Execute(ctx, item)
+			var result Result
+			var err error
+			if executor.ExecuteAttempt != nil {
+				result, err = executor.ExecuteAttempt(ctx, item, repetition, retry)
+			} else {
+				result, err = executor.Execute(ctx, item)
+			}
 			attempt := Attempt{CaseID: item.ID, Repetition: repetition, Retry: retry, Result: result, Duration: time.Since(started)}
 			attempt.Status, attempt.ErrorCode = classifyAttempt(result, err)
 			evaluation.Attempts = append(evaluation.Attempts, attempt)

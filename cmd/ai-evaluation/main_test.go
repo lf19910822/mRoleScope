@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"mrolescope/internal/aitrend"
 	"mrolescope/internal/aitrend/evaluation"
@@ -75,5 +76,24 @@ func TestFixtureProviderReturnsReviewedServiceTags(t *testing.T) {
 	classification, input, output, err := provider.ClassifyServiceModes(context.Background(), "哪些项目？并说明怎么修改")
 	if err != nil || input != 3 || output != 1 || len(classification.ServiceTags) != 2 || classification.ServiceTags[0] != aitrend.ServiceTagTrend || classification.ServiceTags[1] != aitrend.ServiceTagGuidance {
 		t.Fatalf("fixture classification=%#v usage=%d/%d err=%v", classification, input, output, err)
+	}
+}
+
+func TestEvaluationTraceContextGroupsCaseAttempts(t *testing.T) {
+	version, err := evaluation.NewEvaluationVersion(evaluation.VersionInput{
+		RunID: "run-1", Model: "fixture", Provider: "fixture", PromptVersion: "p", ToolSchemaVersion: "t",
+		SnapshotVersion: "s", CodeRevision: "c", CasesVersion: "cases", ScorerVersion: "score",
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := evaluationTraceContext("run-1", "agent", evaluation.Case{ID: "E01"}, version, 1, 0)
+	second := evaluationTraceContext("run-1", "agent", evaluation.Case{ID: "E01"}, version, 2, 1)
+	other := evaluationTraceContext("run-2", "agent", evaluation.Case{ID: "E01"}, version, 1, 0)
+	if first.SessionID != "eval:run-1:agent:E01" || second.SessionID != first.SessionID || other.SessionID == first.SessionID {
+		t.Fatalf("session IDs = %q/%q/%q", first.SessionID, second.SessionID, other.SessionID)
+	}
+	if first.Metadata["evaluation_repetition"] != "1" || second.Metadata["evaluation_retry"] != "1" {
+		t.Fatalf("attempt metadata = %#v/%#v", first.Metadata, second.Metadata)
 	}
 }

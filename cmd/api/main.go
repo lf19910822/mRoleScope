@@ -56,6 +56,7 @@ func main() {
 	repository := jdserving.NewRepositoryFromPool(pool)
 	var trendRunner httpserver.AITrendStreamRunner
 	var debugRunner httpserver.AITrendDebugRunner
+	var debugLangfuse aitrend.LangfuseDebugConfig
 	if cfg.TrendAIAPIKey != "" && cfg.TrendAIWorkspaceID != "" {
 		provider, providerErr := aitrend.NewQwenIntentProvider(cfg.TrendAIAPIKey, cfg.TrendAIWorkspaceID, &http.Client{Timeout: 75 * time.Second})
 		if providerErr != nil {
@@ -66,7 +67,8 @@ func main() {
 				slog.Warn("trend AI disabled", "reason", "trend runner configuration is invalid")
 			} else if concreteRunner, ok := trendRunner.(*aitrend.TrendRunner); ok {
 				concreteRunner.Audit = aitrend.NewAuditStore(pool)
-				concreteRunner.Langfuse = aitrend.LangfuseDebugConfig{BaseURL: cfg.LangfuseBaseURL, ProjectID: cfg.LangfuseProjectID, PublicKey: cfg.LangfusePublicKey, SecretKey: cfg.LangfuseSecretKey, FlushTimeout: 20 * time.Second, MaxBytes: cfg.AIDebugMaxBytes}
+				debugLangfuse = aitrend.LangfuseDebugConfig{BaseURL: cfg.LangfuseBaseURL, ProjectID: cfg.LangfuseProjectID, PublicKey: cfg.LangfusePublicKey, SecretKey: cfg.LangfuseSecretKey, FlushTimeout: 20 * time.Second, MaxBytes: cfg.AIDebugMaxBytes}
+				concreteRunner.Langfuse = debugLangfuse
 				debugRunner = concreteRunner
 			}
 		}
@@ -74,7 +76,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpserver.NewWithAccessAndAIAndDebug(pool, accessService, trendRunner, debugRunner, httpserver.AIDebugConfig{Enabled: cfg.AIDebugEnabled, MaxEvents: cfg.AIDebugMaxEvents, MaxBytes: cfg.AIDebugMaxBytes, Timeout: cfg.AIDebugTimeout}, repository),
+		Handler:           httpserver.NewWithAccessAndAIAndDebug(pool, accessService, trendRunner, debugRunner, httpserver.AIDebugConfig{Enabled: cfg.AIDebugEnabled, MaxEvents: cfg.AIDebugMaxEvents, MaxBytes: cfg.AIDebugMaxBytes, Timeout: cfg.AIDebugTimeout, Langfuse: debugLangfuse}, repository),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

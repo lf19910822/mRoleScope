@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,61 @@ type LangfuseDebugConfig struct {
 	SecretKey    string
 	FlushTimeout time.Duration
 	MaxBytes     int
+	TraceContext LangfuseTraceContext
+}
+
+// LangfuseTraceContext carries optional trace-level grouping information. A
+// session is deliberately opt-in: independent debug requests must not be
+// merged merely because their queries happen to be identical.
+type LangfuseTraceContext struct {
+	SessionID string
+	Name      string
+	UserID    string
+	Metadata  map[string]string
+	Tags      []string
+}
+
+var langfuseASCIIKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
+
+func ValidateLangfuseTraceContext(context LangfuseTraceContext) error {
+	if context.SessionID != "" && !validLangfuseASCIIValue(context.SessionID, 199) {
+		return fmt.Errorf("Langfuse session ID must be non-empty ASCII under 200 characters")
+	}
+	if context.Name != "" && !validLangfuseASCIIValue(context.Name, 200) {
+		return fmt.Errorf("Langfuse trace name must be ASCII under 200 characters")
+	}
+	if context.UserID != "" && !validLangfuseASCIIValue(context.UserID, 200) {
+		return fmt.Errorf("Langfuse user ID must be ASCII under 200 characters")
+	}
+	for key, value := range context.Metadata {
+		if !langfuseASCIIKeyPattern.MatchString(key) || len(key) > 80 || strings.TrimSpace(value) == "" || len([]rune(value)) > 200 {
+			return fmt.Errorf("Langfuse metadata contains an invalid key or value")
+		}
+	}
+	for _, tag := range context.Tags {
+		if !validLangfuseASCIIValue(tag, 200) {
+			return fmt.Errorf("Langfuse trace tag must be ASCII under 200 characters")
+		}
+	}
+	return nil
+}
+
+func validLangfuseASCIIValue(value string, maxBytes int) bool {
+	return value != "" && len(value) <= maxBytes && strings.IndexFunc(value, func(r rune) bool { return r > 127 || r < 0x20 }) < 0
+}
+
+type langfuseTraceContextKey struct{}
+
+func WithLangfuseTraceContext(ctx context.Context, traceContext LangfuseTraceContext) context.Context {
+	return context.WithValue(ctx, langfuseTraceContextKey{}, traceContext)
+}
+
+func langfuseTraceContextFromContext(ctx context.Context) LangfuseTraceContext {
+	if ctx == nil {
+		return LangfuseTraceContext{}
+	}
+	traceContext, _ := ctx.Value(langfuseTraceContextKey{}).(LangfuseTraceContext)
+	return traceContext
 }
 
 func (config LangfuseDebugConfig) Enabled() bool {
@@ -43,16 +99,17 @@ type LangfuseExportStatus struct {
 }
 
 type LangfuseDebugSink struct {
-	mu          sync.Mutex
-	config      LangfuseDebugConfig
-	client      *http.Client
-	traceID     string
-	traceURL    string
-	root        langfuseSpan
-	spans       []langfuseSpan
-	active      map[string]int
-	flushed     bool
-	flushStatus LangfuseExportStatus
+	mu              sync.Mutex
+	config          LangfuseDebugConfig
+	client          *http.Client
+	traceID         string
+	traceURL        string
+	root            langfuseSpan
+	spans           []langfuseSpan
+	active          map[string]int
+	flushed         bool
+	flushStatus     LangfuseExportStatus
+	propagatedAttrs []langfuseAttribute
 }
 
 func NewLangfuseDebugSink(config LangfuseDebugConfig, client *http.Client) (*LangfuseDebugSink, error) {
@@ -80,23 +137,50 @@ func NewLangfuseDebugSink(config LangfuseDebugConfig, client *http.Client) (*Lan
 	if config.MaxBytes <= 0 {
 		config.MaxBytes = 8 << 20
 	}
+	if err := ValidateLangfuseTraceContext(config.TraceContext); err != nil {
+		return nil, err
+	}
+	rootAttrs := []langfuseAttribute{
+		stringAttribute("langfuse.observation.type", "agent"),
+		stringAttribute("langfuse.trace.metadata.mrolescope_debug_run_id", traceID),
+		stringAttribute("langfuse.trace.metadata.environment", "debug"),
+	}
+	propagatedAttrs := make([]langfuseAttribute, 0, 2)
+	rootName := "mrolescope.ai_debug"
+	if config.TraceContext.Name != "" {
+		rootName = config.TraceContext.Name
+		rootAttrs = append(rootAttrs, stringAttribute("langfuse.trace.name", config.TraceContext.Name))
+	}
+	if config.TraceContext.SessionID != "" {
+		sessionAttr := stringAttribute("langfuse.session.id", config.TraceContext.SessionID)
+		rootAttrs = append(rootAttrs, sessionAttr)
+		propagatedAttrs = append(propagatedAttrs, sessionAttr)
+	}
+	if config.TraceContext.UserID != "" {
+		userAttr := stringAttribute("langfuse.user.id", config.TraceContext.UserID)
+		rootAttrs = append(rootAttrs, userAttr)
+		propagatedAttrs = append(propagatedAttrs, userAttr)
+	}
+	for key, value := range config.TraceContext.Metadata {
+		rootAttrs = append(rootAttrs, stringAttribute("langfuse.trace.metadata."+key, value))
+	}
+	if len(config.TraceContext.Tags) > 0 {
+		rootAttrs = append(rootAttrs, stringAttribute("langfuse.trace.tags", strings.Join(config.TraceContext.Tags, ",")))
+	}
 	return &LangfuseDebugSink{
 		config:   config,
 		client:   client,
 		traceID:  traceID,
 		traceURL: strings.TrimRight(config.BaseURL, "/") + "/project/" + url.PathEscape(config.ProjectID) + "/traces/" + traceID,
 		root: langfuseSpan{
-			Name:    "mrolescope.ai_debug",
+			Name:    rootName,
 			TraceID: traceID,
 			SpanID:  rootSpanID,
 			Start:   time.Now().UTC(),
-			Attrs: []langfuseAttribute{
-				stringAttribute("langfuse.observation.type", "agent"),
-				stringAttribute("langfuse.trace.metadata.mrolescope_debug_run_id", traceID),
-				stringAttribute("langfuse.trace.metadata.environment", "debug"),
-			},
+			Attrs:   rootAttrs,
 		},
-		active: make(map[string]int),
+		active:          make(map[string]int),
+		propagatedAttrs: propagatedAttrs,
 	}, nil
 }
 
@@ -330,7 +414,9 @@ type langfuseOTELSpan struct {
 
 func (sink *LangfuseDebugSink) startSpan(name, kind, parent string) langfuseSpan {
 	spanID, _ := randomHexID(8)
-	return langfuseSpan{Name: name, TraceID: sink.traceID, SpanID: spanID, ParentSpanID: parent, Start: time.Now().UTC(), Attrs: []langfuseAttribute{stringAttribute("langfuse.observation.type", kind)}}
+	attrs := []langfuseAttribute{stringAttribute("langfuse.observation.type", kind)}
+	attrs = append(attrs, sink.propagatedAttrs...)
+	return langfuseSpan{Name: name, TraceID: sink.traceID, SpanID: spanID, ParentSpanID: parent, Start: time.Now().UTC(), Attrs: attrs}
 }
 
 func (sink *LangfuseDebugSink) finishActive(key string, output json.RawMessage, safeErr *SafeError, httpStatus int) {
