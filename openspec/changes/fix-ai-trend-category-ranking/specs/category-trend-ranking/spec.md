@@ -38,3 +38,12 @@ Draft 曲线的 `sub_query_ids` SHALL 保持稳定输入顺序且不包含重复
 
 - **WHEN** 同一正式值由同一子问题多次解析
 - **THEN** 合并后的 Draft 曲线 SHALL 只包含一次该子问题 ID
+
+### Requirement: Exact formal values do not expand to fuzzy neighbors
+
+当 Intent 表达式精确命中当前正式值或正式显示名称时，候选解析 SHALL 只保留该正式值，不得因为子串关系加入其他正式值。类别表达式没有精确值命中时，仍可按类别目录解析候选。
+
+#### Scenario: MongoDB does not add Go
+
+- **WHEN** Intent 包含正式值 `mongodb`
+- **THEN** 候选集合 SHALL 包含 MongoDB，且不得因为 `mongodb` 包含 `go` 而加入 Go

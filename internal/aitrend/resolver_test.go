@@ -52,6 +52,19 @@ func TestResolverExcludesFormalValues(t *testing.T) {
 	}
 }
 
+func TestResolverExactFormalValueDoesNotExpandSubstringMatches(t *testing.T) {
+	resolver := Resolver{Values: map[Dimension][]Candidate{
+		DimensionTechnology: {
+			{Dimension: DimensionTechnology, Value: "mongodb", Label: "MongoDB", MatchStatus: MatchExact},
+			{Dimension: DimensionTechnology, Value: "go", Label: "Go", MatchStatus: MatchExact},
+		},
+	}}
+	got := resolver.ResolveWithExclusions(DimensionTechnology, "mongodb", nil, "q1")
+	if len(got) != 1 || got[0].Value != "mongodb" || got[0].MatchStatus != MatchExact {
+		t.Fatalf("exact formal resolution = %#v", got)
+	}
+}
+
 func TestAllocateCandidatesReservesEachGroup(t *testing.T) {
 	groups := [][]Candidate{
 		{{Dimension: DimensionTechnology, Value: "mysql", Score: 100, SubQueryID: "database"}, {Dimension: DimensionTechnology, Value: "redis", Score: 90, SubQueryID: "database"}},

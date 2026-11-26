@@ -8,3 +8,4 @@
 - [x] 2.3 Fix candidate provenance de-duplication.
 - [x] 3.1 Add end-to-end regression coverage for “哪些数据库正在被使用？”.
 - [x] 3.2 Run Go tests, OpenSpec strict validation, and `git diff --check`; record results.
+- [x] 3.3 Add and implement exact formal-value resolution regression coverage discovered during deployed verification; rerun the full validation gate before release.
