@@ -37,6 +37,37 @@ go run ./cmd/ai-evaluation \
 
 默认评测快照为 `internal/aitrend/evaluation/testdata/serving-snapshot-v4.json`。该快照包含超过 8 个项目、超过 8 个数据库候选以及零岗位数据库候选，用于实际覆盖曲线容量、跨批次摘要和零值排序边界；它是冻结的评测数据，不代表生产历史数据覆盖率。
 
+## Langfuse 受控评测导出
+
+评测导出默认关闭。远程评测服务从 CVM 的 root-owned
+`/etc/mrolescope/secrets/remote-development.env` 读取以下运行时变量；变量值
+不得写入命令行、仓库、评测报告或聊天：
+
+```text
+MROLESCOPE_LANGFUSE_EVALUATION_ENABLED=true
+MROLESCOPE_LANGFUSE_BASE_URL=https://jp.cloud.langfuse.com
+MROLESCOPE_LANGFUSE_PROJECT_ID=<Langfuse project ID>
+MROLESCOPE_LANGFUSE_PUBLIC_KEY=<Langfuse public key>
+MROLESCOPE_LANGFUSE_SECRET_KEY=<Langfuse secret key>
+```
+
+只有开关为 `true` 且四项 Langfuse 配置齐全时，Trend/Agent 评测容器才会
+尝试上传 Trace。缺少任一项时不会以不完整配置发送请求；本地评测报告仍由
+评测程序独立处理。部署后应先做只读 presence 检查并确认开关状态，再决定
+是否启动评测。本变更的部署步骤到这里为止，不会自动执行 `run-trend`。
+
+评测 Trace 按题目归入 Session：
+
+```text
+eval:<run_id>:<suite>:<case_id>
+```
+
+同一道题的三次 repetition 和 retry 共享 Session，可在 Langfuse 的 Sessions
+页面按 `evaluation_run_id`、`evaluation_suite`、`evaluation_case_id`、
+`evaluation_repetition` 和 `evaluation_retry` metadata 筛选；不同题目或不同
+run 使用不同 Session。评测完成后，使用 Langfuse Japan Cloud 项目页面查看
+对应 Session，而不是从公开网页端进入评测入口。
+
 
 # 独立服务类别节点
 
