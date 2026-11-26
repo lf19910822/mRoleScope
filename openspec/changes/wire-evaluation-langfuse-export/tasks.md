@@ -12,7 +12,7 @@
 ## 3. Verification and release readiness
 
 - [x] 3.1 Run focused Go tests, remote evaluation/Compose checks, strict OpenSpec validation, and `git diff --check`; verify no evaluation process is started.
-- [ ] 3.2 Deploy the reviewed change through the approved release path and verify the CVM revision and redacted runtime key presence, then stop before invoking `run-trend`.
+- [x] 3.2 Deploy the reviewed change through the approved release path and verify the CVM revision and redacted runtime key presence, then stop before invoking `run-trend`.
 
 ## Workflow follow-up
 
