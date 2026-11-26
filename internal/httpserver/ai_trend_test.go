@@ -82,6 +82,38 @@ func TestAITrendDebugRejectsMalformedAndOversizedRequests(t *testing.T) {
 	}
 }
 
+func TestAITrendDebugRejectsInvalidSessionContext(t *testing.T) {
+	runner := aiTrendDebugRunnerFunc(func(context.Context, string, func(aitrend.StreamEvent) error, aitrend.DebugTraceSink) error {
+		t.Fatal("debug runner was invoked")
+		return nil
+	})
+	router := NewWithAccessAndAIAndDebug(nil, nil, nil, runner, AIDebugConfig{Enabled: true, MaxEvents: 10, MaxBytes: 4096}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/internal/ai-debug", strings.NewReader(`{"query":"哪些数据库","session_id":"评测"}`))
+	request.RemoteAddr = "127.0.0.1:1234"
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_trace_context") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAITrendDebugPropagatesExplicitSessionContext(t *testing.T) {
+	runner := aiTrendDebugRunnerFunc(func(ctx context.Context, _ string, _ func(aitrend.StreamEvent) error, sink aitrend.DebugTraceSink) error {
+		if err := sink.Record(aitrend.DebugTraceEvent{Type: aitrend.DebugEventTerminal, Status: string(aitrend.StreamSuccess)}); err != nil {
+			return err
+		}
+		return nil
+	})
+	router := NewWithAccessAndAIAndDebug(nil, nil, nil, runner, AIDebugConfig{Enabled: true, MaxEvents: 10, MaxBytes: 4096}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/internal/ai-debug", strings.NewReader(`{"query":"哪些数据库","session_id":"debug:database"}`))
+	request.RemoteAddr = "127.0.0.1:1234"
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"type":"terminal"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func (aiTrendRunnerFunc) ListJobs(context.Context, jdserving.ListJobsQuery) (jdserving.JobListResponse, error) {
 	return jdserving.JobListResponse{}, nil
 }

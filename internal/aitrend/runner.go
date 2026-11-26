@@ -63,6 +63,9 @@ func (runner *TrendRunner) RunDebug(ctx context.Context, query string, emit func
 	}
 	debugRunner := *runner
 	debugRunner.Audit = nil
+	if traceContext := langfuseTraceContextFromContext(ctx); traceContext.SessionID != "" || traceContext.Name != "" || traceContext.UserID != "" || len(traceContext.Metadata) > 0 || len(traceContext.Tags) > 0 {
+		debugRunner.Langfuse.TraceContext = traceContext
+	}
 	langfuseSink, langfuseErr := NewLangfuseDebugSink(debugRunner.Langfuse, nil)
 	if langfuseErr != nil {
 		langfuseSink, _ = NewLangfuseDebugSink(LangfuseDebugConfig{}, nil)

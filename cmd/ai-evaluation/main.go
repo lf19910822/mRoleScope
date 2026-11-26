@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -385,7 +387,14 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	langfuseConfig := evaluationLangfuseConfig(providerMode, suite, runID)
 	executor, err := evaluation.NewExecutor(func(ctx context.Context, item evaluation.Case) (evaluation.Result, error) {
+		return evaluation.Result{}, fmt.Errorf("legacy evaluation callback should not be used")
+	})
+	if err != nil {
+		fatal(err)
+	}
+	executor.ExecuteAttempt = func(ctx context.Context, item evaluation.Case, repetition, retry int) (evaluation.Result, error) {
 		provider, providerErr := newEvaluationProvider(providerMode, item, http.DefaultClient, os.LookupEnv)
 		if providerErr != nil {
 			return evaluation.Result{}, providerErr
@@ -395,10 +404,9 @@ func main() {
 			return evaluation.Result{}, runnerErr
 		}
 		runner.FaultInjection = item.FaultInjection
+		runner.Langfuse = langfuseConfig
+		runner.Langfuse.TraceContext = evaluationTraceContext(runID, suite, item, version, repetition, retry)
 		return runner.Run(ctx, item.Query)
-	})
-	if err != nil {
-		fatal(err)
 	}
 	traces := make([]evaluation.Trace, 0, len(cases)*evaluation.DefaultRepetitions)
 	for _, item := range cases {
@@ -432,6 +440,31 @@ func main() {
 		fatal(err)
 	}
 	fmt.Printf("evaluation=%s cases=%d traces=%d output=%s\n", version.ID(), len(cases), len(traces), filepath.Clean(outputDir))
+}
+
+func evaluationTraceContext(runID, suite string, item evaluation.Case, version evaluation.EvaluationVersion, repetition, retry int) aitrend.LangfuseTraceContext {
+	rawSessionID := fmt.Sprintf("eval:%s:%s:%s", runID, suite, item.ID)
+	sessionID := rawSessionID
+	if aitrend.ValidateLangfuseTraceContext(aitrend.LangfuseTraceContext{SessionID: sessionID}) != nil {
+		digest := sha256.Sum256([]byte(rawSessionID))
+		sessionID = "eval:" + hex.EncodeToString(digest[:16])
+	}
+	return aitrend.LangfuseTraceContext{
+		SessionID: sessionID, Name: "mrolescope.evaluation",
+		Metadata: map[string]string{
+			"evaluation_run_id": boundedLangfuseMetadata(runID), "evaluation_suite": boundedLangfuseMetadata(suite), "evaluation_case_id": boundedLangfuseMetadata(item.ID),
+			"evaluation_version_id": version.ID(), "evaluation_repetition": fmt.Sprintf("%d", repetition),
+			"evaluation_retry": fmt.Sprintf("%d", retry),
+		}, Tags: []string{"evaluation", suite},
+	}
+}
+
+func boundedLangfuseMetadata(value string) string {
+	if len([]rune(value)) <= 200 {
+		return value
+	}
+	digest := sha256.Sum256([]byte(value))
+	return string([]rune(value)[:160]) + "-" + hex.EncodeToString(digest[:8])
 }
 
 func selectCasesByID(cases []evaluation.Case, raw string) ([]evaluation.Case, error) {
@@ -477,6 +510,18 @@ func evaluationProviderName(providerMode string) string {
 		return "qwen"
 	}
 	return "offline-fixture"
+}
+
+func evaluationLangfuseConfig(providerMode, suite, runID string) aitrend.LangfuseDebugConfig {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("MROLESCOPE_LANGFUSE_EVALUATION_ENABLED")), "true") {
+		return aitrend.LangfuseDebugConfig{}
+	}
+	return aitrend.LangfuseDebugConfig{
+		BaseURL: os.Getenv("MROLESCOPE_LANGFUSE_BASE_URL"), ProjectID: os.Getenv("MROLESCOPE_LANGFUSE_PROJECT_ID"),
+		PublicKey: os.Getenv("MROLESCOPE_LANGFUSE_PUBLIC_KEY"), SecretKey: os.Getenv("MROLESCOPE_LANGFUSE_SECRET_KEY"),
+		FlushTimeout: 20 * time.Second, MaxBytes: 8 << 20,
+		TraceContext: aitrend.LangfuseTraceContext{Metadata: map[string]string{"evaluation_provider": providerMode, "evaluation_run_id": runID, "evaluation_suite": suite}},
+	}
 }
 
 func errorForAttempt(attempt evaluation.Attempt) error {

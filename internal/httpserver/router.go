@@ -89,6 +89,7 @@ type AIDebugConfig struct {
 	MaxEvents int
 	MaxBytes  int
 	Timeout   time.Duration
+	Langfuse  aitrend.LangfuseDebugConfig
 }
 
 type Router struct {

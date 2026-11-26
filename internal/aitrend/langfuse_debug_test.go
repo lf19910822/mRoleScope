@@ -56,6 +56,49 @@ func TestLangfuseDebugSinkMapsGenerationAndToolToOTLP(t *testing.T) {
 	}
 }
 
+func TestLangfuseDebugSinkMapsOptionalSessionAndMetadata(t *testing.T) {
+	var received langfuseExportRequest
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Fatal(err)
+		}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	sink, err := NewLangfuseDebugSink(LangfuseDebugConfig{
+		BaseURL: server.URL, ProjectID: "project-1", PublicKey: "pk-test", SecretKey: "sk-test", MaxBytes: 1 << 20,
+		TraceContext: LangfuseTraceContext{SessionID: "eval:run-1:agent:E01", Name: "mrolescope.evaluation", Metadata: map[string]string{"evaluation_case_id": "E01"}, Tags: []string{"evaluation", "agent"}},
+	}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Record(DebugTraceEvent{Type: DebugEventDraft, Draft: &Draft{}}); err != nil {
+		t.Fatal(err)
+	}
+	if status := sink.Flush(context.Background()); status.Status != "completed" {
+		t.Fatalf("status=%#v", status)
+	}
+	attrs := received.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes
+	values := make(map[string]string)
+	for _, attr := range attrs {
+		if attr.Value.StringValue != nil {
+			values[attr.Key] = *attr.Value.StringValue
+		}
+	}
+	if values["langfuse.session.id"] != "eval:run-1:agent:E01" || values["langfuse.trace.metadata.evaluation_case_id"] != "E01" || values["langfuse.trace.name"] != "mrolescope.evaluation" {
+		t.Fatalf("trace attributes=%v", values)
+	}
+}
+
+func TestValidateLangfuseTraceContextRejectsInvalidSession(t *testing.T) {
+	if err := ValidateLangfuseTraceContext(LangfuseTraceContext{SessionID: strings.Repeat("a", 200)}); err == nil {
+		t.Fatal("accepted a session ID at the 200-character limit")
+	}
+	if err := ValidateLangfuseTraceContext(LangfuseTraceContext{SessionID: "评测"}); err == nil {
+		t.Fatal("accepted a non-ASCII session ID")
+	}
+}
+
 func TestLangfuseDebugSinkDisabledWithoutCompleteRuntimeConfig(t *testing.T) {
 	sink, err := NewLangfuseDebugSink(LangfuseDebugConfig{BaseURL: "https://jp.cloud.langfuse.com", PublicKey: "pk-test"}, nil)
 	if err != nil {

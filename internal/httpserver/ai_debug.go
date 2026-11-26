@@ -21,7 +21,12 @@ func (r Router) aiTrendDebug(c *gin.Context) {
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8*1024)
 	var request struct {
-		Query string `json:"query"`
+		Query     string            `json:"query"`
+		SessionID string            `json:"session_id,omitempty"`
+		TraceName string            `json:"trace_name,omitempty"`
+		UserID    string            `json:"user_id,omitempty"`
+		Metadata  map[string]string `json:"metadata,omitempty"`
+		Tags      []string          `json:"tags,omitempty"`
 	}
 	decoder := json.NewDecoder(c.Request.Body)
 	decoder.DisallowUnknownFields()
@@ -31,6 +36,16 @@ func (r Router) aiTrendDebug(c *gin.Context) {
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	debugConfig := r.aiDebugConfig
+	debugConfig.Langfuse.TraceContext = aitrend.LangfuseTraceContext{
+		SessionID: request.SessionID, Name: request.TraceName, UserID: request.UserID,
+		Metadata: request.Metadata, Tags: request.Tags,
+	}
+	if err := aitrend.ValidateLangfuseTraceContext(debugConfig.Langfuse.TraceContext); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_trace_context"})
 		return
 	}
 	writer := bufio.NewWriter(c.Writer)
@@ -63,6 +78,7 @@ func (r Router) aiTrendDebug(c *gin.Context) {
 		runContext, cancel = context.WithTimeout(runContext, r.aiDebugConfig.Timeout)
 		defer cancel()
 	}
+	runContext = aitrend.WithLangfuseTraceContext(runContext, debugConfig.Langfuse.TraceContext)
 	_ = r.aiDebug.RunDebug(runContext, strings.TrimSpace(request.Query), func(aitrend.StreamEvent) error { return nil }, recorder)
 }
 

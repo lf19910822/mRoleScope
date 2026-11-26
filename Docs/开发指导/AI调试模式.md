@@ -13,6 +13,8 @@ MROLESCOPE_LANGFUSE_BASE_URL=https://jp.cloud.langfuse.com
 MROLESCOPE_LANGFUSE_PROJECT_ID=<Langfuse project ID>
 MROLESCOPE_LANGFUSE_PUBLIC_KEY=<Langfuse public key>
 MROLESCOPE_LANGFUSE_SECRET_KEY=<Langfuse secret key>
+# 仅评测 CLI 使用；默认 false，避免评测数据意外外发
+MROLESCOPE_LANGFUSE_EVALUATION_ENABLED=false
 ```
 
 该模式在 `APP_ENV=production` 下会被配置校验拒绝。启用后，仅可从回环地址调用内部入口：
@@ -23,6 +25,28 @@ curl --noproxy '*' --silent --no-buffer \
   --data '{"query":"哪些数据库正在被使用？"}' \
   http://127.0.0.1:8080/internal/ai-debug
 ```
+
+可选的 `session_id`、`trace_name`、`user_id`、`metadata` 和 `tags` 只用于受控 Langfuse 归组。例如连续多轮排障可以显式传入同一个 `session_id`：
+
+```json
+{
+  "query": "哪些数据库正在被使用？",
+  "session_id": "debug:database-investigation",
+  "trace_name": "mrolescope.ai_debug",
+  "metadata": {"investigation": "category-ranking"},
+  "tags": ["debug", "trend"]
+}
+```
+
+Langfuse 官方要求 `sessionId` 是少于 200 个 ASCII 字符的应用侧标识；相同 session 下的 trace 会在 Session 页面归组回放。普通 Debug 请求不传 `session_id`，每次保持独立 trace，系统不会根据 query 自动归组。
+
+评测导出使用题目级 Session：
+
+```text
+eval:<run_id>:<suite>:<case_id>
+```
+
+同一运行中同一道题的 repetition 和 retry 共享 Session，通过 `evaluation_repetition`、`evaluation_retry` 等 trace metadata 区分；不同题目或不同 `run_id` 不共享 Session。评测默认不外发 Langfuse，只有显式设置 `MROLESCOPE_LANGFUSE_EVALUATION_ENABLED=true` 且配置完整 Cloud 凭据时才启用。
 
 入口不使用浏览器邀请码会话，也不挂载到前端路由。请求必须来自 loopback，查询体和 trace 都有大小与时长上限。
 
