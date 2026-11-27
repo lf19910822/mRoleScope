@@ -37,6 +37,9 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			if len(body.Messages) != 2 || body.Messages[1].Role != "user" {
 				t.Fatalf("first messages = %#v", body.Messages)
 			}
+			if body.Messages[0].Role != "system" || body.Messages[0].Content != IntentPromptV1() {
+				t.Fatal("first model request did not use the approved planning prompt")
+			}
 			writeQwenResponse(writer, map[string]any{
 				"content": "",
 				"tool_calls": []any{map[string]any{
@@ -52,6 +55,9 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			}
 			if len(body.Messages) != 4 || body.Messages[2].Role != "assistant" || body.Messages[3].Role != "tool" || !strings.Contains(body.Messages[3].Content, "programming-languages") {
 				t.Fatalf("continued messages = %#v", body.Messages)
+			}
+			if strings.Contains(body.Messages[1].Content, "候选范围已经通过工具确认") || !strings.Contains(body.Messages[1].Content, "类别值") {
+				t.Fatalf("category directory was presented as confirmed candidates: %s", body.Messages[1].Content)
 			}
 			writeQwenResponse(writer, map[string]any{
 				"content": "",

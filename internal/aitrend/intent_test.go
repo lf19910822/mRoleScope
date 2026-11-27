@@ -1,6 +1,7 @@
 package aitrend
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -35,10 +36,33 @@ func TestHasConflictingRanges(t *testing.T) {
 
 func TestIntentPromptDefinesGenericScopeAndRankingRules(t *testing.T) {
 	prompt := IntentPromptV1()
-	for _, phrase := range []string{"具体正式值或已确认别名", "已登记类别", "[\"*\"]", "ranking.limit", "产品默认范围 month", "默认数量为 8", "日期表达只决定时间范围", "avg_daily_active_jobs", "response_modes", "ai-trend-agent-v1", "guidance", "只能返回工具调用", "不得同时输出解释文字", "assistant_message"} {
+	for _, phrase := range []string{"具体正式值或已确认别名", "要求整个类别时保留类别范围", "[\"*\"]", "ranking.limit", "产品默认范围 month", "默认数量为 8", "日期表达只决定时间范围", "avg_daily_active_jobs", "response_modes", "ai-trend-agent-v1", "guidance", "只能返回工具调用", "不得同时输出解释文字", "assistant_message"} {
 		if !strings.Contains(prompt, phrase) {
 			t.Fatalf("intent prompt missing %q", phrase)
 		}
+	}
+}
+
+func TestIntentPromptMatchesApprovedPlanningDocument(t *testing.T) {
+	document, err := os.ReadFile("../../Docs/开发指导/AI评测/提示词库/AI趋势智能体提示词-v1.md")
+	if err != nil {
+		t.Fatalf("read prompt document: %v", err)
+	}
+	_, section, ok := strings.Cut(string(document), "## 二、趋势规划提示词")
+	if !ok {
+		t.Fatal("planning section not found in prompt document")
+	}
+	_, section, ok = strings.Cut(section, "```text\n")
+	if !ok {
+		t.Fatal("planning prompt block not found in prompt document")
+	}
+	planning, _, ok := strings.Cut(section, "\n```")
+	if !ok {
+		t.Fatal("planning prompt block is not closed")
+	}
+	want := AgentContextV1() + "\n\n" + planning
+	if got := IntentPromptV1(); got != want {
+		t.Fatal("runtime planning prompt differs from the approved document")
 	}
 }
 

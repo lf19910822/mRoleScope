@@ -1,0 +1,685 @@
+{
+  "evaluation_version_id": "eval-03db064e83bb7339",
+  "case_reports": [
+    {
+      "case_id": "E01",
+      "category": "explicit-values",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6796,
+      "average_output_tokens": 255,
+      "average_cost_nano_rmb": 5946800,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "E02",
+      "category": "explicit-values",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6797,
+      "average_output_tokens": 255.33333333333334,
+      "average_cost_nano_rmb": 5948266.666666667,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "E03",
+      "category": "explicit-values",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6824,
+      "average_output_tokens": 281,
+      "average_cost_nano_rmb": 6021200,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "E04",
+      "category": "explicit-values",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6510,
+      "average_output_tokens": 260,
+      "average_cost_nano_rmb": 5728000,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "E05",
+      "category": "explicit-values",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6488,
+      "average_output_tokens": 260.3333333333333,
+      "average_cost_nano_rmb": 5711066.666666667,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "C01",
+      "category": "category-scope",
+      "pass_count": 2,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0.6666666666666666,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3.3333333333333335,
+      "average_input_tokens": 10372.666666666666,
+      "average_output_tokens": 290.3333333333333,
+      "average_cost_nano_rmb": 8878800,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "C02",
+      "category": "category-scope",
+      "pass_count": 2,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0.6666666666666666,
+      "sub_score_rates": {
+        "service_tags": 0.6666666666666666,
+        "agent": 1,
+        "tool_calls": 0.6666666666666666,
+        "scope": 0.6666666666666666,
+        "draft": 0.6666666666666666,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3,
+      "average_input_tokens": 8464.666666666666,
+      "average_output_tokens": 296,
+      "average_cost_nano_rmb": 7363733.333333333,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "C03",
+      "category": "category-scope",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 4.666666666666667,
+      "average_input_tokens": 14036,
+      "average_output_tokens": 355,
+      "average_cost_nano_rmb": 11938800,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "C04",
+      "category": "category-scope",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3.6666666666666665,
+      "average_input_tokens": 11726,
+      "average_output_tokens": 370.3333333333333,
+      "average_cost_nano_rmb": 10121466.666666666,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "C05",
+      "category": "category-scope",
+      "pass_count": 1,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0.3333333333333333,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0.3333333333333333,
+        "draft": 0.3333333333333333,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3.3333333333333335,
+      "average_input_tokens": 4199.333333333333,
+      "average_output_tokens": 122.66666666666667,
+      "average_cost_nano_rmb": 3604800,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "R01",
+      "category": "global-ranking",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 0,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 7818,
+      "average_output_tokens": 486,
+      "average_cost_nano_rmb": 7226400,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "R02",
+      "category": "global-ranking",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6459,
+      "average_output_tokens": 266,
+      "average_cost_nano_rmb": 5699200,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "R03",
+      "category": "global-ranking",
+      "pass_count": 1,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0.3333333333333333,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0.3333333333333333,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6671,
+      "average_output_tokens": 293.6666666666667,
+      "average_cost_nano_rmb": 5924133.333333333,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "R04",
+      "category": "global-ranking",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 0.6666666666666666,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2.6666666666666665,
+      "average_input_tokens": 7569.333333333333,
+      "average_output_tokens": 366,
+      "average_cost_nano_rmb": 6787466.666666667,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "R05",
+      "category": "global-ranking",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 0.6666666666666666,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 1.6666666666666667,
+      "average_input_tokens": 4374,
+      "average_output_tokens": 186,
+      "average_cost_nano_rmb": 3871200,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "M01",
+      "category": "compound-conditions",
+      "pass_count": 2,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0.6666666666666666,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0.6666666666666666,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3.3333333333333335,
+      "average_input_tokens": 11055.666666666666,
+      "average_output_tokens": 441.3333333333333,
+      "average_cost_nano_rmb": 9727200,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "M02",
+      "category": "compound-conditions",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3,
+      "average_input_tokens": 10716,
+      "average_output_tokens": 440.6666666666667,
+      "average_cost_nano_rmb": 9454133.333333334,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "M03",
+      "category": "compound-conditions",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 6.333333333333333,
+      "average_input_tokens": 12875.666666666666,
+      "average_output_tokens": 733.6666666666666,
+      "average_cost_nano_rmb": 11767866.666666666,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "M04",
+      "category": "compound-conditions",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 0.6666666666666666,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 7823.666666666667,
+      "average_output_tokens": 489.6666666666667,
+      "average_cost_nano_rmb": 7238266.666666667,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "M05",
+      "category": "compound-conditions",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6669,
+      "average_output_tokens": 292,
+      "average_cost_nano_rmb": 5919200,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "U01",
+      "category": "unsupported-recovery",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 0,
+        "agent": 0,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 4,
+      "average_input_tokens": 12494.666666666666,
+      "average_output_tokens": 341.6666666666667,
+      "average_cost_nano_rmb": 10679066.666666666,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "U02",
+      "category": "unsupported-recovery",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 0,
+        "agent": 0,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 7818,
+      "average_output_tokens": 494,
+      "average_cost_nano_rmb": 7242400,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "U03",
+      "category": "unsupported-recovery",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 0,
+        "agent": 0,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 7829,
+      "average_output_tokens": 494.3333333333333,
+      "average_cost_nano_rmb": 7251866.666666667,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "U04",
+      "category": "unsupported-recovery",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 0,
+        "agent": 0,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 0
+      },
+      "average_tool_calls": 2.6666666666666665,
+      "average_input_tokens": 8741,
+      "average_output_tokens": 467.3333333333333,
+      "average_cost_nano_rmb": 7927466.666666667,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "U05",
+      "category": "unsupported-recovery",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 0,
+        "agent": 0,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 4,
+      "average_input_tokens": 11885,
+      "average_output_tokens": 297.3333333333333,
+      "average_cost_nano_rmb": 10102666.666666666,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "D01",
+      "category": "draft-validation",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3,
+      "average_input_tokens": 7339,
+      "average_output_tokens": 469,
+      "average_cost_nano_rmb": 6809200,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "D02",
+      "category": "draft-validation",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 5,
+      "average_input_tokens": 12649,
+      "average_output_tokens": 445.3333333333333,
+      "average_cost_nano_rmb": 11009866.666666666,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "D03",
+      "category": "draft-validation",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2,
+      "average_input_tokens": 6788,
+      "average_output_tokens": 263,
+      "average_cost_nano_rmb": 5956400,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "D04",
+      "category": "draft-validation",
+      "pass_count": 0,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 0,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 0,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 2.6666666666666665,
+      "average_input_tokens": 9906.666666666666,
+      "average_output_tokens": 506.6666666666667,
+      "average_cost_nano_rmb": 8938666.666666666,
+      "average_reply_warning_count": 0
+    },
+    {
+      "case_id": "D05",
+      "category": "draft-validation",
+      "pass_count": 3,
+      "valid_runs": 3,
+      "incomplete_runs": 0,
+      "pass_rate": 1,
+      "sub_score_rates": {
+        "service_tags": 1,
+        "agent": 1,
+        "tool_calls": 1,
+        "scope": 1,
+        "draft": 1,
+        "reply_quality": 1
+      },
+      "average_tool_calls": 3,
+      "average_input_tokens": 9725.333333333334,
+      "average_output_tokens": 358,
+      "average_cost_nano_rmb": 8496266.666666666,
+      "average_reply_warning_count": 0
+    }
+  ],
+  "category_reports": [
+    {
+      "category": "explicit-values",
+      "case_count": 5,
+      "pass_rate": 1
+    },
+    {
+      "category": "category-scope",
+      "case_count": 5,
+      "pass_rate": 0.5333333333333333
+    },
+    {
+      "category": "global-ranking",
+      "case_count": 5,
+      "pass_rate": 0.06666666666666667
+    },
+    {
+      "category": "compound-conditions",
+      "case_count": 5,
+      "pass_rate": 0.13333333333333333
+    },
+    {
+      "category": "unsupported-recovery",
+      "case_count": 5,
+      "pass_rate": 0
+    },
+    {
+      "category": "draft-validation",
+      "case_count": 5,
+      "pass_rate": 0.6
+    }
+  ],
+  "overall_pass_rate": 0.3888888888888889,
+  "incomplete_cases": 0,
+  "latency": {
+    "average_first_event_ms": 0,
+    "p50_first_event_ms": 0,
+    "p95_first_event_ms": 0,
+    "average_total_ms": 13946.6,
+    "p50_total_ms": 13220,
+    "p95_total_ms": 18693
+  },
+  "total_tool_calls": 256,
+  "total_input_tokens": 778262,
+  "total_output_tokens": 32633,
+  "total_cost_nano_rmb": 687875600,
+  "total_classification_input_tokens": 19668,
+  "total_classification_output_tokens": 2128,
+  "total_classification_cost_nano_rmb": 19990400,
+  "total_reply_warnings": 0
+}

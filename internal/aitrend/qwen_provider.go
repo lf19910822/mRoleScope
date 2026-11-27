@@ -475,7 +475,7 @@ func toolLoopUserPrompt(query string, correction *ContractError, history []ToolC
 		if historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary) {
 			return value + "\n\n已收到趋势摘要结果。现在只返回符合 Schema 的最终 Intent 对象，不要再调用工具。"
 		}
-		return value + "\n\n候选范围已经通过工具确认。返回最终 Intent 前，必须先调用 batch_trend_summary 获取这些候选的每日活跃岗位数量摘要，用于按用户要求排序；工具调用阶段不要输出最终 Intent。"
+		return value + "\n\n请根据用户问题和已有工具结果判断候选范围；技术类别目录不等于类别内候选，尚未确定时继续查询类别值或正式值。候选确定后，调用 batch_trend_summary 获取所需的每日活跃岗位数量摘要；工具调用阶段不要输出最终 Intent。"
 	}
 	return value
 }
