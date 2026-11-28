@@ -12,7 +12,7 @@ type ToolName string
 const (
 	// ToolClassifyServiceModes is a display-only operation emitted by the
 	// lightweight service classification call. It is not a Serving tool.
-	ToolClassifyServiceModes     ToolName = "classify_service_modes"
+	ToolClassifyServiceModes ToolName = "classify_service_modes"
 	// ToolAnalyzeIntent is a display-only operation emitted while the model
 	// prepares the structured intent. It is not registered as a Serving tool.
 	ToolAnalyzeIntent ToolName = "analyze_intent"
@@ -30,6 +30,7 @@ const (
 	ToolBatchTrendSummary        ToolName = "batch_trend_summary"
 	ToolBatchEventSummary        ToolName = "batch_event_summary"
 	ToolBatchValidateDraft       ToolName = "batch_validate_curve_draft"
+	ToolCrossStatistics          ToolName = "query_current_job_statistics"
 	MaxToolOutputBytes                    = 256 * 1024
 )
 
@@ -174,7 +175,12 @@ func trendToolDescriptors() []ToolDescriptor {
 		{Name: ToolBatchTrendSummary, Description: "Read up to eight safe aggregate trend summaries.", Parameters: batchTrendToolParameters()},
 		{Name: ToolBatchEventSummary, Description: "Read up to eight safe aggregate event summaries.", Parameters: batchTrendToolParameters()},
 		{Name: ToolBatchValidateDraft, Description: "Validate up to eight curve drafts.", Parameters: json.RawMessage(`{"type":"array","maxItems":8}`)},
+		{Name: ToolCrossStatistics, Description: "Count or rank current effective jobs using confirmed formal conditions; groups are ANDed, values within a group are any/all, and exclusions apply to the same jobs. Historical cross statistics and cross-dimension OR are unavailable. Results are aggregates only; charts remain independent single-dimension trends.", Parameters: crossStatisticsToolParameters()},
 	}
+}
+
+func crossStatisticsToolParameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["sub_queries"],"properties":{"sub_queries":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"object","additionalProperties":false,"required":["id","time"],"properties":{"id":{"type":"string","minLength":1,"maxLength":128},"time":{"enum":["current","historical_reference"]},"group_by":{"enum":["technology","project","job_family","location"]},"include_secondary":{"type":"boolean"},"ranking_limit":{"type":"integer","minimum":0,"maximum":1000000},"page_size":{"type":"integer","minimum":1,"maximum":100},"conditions":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"required":["dimension","operator"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"operator":{"enum":["any","all"]},"values":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":128}},"categories":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":128}}}}},"exclusions":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"required":["dimension","operator"],"properties":{"dimension":{"enum":["technology","project","job_family","location"]},"operator":{"enum":["any","all"]},"values":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":128}},"categories":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":128}}}}}}}}}}`)
 }
 
 func validateToolCallContract(call ToolCall) error {

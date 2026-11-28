@@ -317,11 +317,13 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		return IntentToolTurn{}, &ContractError{Code: ErrorConfigurationFailure, Message: "AI provider is not configured"}
 	}
 	hasTrendSummary := historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary)
+	crossRequired := crossRequiredFromContext(ctx)
+	canFinish := hasTrendSummary && (!crossRequired || historyContainsTool(history, ToolCrossStatistics)) && !historyHasModelToolFailure(history)
 	messages := []qwenTrendMessage{
 		{Role: "system", Content: IntentPromptV1()},
-		{Role: "user", Content: toolLoopUserPrompt(query, correction, history, serviceTagsFromContext(ctx))},
+		{Role: "user", Content: toolLoopUserPrompt(query, correction, history, serviceTagsFromContext(ctx), crossRequired)},
 	}
-	if hasTrendSummary {
+	if canFinish {
 		// Qwen-compatible endpoints vary in their support for replaying a
 		// complete assistant/tool history. Once the model has produced the
 		// required trend summary, pass the bounded safe results as one final
@@ -356,14 +358,14 @@ func (provider *QwenIntentProvider) AnalyzeIntentTurn(ctx context.Context, query
 		ResultFormat:   "message",
 		Temperature:    0,
 	}
-	if allowTools && !hasTrendSummary {
+	if allowTools && !canFinish {
 		requestBody.Tools = qwenModelTools()
 	}
 	// Tool-history turns use the provider's message result format and the
 	// prompt's JSON instruction. Some Qwen-compatible endpoints reject any
 	// response_format alongside assistant/tool history; DecodeIntent remains
 	// the strict local schema boundary for the final Intent.
-	if hasTrendSummary || !allowTools || (correction != nil && len(history) > 0) {
+	if canFinish || !allowTools || (correction != nil && correction.Field != "cross_statistics" && len(history) > 0) {
 		requestBody.ResponseFormat = &qwenTrendResponseFormat{
 			Type:       "json_schema",
 			JSONSchema: &qwenTrendJSONSchema{Name: AgentContractVersionV1, Strict: true, Schema: json.RawMessage(AgentSchemaV1())},
@@ -456,14 +458,18 @@ func qwenModelTools() []qwenTool {
 	return tools
 }
 
-func toolLoopUserPrompt(query string, correction *ContractError, history []ToolConversation, serviceTags []ServiceTag) string {
+func toolLoopUserPrompt(query string, correction *ContractError, history []ToolConversation, serviceTags []ServiceTag, crossRequired bool) string {
 	value := strings.TrimSpace(query)
 	if len(serviceTags) > 0 {
 		encoded, _ := json.Marshal(serviceTags)
 		value += "\n\n服务端已确定本次 service_tags 为 " + string(encoded) + "。不要重新判断或修改服务类别；只完成允许的趋势规划和工具工作。"
 	}
 	if correction != nil {
-		value += "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
+		if correction.Field == "cross_statistics" {
+			return value + "\n\n用户要求交叉统计，尚未调用当前岗位统计工具；请先调用 query_current_job_statistics。"
+		} else {
+			value += "\n\n修正上一版输出：字段 " + correction.Field + " 无效（" + correction.Message + "）。请只返回修正后的 JSON。"
+		}
 	}
 	if correction != nil && len(history) == 0 {
 		return value + "\n\n上一版意图校验失败，当前还没有任何工具结果。请先调用必要的正式值或趋势摘要工具核对用户点名内容，完成 batch_trend_summary 后再返回最终 Intent；不要在没有工具结果时直接返回 Intent。"
@@ -473,9 +479,12 @@ func toolLoopUserPrompt(query string, correction *ContractError, history []ToolC
 			return value + "\n\n上一轮工具调用失败。请先根据工具返回的 error.code 和 error.field 修正参数，再重新调用合适的目录或正式值工具；不要直接返回最终 Intent，也不要把无效值改写成通配符。"
 		}
 		if historyContainsTool(history, ToolBatchTrendSummary) || historyContainsTool(history, ToolReadTrendSummary) {
+			if crossRequired && !historyContainsTool(history, ToolCrossStatistics) {
+				return value + "\n\n已收到独立趋势摘要；用户还要求交叉统计，请先调用 query_current_job_statistics 保留全部确认条件，再返回最终 Intent。"
+			}
 			return value + "\n\n已收到趋势摘要结果。现在只返回符合 Schema 的最终 Intent 对象，不要再调用工具。"
 		}
-		return value + "\n\n候选范围已经通过工具确认。返回最终 Intent 前，必须先调用 batch_trend_summary 获取这些候选的每日活跃岗位数量摘要，用于按用户要求排序；工具调用阶段不要输出最终 Intent。"
+		return value + "\n\n请根据用户问题和已有工具结果判断候选范围；技术类别目录不等于类别内候选，尚未确定时继续查询类别值或正式值。候选确定后，调用 batch_trend_summary 获取所需的每日活跃岗位数量摘要；工具调用阶段不要输出最终 Intent。"
 	}
 	return value
 }

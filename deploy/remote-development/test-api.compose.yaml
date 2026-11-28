@@ -1,0 +1,45 @@
+services:
+  api-test:
+    image: ${MROLESCOPE_TEST_API_IMAGE}
+    restart: unless-stopped
+    environment:
+      APP_ENV: remote-test-api
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: ${DATABASE_URL}
+      MROLESCOPE_INVITE_BCRYPT_HASH: ${MROLESCOPE_INVITE_BCRYPT_HASH:-}
+      MROLESCOPE_SESSION_SIGNING_SECRET: ${MROLESCOPE_SESSION_SIGNING_SECRET:-}
+      MROLESCOPE_QWEN_WORKSPACE_ID: ${MROLESCOPE_QWEN_WORKSPACE_ID:-}
+      MROLESCOPE_QWEN_API_KEY: ${MROLESCOPE_QWEN_API_KEY:-}
+      MROLESCOPE_AI_DEBUG_ENABLED: ${MROLESCOPE_AI_DEBUG_ENABLED:-}
+      MROLESCOPE_AI_DEBUG_MAX_EVENTS: ${MROLESCOPE_AI_DEBUG_MAX_EVENTS:-}
+      MROLESCOPE_AI_DEBUG_MAX_BYTES: ${MROLESCOPE_AI_DEBUG_MAX_BYTES:-}
+      MROLESCOPE_AI_DEBUG_TIMEOUT: ${MROLESCOPE_AI_DEBUG_TIMEOUT:-}
+      MROLESCOPE_LANGFUSE_BASE_URL: ${MROLESCOPE_LANGFUSE_BASE_URL:-}
+      MROLESCOPE_LANGFUSE_PROJECT_ID: ${MROLESCOPE_LANGFUSE_PROJECT_ID:-}
+      MROLESCOPE_LANGFUSE_PUBLIC_KEY: ${MROLESCOPE_LANGFUSE_PUBLIC_KEY:-}
+      MROLESCOPE_LANGFUSE_SECRET_KEY: ${MROLESCOPE_LANGFUSE_SECRET_KEY:-}
+      COLLECTOR_TIMEOUT: "15m"
+      ARCHIVE_LOCAL_DIR: /var/lib/mrolescope/archives
+    ports:
+      - "127.0.0.1:18080:8080"
+    healthcheck:
+      test: ["CMD", "/mrolescope-healthcheck", "http://127.0.0.1:8080/healthz", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks: [formal-backend, formal-edge, formal-ai-edge]
+
+networks:
+  formal-backend:
+    external: true
+    name: mrolescope-remote-development_backend
+  formal-edge:
+    external: true
+    name: mrolescope-remote-development_edge
+  formal-ai-edge:
+    external: true
+    name: mrolescope-remote-development_ai-edge

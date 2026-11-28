@@ -9,7 +9,9 @@ set -euo pipefail
 
 readonly REPOSITORY='lf19910822/mRoleScope'
 readonly COMPOSE_DESTINATION='/opt/mrolescope/remote-development.compose.yaml'
+readonly TEST_API_COMPOSE_DESTINATION='/opt/mrolescope/remote-test-api.compose.yaml'
 readonly HELPER_DESTINATION='/usr/local/sbin/mrolescope-deploy'
+readonly TEST_API_HELPER_DESTINATION='/usr/local/sbin/mrolescope-test-api-deploy'
 readonly SYNC_HELPER_DESTINATION='/usr/local/sbin/mrolescope-sync'
 readonly ANALYSIS_HELPER_DESTINATION='/usr/local/sbin/mrolescope-analysis'
 readonly BACKFILL_HELPER_DESTINATION='/usr/local/sbin/mrolescope-backfill-versioned-content'
@@ -36,6 +38,7 @@ readonly CERT_RENEW_SERVICE_DESTINATION='/etc/systemd/system/mrolescope-cert-ren
 readonly CERT_RENEW_TIMER_DESTINATION='/etc/systemd/system/mrolescope-cert-renew.timer'
 readonly DEPLOY_CONFIG_DESTINATION='/etc/mrolescope/remote-development.conf'
 readonly RELEASE_DIR='/var/lib/mrolescope/releases'
+readonly TEST_API_RELEASE_DIR='/var/lib/mrolescope/test-api-releases'
 readonly OUTPUT_AUDIT_DIR='/var/lib/mrolescope/ai-output-audit'
 readonly EVALUATION_DIR='/var/lib/mrolescope/ai-evaluation'
 readonly TLS_DIR='/etc/mrolescope/tls'
@@ -150,7 +153,9 @@ download_asset() {
 }
 
 download_asset 'deploy/remote-development/compose.yaml' "$staging_dir/compose.yaml"
+download_asset 'deploy/remote-development/test-api.compose.yaml' "$staging_dir/test-api.compose.yaml"
 download_asset 'deploy/remote-development/mrolescope-deploy' "$staging_dir/mrolescope-deploy"
+download_asset 'deploy/remote-development/mrolescope-test-api-deploy' "$staging_dir/mrolescope-test-api-deploy"
 download_asset 'deploy/remote-development/mrolescope-sync' "$staging_dir/mrolescope-sync"
 download_asset 'deploy/remote-development/mrolescope-analysis' "$staging_dir/mrolescope-analysis"
 download_asset 'deploy/remote-development/mrolescope-backfill-versioned-content' "$staging_dir/mrolescope-backfill-versioned-content"
@@ -176,6 +181,7 @@ download_asset 'deploy/remote-development/mrolescope-ai-plus-trial.service' "$st
 download_asset 'deploy/remote-development/mrolescope-ai-plus-expand.service' "$staging_dir/mrolescope-ai-plus-expand.service"
 download_asset 'deploy/remote-development/mrolescope-ai-plus-publish.service' "$staging_dir/mrolescope-ai-plus-publish.service"
 bash -n "$staging_dir/mrolescope-deploy"
+bash -n "$staging_dir/mrolescope-test-api-deploy"
 bash -n "$staging_dir/mrolescope-sync"
 bash -n "$staging_dir/mrolescope-analysis"
 bash -n "$staging_dir/mrolescope-backfill-versioned-content"
@@ -197,13 +203,16 @@ install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0750 /opt/mrolescope-runner
 
 install -d -o root -g root -m 0755 /opt/mrolescope /etc/mrolescope /var/lib/mrolescope
 install -d -o root -g root -m 0700 "$SECRETS_DIR" "$RELEASE_DIR" "$OUTPUT_AUDIT_DIR" "$TLS_DIR" "$ACME_CHALLENGE_DIR"
+install -d -o root -g root -m 0700 "$TEST_API_RELEASE_DIR"
 install -d -o root -g root -m 0700 "$EVALUATION_DIR"
 install -d -o root -g root -m 0700 "$ACME_STATE_DIR"
 if [[ -d "$ACME_CHALLENGE_DIR" ]]; then
   chmod 0755 "$ACME_CHALLENGE_DIR"
 fi
 install -o root -g root -m 0644 "$staging_dir/compose.yaml" "$COMPOSE_DESTINATION"
+install -o root -g root -m 0644 "$staging_dir/test-api.compose.yaml" "$TEST_API_COMPOSE_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-deploy" "$HELPER_DESTINATION"
+install -o root -g root -m 0750 "$staging_dir/mrolescope-test-api-deploy" "$TEST_API_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-sync" "$SYNC_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-analysis" "$ANALYSIS_HELPER_DESTINATION"
 install -o root -g root -m 0750 "$staging_dir/mrolescope-backfill-versioned-content" "$BACKFILL_HELPER_DESTINATION"
@@ -242,7 +251,7 @@ rm -f /etc/systemd/system/mrolescope-ai-flash-trial.service
 sudoers_candidate="$staging_dir/mrolescope-deploy.sudoers"
 printf '%s\n' \
   '# Root-owned helpers validate all arguments before invoking Docker or systemd.' \
-  'mrolescope-deploy ALL=(root) NOPASSWD: /usr/local/sbin/mrolescope-deploy *, /usr/local/sbin/mrolescope-operations *' \
+  'mrolescope-deploy ALL=(root) NOPASSWD: /usr/local/sbin/mrolescope-deploy *, /usr/local/sbin/mrolescope-test-api-deploy *, /usr/local/sbin/mrolescope-operations *' \
   >"$sudoers_candidate"
 chmod 0440 "$sudoers_candidate"
 visudo -cf "$sudoers_candidate" >/dev/null

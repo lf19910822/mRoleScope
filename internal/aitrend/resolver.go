@@ -80,14 +80,53 @@ func (resolver Resolver) ResolveNatural(expression, subQueryID string) []Candida
 		}
 		candidates = MergeCandidates(candidates)
 		if categoryAlias {
-			if len(candidates) > MaxToolCandidates {
-				return candidates[:MaxToolCandidates]
-			}
 			return candidates
 		}
 		return boundCandidates(candidates)
 	}
 	return nil
+}
+
+// ResolveCategory preserves every formally published member until the
+// summary/budget stage. It prefers the longest recognized category alias so a
+// shorter overlapping category name cannot broaden the requested range.
+func (resolver Resolver) ResolveCategory(dimension Dimension, expression, subQueryID string) ([]Candidate, bool) {
+	needle := normalizeExpression(expression)
+	bestLength := 0
+	var matchedAliases []string
+	for alias := range resolver.CategoryAliases[dimension] {
+		if !categoryAliasMatchesExpression(needle, alias) {
+			continue
+		}
+		length := len([]rune(alias))
+		if length > bestLength {
+			bestLength = length
+			matchedAliases = matchedAliases[:0]
+		}
+		if length == bestLength {
+			matchedAliases = append(matchedAliases, alias)
+		}
+	}
+	if bestLength == 0 {
+		return nil, false
+	}
+	keys := make(map[string]bool)
+	for _, alias := range matchedAliases {
+		for _, value := range resolver.Aliases[dimension][alias] {
+			keys[normalizeExpression(value)] = true
+		}
+	}
+	candidates := make([]Candidate, 0, len(keys))
+	for _, value := range resolver.Values[dimension] {
+		if !keys[normalizeExpression(value.Value)] && !keys[normalizeExpression(value.Label)] {
+			continue
+		}
+		value.SubQueryID = subQueryID
+		value.MatchStatus = MatchExpansion
+		value.Score = 40
+		candidates = append(candidates, value)
+	}
+	return MergeCandidates(candidates), true
 }
 
 func categoryAliasMatchesExpression(expression, alias string) bool {

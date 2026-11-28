@@ -34,13 +34,17 @@ die() {
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: scripts/release-remote-development.sh --dry-run|--deploy
+Usage: scripts/release-remote-development.sh --dry-run|--deploy|--deploy-test-api
 
   --dry-run  Verify that the local checkout is the clean, current main revision
               and print the planned release without building or changing state.
   --deploy   Preflight the CVM Docker pull path, run release verification,
               build and push four immutable images, refresh reviewed CVM
               deployment assets, and deploy their digests.
+  --deploy-test-api
+              Preflight and verify the current main revision, build and push
+              only its immutable API image, refresh reviewed CVM assets, and
+              deploy it through the loopback-only test API helper.
 USAGE
   exit 2
 }
@@ -199,6 +203,12 @@ deploy_remote() {
     "sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-deploy '${api_image}' '${migrate_image}' '${worker_image}' '${web_edge_image}'"
 }
 
+deploy_remote_test_api() {
+  local api_image="$1"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote_host" \
+    "sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-test-api-deploy '${api_image}'"
+}
+
 [[ "$#" -eq 1 ]] || usage
 case "$1" in
   --dry-run)
@@ -235,6 +245,32 @@ case "$1" in
     log_phase_duration 'remote-deployment' "$phase_started_at"
     log_phase_duration 'total' "$release_started_at"
     printf 'Remote release completed for %s.\n' "$revision"
+    ;;
+  --deploy-test-api)
+    release_started_at=$(now_milliseconds)
+    phase_started_at=$(now_milliseconds)
+    preflight
+    log_phase_duration 'preflight' "$phase_started_at"
+    phase_started_at=$(now_milliseconds)
+    remote_registry_preflight
+    log_phase_duration 'remote-registry-preflight' "$phase_started_at"
+    asset_fingerprint=$(deployment_asset_fingerprint)
+    [[ "$asset_fingerprint" =~ $asset_fingerprint_pattern ]] || die 'could not compute deployment asset fingerprint'
+    phase_started_at=$(now_milliseconds)
+    make -C "$repository_root" remote-release-verify
+    log_phase_duration 'quality-gate' "$phase_started_at"
+    phase_started_at=$(now_milliseconds)
+    api_image=$(build_and_push 'mrolescope-api' "$repository_root/docker/Dockerfile.api")
+    log_phase_duration 'image-publication' "$phase_started_at"
+    [[ "$api_image" =~ $digest_pattern ]] || die 'the test API image failed digest validation'
+    phase_started_at=$(now_milliseconds)
+    refresh_assets "$asset_fingerprint"
+    log_phase_duration 'asset-refresh' "$phase_started_at"
+    phase_started_at=$(now_milliseconds)
+    deploy_remote_test_api "$api_image"
+    log_phase_duration 'remote-test-api-deployment' "$phase_started_at"
+    log_phase_duration 'total' "$release_started_at"
+    printf 'Remote test API release completed for %s.\n' "$revision"
     ;;
   *)
     usage

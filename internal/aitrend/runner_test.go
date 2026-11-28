@@ -276,6 +276,105 @@ func TestTrendRunnerGlobalRankingIncludesValuesBeyondCandidateBound(t *testing.T
 	}
 }
 
+func TestTrendRunnerRanksCompleteCategoryBeyondModelCandidateBound(t *testing.T) {
+	for _, test := range []struct {
+		count       int
+		wantFirst   string
+		wantPartial bool
+	}{{125, "tech-124", false}, {170, "tech-135", true}} {
+		t.Run(fmt.Sprintf("%d-values", test.count), func(t *testing.T) {
+			options := jdserving.FilterOptionsResponse{TechnologyKeywords: make([]jdserving.TechnologyKeywordFilterOption, test.count)}
+			for index := range options.TechnologyKeywords {
+				value := fmt.Sprintf("tech-%03d", index)
+				options.TechnologyKeywords[index] = jdserving.TechnologyKeywordFilterOption{Category: jdserving.FilterOption{Value: "synthetic", Label: "合成类别"}, Value: value, Label: value}
+			}
+			intent := Intent{ContractVersion: ContractVersionV1, SubQueries: []SubQuery{{ID: "category", Dimension: DimensionTechnology, Expressions: []string{"synthetic"}, Ranking: RankingIntent{Metric: MetricAverageDailyActiveJobs, Order: OrderDescending, Limit: 1}}}, TimeRange: TimeRange{Kind: RangeAll}, Output: OutputIntent{SeriesMetric: SeriesMetricDailyActiveJobs, ChartType: ChartTypeLine}}
+			runner, err := NewTrendRunner(runnerIntentProvider{intent: intent}, runnerOptionsReader{options: options}, wideGlobalSummaryReader{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var draft *Draft
+			var reply string
+			if err := runner.Run(context.Background(), "使用最多的合成类别技术是什么", func(event StreamEvent) error {
+				if event.Type == StreamEventDraft {
+					draft = event.Draft
+				}
+				reply += event.Delta
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != test.wantFirst {
+				t.Fatalf("category ranking = %#v, want first %q", draft, test.wantFirst)
+			}
+			if test.wantPartial && (draft.Status != DraftPartial || !strings.Contains(reply, "排名不完整")) {
+				t.Fatalf("budget exhaustion was not disclosed: draft=%#v reply=%q", draft, reply)
+			}
+			if !test.wantPartial && draft.Status != DraftComplete {
+				t.Fatalf("complete category was marked partial: %#v", draft)
+			}
+		})
+	}
+}
+
+func TestTrendRunnerIgnoresGlobalTopResultsForCategoryRanking(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: make([]jdserving.TechnologyKeywordFilterOption, 0, 11)}
+	for index := 0; index < 10; index++ {
+		value := fmt.Sprintf("tech-%03d", index)
+		options.TechnologyKeywords = append(options.TechnologyKeywords, jdserving.TechnologyKeywordFilterOption{Category: jdserving.FilterOption{Value: "synthetic", Label: "合成类别"}, Value: value, Label: value})
+	}
+	options.TechnologyKeywords = append(options.TechnologyKeywords, jdserving.TechnologyKeywordFilterOption{Category: jdserving.FilterOption{Value: "other-category", Label: "其他类别"}, Value: "tech-999", Label: "tech-999"})
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "global", Name: ToolRankTrendValues, Params: json.RawMessage(`{"dimension":"technology","range":"all","metric":"avg_daily_active_jobs","limit":1,"sub_query_id":"category"}`)}}},
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: json.RawMessage(`[{"dimension":"technology","value":"tech-000","range":"all"}]`)}}},
+		{Intent: json.RawMessage(`{"contract_version":"ai-trend-draft-v1","sub_queries":[{"id":"category","dimension":"technology","expressions":["synthetic"],"ranking":{"metric":"avg_daily_active_jobs","order":"desc","limit":1}}],"time_range":{"kind":"all"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`)},
+	}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{options: options}, wideGlobalSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	if err := runner.Run(context.Background(), "使用最多的合成类别技术是什么", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != "tech-009" {
+		t.Fatalf("category ranking used global top rather than full category: %#v", draft)
+	}
+}
+
+func TestTrendRunnerRestoresWholeCategoryWhenModelSelectsOneMember(t *testing.T) {
+	options := jdserving.FilterOptionsResponse{TechnologyKeywords: make([]jdserving.TechnologyKeywordFilterOption, 10)}
+	for index := range options.TechnologyKeywords {
+		value := fmt.Sprintf("tech-%03d", index)
+		options.TechnologyKeywords[index] = jdserving.TechnologyKeywordFilterOption{Category: jdserving.FilterOption{Value: "synthetic", Label: "合成类别"}, Value: value, Label: value}
+	}
+	provider := &scriptedToolProvider{turns: []IntentToolTurn{
+		{ToolCalls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: json.RawMessage(`[{"dimension":"technology","value":"tech-000","range":"all"}]`)}}},
+		{Intent: json.RawMessage(`{"contract_version":"ai-trend-draft-v1","sub_queries":[{"id":"category","dimension":"technology","expressions":["tech-000"],"ranking":{"metric":"avg_daily_active_jobs","order":"desc","limit":1}}],"time_range":{"kind":"all"},"output":{"series_metric":"daily_active_jobs","chart_type":"line"}}`)},
+	}}
+	runner, err := NewTrendRunner(provider, runnerOptionsReader{options: options}, wideGlobalSummaryReader{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft *Draft
+	if err := runner.Run(context.Background(), "使用最多的合成类别技术是什么", func(event StreamEvent) error {
+		if event.Type == StreamEventDraft {
+			draft = event.Draft
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if draft == nil || len(draft.Curves) != 1 || draft.Curves[0].Condition.Value != "tech-009" {
+		t.Fatalf("model's one-member subset replaced the full user category: %#v", draft)
+	}
+}
+
 type runnerIntentProvider struct {
 	intent Intent
 }

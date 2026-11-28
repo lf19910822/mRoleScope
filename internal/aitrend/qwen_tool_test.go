@@ -37,6 +37,9 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			if len(body.Messages) != 2 || body.Messages[1].Role != "user" {
 				t.Fatalf("first messages = %#v", body.Messages)
 			}
+			if body.Messages[0].Role != "system" || body.Messages[0].Content != IntentPromptV1() {
+				t.Fatal("first model request did not use the approved planning prompt")
+			}
 			writeQwenResponse(writer, map[string]any{
 				"content": "",
 				"tool_calls": []any{map[string]any{
@@ -52,6 +55,9 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 			}
 			if len(body.Messages) != 4 || body.Messages[2].Role != "assistant" || body.Messages[3].Role != "tool" || !strings.Contains(body.Messages[3].Content, "programming-languages") {
 				t.Fatalf("continued messages = %#v", body.Messages)
+			}
+			if strings.Contains(body.Messages[1].Content, "候选范围已经通过工具确认") || !strings.Contains(body.Messages[1].Content, "类别值") {
+				t.Fatalf("category directory was presented as confirmed candidates: %s", body.Messages[1].Content)
 			}
 			writeQwenResponse(writer, map[string]any{
 				"content": "",
@@ -126,6 +132,46 @@ func TestQwenIntentProviderToolTurnRoundTrip(t *testing.T) {
 	}
 	if requests != 4 {
 		t.Fatalf("provider requests = %d, want 4", requests)
+	}
+}
+
+func TestQwenKeepsCrossToolAvailableAfterTrendSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Messages []qwenTrendMessage `json:"messages"`
+			Tools    []qwenTool         `json:"tools"`
+			Format   json.RawMessage    `json:"response_format"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, tool := range body.Tools {
+			if tool.Function.Name == string(ToolCrossStatistics) {
+				found = true
+				if !json.Valid(tool.Function.Parameters) {
+					t.Fatalf("cross-tool schema is invalid: %s", tool.Function.Parameters)
+				}
+			}
+		}
+		if !found || len(body.Format) != 0 || !strings.Contains(body.Messages[1].Content, "query_current_job_statistics") {
+			t.Fatalf("trend summary closed required cross tool: %#v", body)
+		}
+		for _, phrase := range []string{"当前已发布有效岗位", "historical_reference", "ranking_limit", "最多 8 条", "默认数量为 8", "不得把全局岗位族排名"} {
+			if !strings.Contains(body.Messages[0].Content, phrase) {
+				t.Fatalf("model planning context missing %q", phrase)
+			}
+		}
+		writeQwenResponse(writer, map[string]any{"content": "", "tool_calls": []any{map[string]any{
+			"id": "cross", "type": "function", "function": map[string]string{"name": string(ToolCrossStatistics), "arguments": `{"sub_queries":[]}`},
+		}}}, 4, 2)
+	}))
+	defer server.Close()
+	provider := &QwenIntentProvider{apiKey: "test-key", endpoint: server.URL, httpClient: server.Client()}
+	history := []ToolConversation{{Calls: []ToolCall{{ID: "summary", Name: ToolBatchTrendSummary, Params: json.RawMessage(`[]`)}}, Results: []ToolCallResult{{Name: ToolBatchTrendSummary, Payload: json.RawMessage(`[]`), Available: true}}}}
+	turn, err := provider.AnalyzeIntentTurn(withCrossRequired(context.Background(), true), "上海 Java 岗位有多少", nil, history, true)
+	if err != nil || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != ToolCrossStatistics {
+		t.Fatalf("cross tool turn=%#v err=%v", turn, err)
 	}
 }
 
