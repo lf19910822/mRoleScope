@@ -6,9 +6,10 @@ import (
 )
 
 type CandidateGroup struct {
-	SubQueryID string
-	Candidates []Candidate
-	Limit      int
+	SubQueryID         string
+	Candidates         []Candidate
+	Limit              int
+	AllowGlobalRanking bool
 }
 
 type DraftBuildOptions struct {

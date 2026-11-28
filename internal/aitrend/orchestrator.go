@@ -257,7 +257,12 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 				return result, &ContractError{Code: ErrorLimitExceeded, Field: "tool_calls", Message: "tool call limit exceeded before final Intent"}
 			}
 			exchange := ToolConversation{Calls: append([]ToolCall(nil), turn.ToolCalls...)}
-			for _, call := range turn.ToolCalls {
+			for callIndex, call := range turn.ToolCalls {
+				contractErr := validateToolCallContract(call)
+				eventParams := call.Params
+				if call.Name == ToolCrossStatistics || contractErr != nil {
+					eventParams = nil
+				}
 				toolCallsUsed++
 				if toolCallsUsed > modelToolLimit {
 					toolBudgetExhausted = true
@@ -268,38 +273,41 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 					}
 					exchange.Results = append(exchange.Results, toolResult)
 					result.ToolResults = append(result.ToolResults, toolResult)
-					_ = recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolResult, Tool: string(call.Name), Status: string(StreamFailed), Params: debugJSON(call.Params), Error: toolResult.SafeError})
+					exchange.Calls[callIndex].Params = json.RawMessage(`{}`)
+					_ = recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolResult, Tool: string(call.Name), Status: string(StreamFailed), Params: debugJSON(eventParams), Error: toolResult.SafeError})
 					continue
 				}
-				if debugErr := recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolCall, Tool: string(call.Name), Params: debugJSON(call.Params)}); debugErr != nil {
+				if debugErr := recordDebug(ctx, DebugTraceEvent{Type: DebugEventToolCall, Tool: string(call.Name), Params: debugJSON(eventParams)}); debugErr != nil {
 					return result, debugErr
 				}
 				var toolResult ToolCallResult
 				var callErr error
-				contractErr := validateToolCallContract(call)
 				if contractErr == nil {
-					if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params}); err != nil {
+					if err := orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamRunning, Tool: string(call.Name), Params: eventParams}); err != nil {
 						return result, err
 					}
 				}
 				if contractErr != nil {
 					toolResult = ToolCallResult{Name: call.Name, CallNumber: toolCallsUsed, Available: false, SafeError: safeErrorFrom(contractErr)}
 					callErr = contractErr
-					_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+					_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Tool: string(call.Name), Error: toolResult.SafeError})
 				} else {
 					toolResult, callErr = orchestrator.Registry.Call(ctx, call)
 				}
 				if callErr != nil {
+					if call.Name == ToolCrossStatistics || contractErr != nil {
+						exchange.Calls[callIndex].Params = json.RawMessage(`{}`)
+					}
 					if !isModelToolContractError(callErr) {
 						result.Partial = true
 					}
 					toolResult.SafeError = safeErrorFrom(callErr)
 					toolResult.Available = false
 					if isModelToolContractError(callErr) {
-						_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+						_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Tool: string(call.Name), Error: toolResult.SafeError})
 					}
 					if contractErr == nil {
-						_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+						_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: eventParams, Error: toolResult.SafeError})
 					}
 				} else {
 					if orchestrator.TokenCounter(toolResult.Payload) > orchestrator.MaxOutputTokens {
@@ -332,11 +340,11 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 					if toolResult.SafeError != nil {
 						status = StreamFailed
 					}
-					_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: status, Tool: string(call.Name), Params: call.Params, Error: toolResult.SafeError})
+					_ = orchestrator.emit(StreamEvent{Type: StreamEventOperation, Status: status, Tool: string(call.Name), Params: eventParams, Error: toolResult.SafeError})
 				}
 				exchange.Results = append(exchange.Results, toolResult)
 				result.ToolResults = append(result.ToolResults, toolResult)
-				debugResult := DebugTraceEvent{Type: DebugEventToolResult, Tool: string(call.Name), Params: debugJSON(call.Params), Result: debugJSON(toolResult.Payload), Status: string(StreamCompleted), Error: toolResult.SafeError}
+				debugResult := DebugTraceEvent{Type: DebugEventToolResult, Tool: string(call.Name), Params: debugJSON(eventParams), Result: debugJSON(toolResult.Payload), Status: string(StreamCompleted), Error: toolResult.SafeError}
 				if callErr != nil {
 					debugResult.Status = string(StreamFailed)
 				}
@@ -370,6 +378,18 @@ func (orchestrator Orchestrator) runToolSession(ctx context.Context, query strin
 				result.AIAttempts = modelTurns + 1
 				return result, nil
 			}
+			correctionAttempts++
+			_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
+			if correctionAttempts >= MaxAIAttempts {
+				result.AIAttempts = MaxAIAttempts
+				return result, contractErr
+			}
+			result.AIAttempts = correctionAttempts + 1
+			correction = contractErr
+			continue
+		}
+		if crossRequiredFromContext(ctx) && !historyContainsTool(history, ToolCrossStatistics) && !toolBudgetExhausted {
+			contractErr := &ContractError{Code: ErrorMissingField, Field: "cross_statistics", Message: "用户要求交叉统计，请先调用当前岗位统计工具"}
 			correctionAttempts++
 			_ = orchestrator.emit(StreamEvent{Type: StreamEventValidation, Status: StreamRunning, Error: safeErrorFrom(contractErr)})
 			if correctionAttempts >= MaxAIAttempts {

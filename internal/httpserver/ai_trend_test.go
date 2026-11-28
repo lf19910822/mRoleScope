@@ -187,6 +187,19 @@ func TestAITrendDraftFiltersUnsafeToolParameters(t *testing.T) {
 	}
 }
 
+func TestAITrendDraftRedactsCrossStatisticsToolParameters(t *testing.T) {
+	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
+		return emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolCrossStatistics), Params: []byte(`{"sub_queries":[{"id":"q","sql":"SELECT secret","job_id":"secret-job"}]}`)})
+	})
+	router := New(nil, runner)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/job-trends/ai-draft", strings.NewReader(`{"query":"上海 Java 岗位"}`))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if !strings.Contains(response.Body.String(), `"tool":"query_current_job_statistics"`) || strings.Contains(response.Body.String(), "secret") || strings.Contains(response.Body.String(), "job_id") || strings.Contains(response.Body.String(), "SELECT") {
+		t.Fatalf("cross-statistics tool event is unsafe: %s", response.Body.String())
+	}
+}
+
 func TestAITrendDraftKeepsSafeBatchParameters(t *testing.T) {
 	runner := aiTrendRunnerFunc(func(_ context.Context, _ string, emit func(aitrend.StreamEvent) error) error {
 		return emit(aitrend.StreamEvent{Type: aitrend.StreamEventOperation, Status: aitrend.StreamRunning, Tool: string(aitrend.ToolBatchTrendSummary), Params: []byte(`[{"dimension":"technology","value":"redis","range":"month","raw_sql":"secret"}]`)})

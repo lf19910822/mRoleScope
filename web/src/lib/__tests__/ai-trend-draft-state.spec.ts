@@ -98,7 +98,7 @@ describe('AI trend draft state', () => {
     expect(state.operations.map((operation) => operation.tool)).toContain('list_available_values')
   })
 
-  it('clears the previous pending draft when regenerating', async () => {
+  it('keeps the previous draft available while regenerating', async () => {
     let fetchCount = 0
     let releaseSecondRequest: (() => void) | undefined
     const draftEvent = JSON.stringify({
@@ -139,7 +139,11 @@ describe('AI trend draft state', () => {
     const regeneration = state.submit('哪些技术')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(state.status).toBe('running')
-    expect(state.draft).toBeUndefined()
+    expect(state.draft?.curves[0]?.condition.value).toBe('alpha')
+    expect(state.draftFromPreviousRequest).toBe(true)
+    const applied: string[] = []
+    state.applySelected((condition) => applied.push(condition.value))
+    expect(applied).toEqual(['alpha'])
     expect(state.assistantMessage).toBe('')
     releaseSecondRequest?.()
     await regeneration
@@ -168,5 +172,90 @@ describe('AI trend draft state', () => {
     expect(state.status).toBe('success')
     expect(state.assistantMessage).toBe('你好，可以查看趋势。')
     expect(state.draft).toBeUndefined()
+  })
+
+  it('keeps the previous draft when a new request fails or succeeds without a chart', async () => {
+    const draft = {
+      contract_version: 'ai-trend-draft-v1',
+      status: 'complete',
+      curves: [{ condition: { dimension: 'project', value: 'alpha' }, label: 'Alpha', match_status: 'exact', reason: '正式项目', selected: true, sub_query_ids: ['q'] }],
+    }
+    const response = (events: object[]) => new Response(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response([{ type: 'draft', status: 'completed', draft }, { type: 'done', status: 'success' }]))
+      .mockResolvedValueOnce(response([{ type: 'done', status: 'failure', error: { code: 'backend_failure', message: '失败' } }]))
+      .mockResolvedValueOnce(response([{ type: 'assistant_message', status: 'running', delta: '当前统计结果' }, { type: 'done', status: 'success' }]))
+    )
+    const state = createAITrendDraftState()
+    await state.submit('第一次')
+    await state.submit('失败的请求')
+    expect(state.status).toBe('failure')
+    expect(state.draft?.curves[0]?.condition.value).toBe('alpha')
+    expect(state.draftFromPreviousRequest).toBe(true)
+    await state.submit('只有统计的请求')
+    expect(state.status).toBe('success')
+    expect(state.draft?.curves[0]?.condition.value).toBe('alpha')
+    expect(state.draftFromPreviousRequest).toBe(true)
+    expect(state.assistantMessage).toBe('当前统计结果')
+  })
+
+  it('retains every streamed ranking page without the chart limit', async () => {
+    const ranking = Array.from({ length: 125 }, (_, index) => ({
+      type: 'assistant_message', status: 'running', delta: `${index + 1}. 项目 ${index + 1}\n`,
+    }))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      [...ranking, { type: 'assistant_message', status: 'completed' }, { type: 'done', status: 'success' }]
+        .map((event) => JSON.stringify(event)).join('\n') + '\n',
+    )))
+    const state = createAITrendDraftState()
+    await state.submit('全部项目排名')
+    expect(state.status).toBe('success')
+    expect(state.assistantMessage).toContain('1. 项目 1\n')
+    expect(state.assistantMessage).toContain('125. 项目 125\n')
+  })
+
+  it('does not claim an interrupted ranking is complete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      `${JSON.stringify({ type: 'assistant_message', status: 'running', delta: '项目排名：共 125 项，计划展示 125 项。\n1. 项目 1\n' })}\n`,
+    )))
+    const state = createAITrendDraftState()
+    await state.submit('全部项目排名')
+    expect(state.status).toBe('partial')
+    expect(state.assistantMessage).toContain('1. 项目 1')
+    expect(state.assistantMessageWarning).toContain('未完整接收')
+  })
+
+  it('restores the previous draft when a request is cancelled', async () => {
+    const draft = { contract_version: 'ai-trend-draft-v1', status: 'complete', curves: [{ condition: { dimension: 'project', value: 'alpha' }, label: 'Alpha', match_status: 'exact', reason: '正式项目', selected: true, sub_query_ids: ['q'] }] }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(`${JSON.stringify({ type: 'draft', status: 'completed', draft })}\n${JSON.stringify({ type: 'done', status: 'success' })}\n`))
+      .mockImplementationOnce((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')))
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+    const state = createAITrendDraftState()
+    await state.submit('第一次')
+    const pending = state.submit('第二次')
+    await Promise.resolve()
+    state.stop()
+    await pending
+    expect(state.status).toBe('stopped')
+    expect(state.draft?.curves[0]?.condition.value).toBe('alpha')
+    expect(state.draftFromPreviousRequest).toBe(true)
+  })
+
+  it('keeps the previous draft when a stopped request sent a partial draft', async () => {
+    const draft = (value: string) => ({ contract_version: 'ai-trend-draft-v1', status: 'complete', curves: [{ condition: { dimension: 'project', value }, label: value, match_status: 'exact', reason: '正式项目', selected: true, sub_query_ids: ['q'] }] })
+    const response = (events: object[]) => new Response(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response([{ type: 'draft', status: 'completed', draft: draft('alpha') }, { type: 'done', status: 'success' }]))
+      .mockResolvedValueOnce(response([{ type: 'draft', status: 'partial', draft: draft('beta') }, { type: 'done', status: 'user_stopped' }]))
+    )
+    const state = createAITrendDraftState()
+    await state.submit('第一次')
+    await state.submit('被停止的第二次')
+    expect(state.status).toBe('stopped')
+    expect(state.draft?.curves[0]?.condition.value).toBe('alpha')
+    expect(state.draftFromPreviousRequest).toBe(true)
   })
 })

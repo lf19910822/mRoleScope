@@ -1111,6 +1111,7 @@ onBeforeUnmount(() => {
             <Transition name="ai-chat-message" mode="out-in">
               <div v-if="aiChatReply" :key="aiChatReply" class="job-trend-view__ai-chat-reply">
                 <p>{{ aiChatReply }}</p>
+                <p v-if="aiTrend.assistantMessageWarning">{{ aiTrend.assistantMessageWarning }}</p>
               </div>
             </Transition>
           </div>
@@ -1119,7 +1120,7 @@ onBeforeUnmount(() => {
           <section v-if="aiTrend.draft" class="job-trend-view__ai-result" aria-label="AI 曲线草稿">
           <header class="job-trend-view__ai-result-header">
             <div>
-              <div class="job-trend-view__ai-result-kicker">待确认草稿</div>
+              <div class="job-trend-view__ai-result-kicker">{{ aiTrend.draftFromPreviousRequest ? '上次保留的草稿' : '待确认草稿' }}</div>
               <h3>{{ aiTrend.draft.curves.length }} / 8 条曲线</h3>
             </div>
             <span
@@ -1133,6 +1134,9 @@ onBeforeUnmount(() => {
               >部分结果</span
             >
           </header>
+          <div v-if="aiTrend.draftFromPreviousRequest" class="job-trend-view__ai-warnings">
+            <p>这是上次请求保留的草稿，与本次统计结果无关。</p>
+          </div>
           <div v-if="aiTrend.draft.warnings?.length" class="job-trend-view__ai-warnings">
             <p v-for="warning in aiTrend.draft.warnings" :key="warning">{{ warning }}</p>
           </div>
@@ -2458,6 +2462,7 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   line-height: 1.5;
   margin: 0;
+  white-space: pre-wrap;
 }
 
 .ai-chat-message-enter-active,

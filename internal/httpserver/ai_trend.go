@@ -80,7 +80,7 @@ func safeAITrendTool(tool string) bool {
 		aitrend.ToolListAvailableValues, aitrend.ToolRankValues, aitrend.ToolRankTrendValues,
 		aitrend.ToolReadTrendSummary, aitrend.ToolReadEventSummary,
 		aitrend.ToolValidateCurveDraft, aitrend.ToolBatchTrendSummary,
-		aitrend.ToolBatchEventSummary, aitrend.ToolBatchValidateDraft:
+		aitrend.ToolBatchEventSummary, aitrend.ToolBatchValidateDraft, aitrend.ToolCrossStatistics:
 		return true
 	default:
 		return false

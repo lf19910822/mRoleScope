@@ -17,6 +17,7 @@ export interface AITrendDraftState {
   assistantMessage: string
   assistantMessageWarning: string
   draft?: AITrendDraft
+  draftFromPreviousRequest: boolean
   durationLabel: string
   error: string
   operations: AITrendOperation[]
@@ -41,6 +42,7 @@ export function createAITrendDraftState(): AITrendDraftState {
   const state = reactive<AITrendDraftState>({
     assistantMessage: '',
     assistantMessageWarning: '',
+    draftFromPreviousRequest: false,
     durationLabel: '0秒',
     error: '',
     operations: [],
@@ -73,7 +75,8 @@ export function createAITrendDraftState(): AITrendDraftState {
     if (normalized === '' || state.status === 'running') return
     const currentRequest = ++requestID
     controller?.abort()
-    controller = new AbortController()
+    const requestController = new AbortController()
+    controller = requestController
     state.query = normalized
     startedAt = Date.now()
     state.durationLabel = '0秒'
@@ -85,9 +88,19 @@ export function createAITrendDraftState(): AITrendDraftState {
     state.error = ''
     state.assistantMessage = ''
     state.assistantMessageWarning = ''
-    state.draft = undefined
+    const previousDraft = state.draft
+    state.draftFromPreviousRequest = !!previousDraft
     state.status = 'running'
     let nextDraft: AITrendDraft | undefined
+    const restoreDraft = (candidate?: AITrendDraft) => {
+      state.draft = candidate ?? previousDraft
+      state.draftFromPreviousRequest = !candidate && !!previousDraft
+    }
+    const markIncomplete = () => {
+      if (state.assistantMessage) {
+        state.assistantMessageWarning = '结果未完整接收，以上仅为已显示的部分。'
+      }
+    }
     try {
       const handleEvent = (event: AITrendStreamEvent) => {
         if (currentRequest !== requestID) return
@@ -108,7 +121,9 @@ export function createAITrendDraftState(): AITrendDraftState {
             state.operations.push({ tool: event.tool, params: event.params, status })
           }
         }
-        if (event.type === 'draft' && event.draft) nextDraft = event.draft
+        if (event.type === 'draft' && event.draft && (event.draft.curves.length > 0 || !previousDraft)) {
+          nextDraft = event.draft
+        }
         if (event.type === 'assistant_message' && event.delta) {
           state.assistantMessage += event.delta
         }
@@ -118,35 +133,45 @@ export function createAITrendDraftState(): AITrendDraftState {
             event.status === 'partial' ||
             event.status === 'user_stopped'
           ) {
-            if (nextDraft) state.draft = nextDraft
+            restoreDraft(event.status === 'user_stopped' && previousDraft ? undefined : nextDraft)
             state.status =
               event.status === 'success'
                 ? 'success'
                 : event.status === 'partial'
                   ? 'partial'
                   : 'stopped'
+            if (event.status === 'user_stopped') markIncomplete()
             state.operationsExpanded = false
           } else {
             state.status = 'failure'
             state.error = event.error?.message ?? '分析失败'
+            restoreDraft()
           }
         }
       }
-      await streamAITrendDraft(normalized, handleEvent, controller.signal)
-      if (state.status === 'running') state.status = nextDraft || state.assistantMessage ? 'success' : 'failure'
-      if (nextDraft) state.draft = nextDraft
+      await streamAITrendDraft(normalized, handleEvent, requestController.signal)
+      if (state.status === 'running') {
+        state.status = nextDraft || state.assistantMessage ? 'partial' : 'failure'
+        markIncomplete()
+        restoreDraft(previousDraft ? undefined : nextDraft)
+      }
     } catch (error) {
       if (currentRequest !== requestID) return
-      if (controller?.signal.aborted) {
-        if (nextDraft) state.draft = nextDraft
+      if (requestController.signal.aborted) {
+        restoreDraft(previousDraft ? undefined : nextDraft)
         state.status = 'stopped'
+        markIncomplete()
       } else {
         state.status = 'failure'
         state.error = error instanceof Error ? error.message : '分析失败'
+        restoreDraft()
+        markIncomplete()
       }
     } finally {
-      stopDurationTimer()
-      if (currentRequest === requestID) controller = undefined
+      if (currentRequest === requestID) {
+        stopDurationTimer()
+        controller = undefined
+      }
     }
   }
 

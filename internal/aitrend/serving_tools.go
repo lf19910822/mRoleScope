@@ -29,6 +29,8 @@ type ServingToolService struct {
 	Events   TrendEventReader
 	Resolver Resolver
 	Snapshot *ServingSnapshot
+	Cross    jdserving.CrossStatisticsBatchReader
+	CrossRun *crossStatisticsSession
 }
 
 // ServingSnapshot keeps one request's public vocabulary stable while the
@@ -95,7 +97,7 @@ func (snapshot *ServingSnapshot) categoryValues(category string) ([]FilterOption
 }
 
 func (service ServingToolService) Registry() (*ToolRegistry, error) {
-	return NewToolRegistry([]ToolDefinition{
+	definitions := []ToolDefinition{
 		{Name: ToolListTechnologyCategories, Handler: service.listTechnologyCategories},
 		{Name: ToolListCategoryValues, Handler: service.listCategoryValues},
 		{Name: ToolListAvailableValues, Handler: service.listAvailableValues},
@@ -107,7 +109,11 @@ func (service ServingToolService) Registry() (*ToolRegistry, error) {
 		{Name: ToolBatchTrendSummary, Handler: service.batchTrendSummary},
 		{Name: ToolBatchEventSummary, Handler: service.batchEventSummary},
 		{Name: ToolBatchValidateDraft, Handler: service.batchValidateDraft},
-	})
+	}
+	if service.Cross != nil && service.CrossRun != nil {
+		definitions = append(definitions, ToolDefinition{Name: ToolCrossStatistics, Handler: service.queryCrossStatistics})
+	}
+	return NewToolRegistry(definitions)
 }
 
 type valueRequest struct {

@@ -51,7 +51,9 @@ func NewTrendRunner(provider IntentProvider, options FilterOptionsReader, summar
 	if provider == nil || options == nil || summary == nil {
 		return nil, &ContractError{Code: ErrorConfigurationFailure, Message: "trend AI is not configured"}
 	}
-	return &TrendRunner{Provider: provider, Tools: ServingToolService{Options: options, Summary: summary, Events: events}}, nil
+	tools := ServingToolService{Options: options, Summary: summary, Events: events}
+	tools.Cross, _ = options.(jdserving.CrossStatisticsBatchReader)
+	return &TrendRunner{Provider: provider, Tools: tools}, nil
 }
 
 // RunDebug executes one bounded run with the supplied operator trace sink.
@@ -155,6 +157,14 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	var resolver Resolver
 	var registry *ToolRegistry
 	var err error
+	var options jdserving.FilterOptionsResponse
+	optionsLoaded := false
+	var crossRun *crossStatisticsSession
+	crossRequired := false
+	crossUsage := func(input, output int) {
+		inputTokens += input
+		outputTokens += output
+	}
 	auditOperations := make([]auditOperation, 0, MaxToolCalls+1)
 	auditStarted := time.Now()
 	streamEmit := func(event StreamEvent) error {
@@ -204,6 +214,16 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		result.ClassificationOutput = classificationOutput
 		result.ClassificationTime = classificationDuration
 	}
+	if hasClassifier && !serviceTagsContain(serviceTags, ServiceTagTrend) && runner.Tools.Cross != nil {
+		if loaded, loadErr := runner.Tools.Options.ListFilterOptions(ctx); loadErr == nil {
+			options = loaded
+			optionsLoaded = true
+			scope := buildCrossScopeEvidence(query, newServingSnapshot(options))
+			if requiresCrossStatistics(scope) {
+				serviceTags, _ = NormalizeServiceTags(append(serviceTags, ServiceTagTrend))
+			}
+		}
+	}
 	if hasClassifier && !serviceTagsContain(serviceTags, ServiceTagTrend) {
 		modes, modeErr := ResponseModesFromServiceTags(serviceTags)
 		if modeErr != nil {
@@ -228,14 +248,24 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
-	options, err := runner.Tools.Options.ListFilterOptions(ctx)
-	if err != nil {
-		return &ContractError{Code: ErrorBackendFailure, Message: "读取正式筛选值失败"}
+	if !optionsLoaded {
+		options, err = runner.Tools.Options.ListFilterOptions(ctx)
+		if err != nil {
+			return &ContractError{Code: ErrorBackendFailure, Message: "读取正式筛选值失败"}
+		}
 	}
 	resolver = resolverFromOptions(options)
 	tools := runner.Tools
 	tools.Snapshot = newServingSnapshot(options)
 	tools.Resolver = resolver
+	if tools.Cross != nil && usesToolSession {
+		crossRun = newCrossStatisticsSession(query, tools.Snapshot)
+		crossRequired = requiresCrossStatistics(crossRun.scope)
+		if crossRequired {
+			tools.CrossRun = crossRun
+		}
+	}
+	ctx = withCrossRequired(ctx, crossRequired)
 	registry, err = tools.Registry()
 	if err != nil {
 		return err
@@ -271,6 +301,16 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	result.ClassificationOutput = classificationOutput
 	result.ClassificationTime = classificationDuration
 	if err != nil {
+		if crossRequired && ctx.Err() == nil {
+			if deliveryErr := emitCrossChartUnavailable(ctx, streamEmit); deliveryErr != nil {
+				return deliveryErr
+			}
+			if deliveryErr := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, false, crossUnavailableReason(crossRun), streamEmit, crossUsage); deliveryErr != nil {
+				return deliveryErr
+			}
+			runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
+			return streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamPartial})
+		}
 		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, err)
 		return err
 	}
@@ -285,6 +325,16 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		return conflictErr
 	}
 	if isGuidanceOnly(result.AgentResponse) {
+		if crossRequired {
+			if err := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, false, crossUnavailableReason(crossRun), streamEmit, crossUsage); err != nil {
+				return err
+			}
+			status := StreamSuccess
+			if len(crossRun.records) == 0 {
+				status = StreamPartial
+			}
+			return streamEmit(StreamEvent{Type: StreamEventDone, Status: status})
+		}
 		guidanceInput, guidanceOutput, warnings, replyErr := runner.streamAssistantReply(ctx, query, result.AgentResponse.ResponseModes, nil, false, streamEmit)
 		inputTokens += guidanceInput
 		outputTokens += guidanceOutput
@@ -305,10 +355,28 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 	}
 	if plannedIntent.ContractVersion == "" {
 		plannedIntent = normalizeIntentForQuery(query, result.Intent, resolver)
+		if crossRequired {
+			plannedIntent = includeCrossChartConditions(plannedIntent, crossRun, tools.Snapshot)
+		}
 		groups = candidateGroups(plannedIntent, resolver)
+	}
+	if !crossRequired && crossRun != nil {
+		if scopeErr := validateTrendCategoryScope(plannedIntent, groups, crossRun, tools.Snapshot); scopeErr != nil {
+			_ = streamEmit(StreamEvent{Type: StreamEventValidation, Status: StreamFailed, Error: safeErrorFrom(scopeErr)})
+			return scopeErr
+		}
 	}
 	summaryCompletionPartial, completionErr := completeMissingTrendSummaries(ctx, registry, groups, plannedIntent, &result.ToolResults, streamEmit)
 	if completionErr != nil {
+		if crossRequired && ctx.Err() == nil {
+			if err := emitCrossChartUnavailable(ctx, streamEmit); err != nil {
+				return err
+			}
+			if err := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, false, crossUnavailableReason(crossRun), streamEmit, crossUsage); err != nil {
+				return err
+			}
+			return streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamPartial})
+		}
 		runner.persistAudit(ctx, query, result, nil, inputTokens, outputTokens, auditOperations, auditStarted, completionErr)
 		return completionErr
 	}
@@ -316,16 +384,16 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		result.Partial = true
 	}
 	applySummaryScores(groups, result.ToolResults, plannedIntent)
-	rankApplied := applyTrendRankResults(groups, result.ToolResults)
-	if !rankApplied {
-		boundBroadCandidates(groups)
-	}
-	if usesToolSession {
+	applyTrendRankResults(groups, result.ToolResults)
+	if usesToolSession || summaryCompletionPartial {
 		filterCandidatesToSummaryResults(groups, result.ToolResults)
 	}
 	filterFailedSummaryCandidates(groups, result.ToolResults)
 
 	partialFailure := result.Partial
+	if crossRequired && len(crossRun.records) == 0 {
+		partialFailure = true
+	}
 	warnings := make([]string, 0)
 	if summaryCompletionPartial {
 		warnings = append(warnings, "部分候选趋势摘要未能读取，结果可能不完整。")
@@ -369,6 +437,15 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		PartialFailure: partialFailure,
 	})
 	if err != nil {
+		if crossRequired && ctx.Err() == nil {
+			if deliveryErr := emitCrossChartUnavailable(ctx, streamEmit); deliveryErr != nil {
+				return deliveryErr
+			}
+			if deliveryErr := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, false, crossUnavailableReason(crossRun), streamEmit, crossUsage); deliveryErr != nil {
+				return deliveryErr
+			}
+			return streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamPartial})
+		}
 		return err
 	}
 	draft = &builtDraft
@@ -377,7 +454,28 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		return err
 	}
 	if len(draft.Curves) > 0 {
+		if crossRequired {
+			if scopeErr := validateCrossDraftScope(*draft, crossRun, tools.Snapshot); scopeErr != nil {
+				_ = streamEmit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(ToolBatchValidateDraft), Error: safeErrorFrom(scopeErr)})
+				if err := emitCrossChartUnavailable(ctx, streamEmit); err != nil {
+					return err
+				}
+				if err := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, false, crossUnavailableReason(crossRun), streamEmit, crossUsage); err != nil {
+					return err
+				}
+				return streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamPartial})
+			}
+		}
 		if err := emitValidatedDraft(ctx, registry, *draft, streamEmit); err != nil {
+			if crossRequired && ctx.Err() == nil {
+				if deliveryErr := emitCrossChartUnavailable(ctx, streamEmit); deliveryErr != nil {
+					return deliveryErr
+				}
+				if deliveryErr := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, false, crossUnavailableReason(crossRun), streamEmit, crossUsage); deliveryErr != nil {
+					return deliveryErr
+				}
+				return streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamPartial})
+			}
 			return err
 		}
 	}
@@ -395,6 +493,25 @@ func (runner *TrendRunner) Run(ctx context.Context, query string, emit func(Stre
 		return err
 	}
 	if !result.Stopped {
+		if crossRequired {
+			if err := runner.emitCrossResults(ctx, crossRun.records, tools.Snapshot, len(draft.Curves) > 0, crossUnavailableReason(crossRun), streamEmit, crossUsage); err != nil {
+				return err
+			}
+			err = streamEmit(StreamEvent{Type: StreamEventDone, Status: terminalStatus})
+			runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+			return err
+		}
+		if summaryCompletionPartial {
+			if err := streamEmit(StreamEvent{Type: StreamEventAssistant, Status: StreamRunning, Delta: "部分候选的趋势数据未能读取，本次排名不完整，已保留可确认的曲线。"}); err != nil {
+				return err
+			}
+			if err := streamEmit(StreamEvent{Type: StreamEventAssistant, Status: StreamCompleted}); err != nil {
+				return err
+			}
+			err = streamEmit(StreamEvent{Type: StreamEventDone, Status: StreamPartial})
+			runner.persistAudit(ctx, query, result, draft, inputTokens, outputTokens, auditOperations, auditStarted, err)
+			return err
+		}
 		modes := result.AgentResponse.ResponseModes
 		if len(modes) == 0 {
 			modes = []ResponseMode{ResponseModeTrend}
@@ -545,12 +662,31 @@ func normalizeIntentForQuery(query string, intent Intent, resolver Resolver) Int
 				break
 			}
 		}
-		if broad {
+		if broad || categoryQuestionNeedsCompleteCoverage(query, category) {
 			subQuery.Expressions = []string{category}
 		}
 		normalizeRankingLimitForQuery(query, subQuery, resolver)
 	}
 	return normalized
+}
+
+func categoryQuestionNeedsCompleteCoverage(query, category string) bool {
+	value := normalizeExpression(query)
+	index := strings.Index(value, category)
+	if index < 0 || crossHasNegation(value[:index]) {
+		return false
+	}
+	for _, marker := range []string{"只看", "仅看", "仅限", "只要"} {
+		if position := strings.Index(value, marker); position >= 0 && !strings.HasPrefix(value[position+len(marker):], category) {
+			return false
+		}
+	}
+	for _, marker := range []string{"哪些", "有哪些", "全部", "所有", "排名", "排行", "最多"} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeRankingLimitForQuery supplies the numeric default that the model
@@ -860,25 +996,35 @@ func candidateGroups(intent Intent, resolver Resolver) []CandidateGroup {
 	for _, query := range intent.SubQueries {
 		candidates := make([]Candidate, 0)
 		broad := false
+		category := false
 		for _, expression := range query.Expressions {
+			if _, found := resolver.ResolveCategory(query.Dimension, expression, query.ID); found {
+				category = true
+			}
 			if isBroadExpression(expression) {
 				broad = true
 			}
-			if len(candidates) >= MaxToolCandidates && !broad {
+		}
+		for _, expression := range query.Expressions {
+			if len(candidates) >= MaxToolCandidates && !broad && !category {
 				break
 			}
 			candidates = append(candidates, resolveIntentExpression(resolver, query, expression)...)
 		}
 		candidates = MergeCandidates(candidates)
-		if !broad && len(candidates) > MaxToolCandidates {
+		if !broad && !category && len(candidates) > MaxToolCandidates {
 			candidates = candidates[:MaxToolCandidates]
 		}
-		groups = append(groups, CandidateGroup{SubQueryID: query.ID, Candidates: candidates, Limit: query.Ranking.Limit})
+		allowGlobalRanking := len(query.Expressions) == 1 && isBroadExpression(query.Expressions[0]) && len(query.Exclusions) == 0
+		groups = append(groups, CandidateGroup{SubQueryID: query.ID, Candidates: candidates, Limit: query.Ranking.Limit, AllowGlobalRanking: allowGlobalRanking})
 	}
 	return groups
 }
 
 func resolveIntentExpression(resolver Resolver, query SubQuery, expression string) []Candidate {
+	if expanded, found := resolver.ResolveCategory(query.Dimension, expression, query.ID); found {
+		return applyQueryOptions(filterExcluded(expanded, query.Exclusions), query)
+	}
 	resolved := resolver.ResolveWithExclusions(query.Dimension, expression, query.Exclusions, query.ID)
 	if len(resolved) > 0 {
 		return applyQueryOptions(resolved, query)
@@ -1050,7 +1196,11 @@ func applyTrendRankResults(groups []CandidateGroup, results []ToolCallResult) bo
 	if len(rankedBySubQuery) == 0 {
 		return false
 	}
+	applied := false
 	for index := range groups {
+		if !groups[index].AllowGlobalRanking {
+			continue
+		}
 		ranked, ok := rankedBySubQuery[groups[index].SubQueryID]
 		if !ok {
 			continue
@@ -1060,25 +1210,23 @@ func applyTrendRankResults(groups []CandidateGroup, results []ToolCallResult) bo
 			byValue[candidate.Value] = candidate
 		}
 		filtered := make([]Candidate, 0, len(ranked))
+		seen := make(map[string]struct{}, len(ranked))
 		for rank, value := range ranked {
 			candidate, exists := byValue[value.Value]
-			if !exists {
-				candidate = Candidate{Dimension: value.Dimension, Value: value.Value, Label: value.Label, MatchStatus: MatchExact, SubQueryID: groups[index].SubQueryID}
+			if !exists || candidate.Dimension != value.Dimension {
+				continue
 			}
+			if _, duplicate := seen[value.Value]; duplicate {
+				continue
+			}
+			seen[value.Value] = struct{}{}
 			candidate.Score = len(ranked) - rank
 			filtered = append(filtered, candidate)
 		}
 		groups[index].Candidates = filtered
+		applied = true
 	}
-	return true
-}
-
-func boundBroadCandidates(groups []CandidateGroup) {
-	for index := range groups {
-		if len(groups[index].Candidates) > MaxToolCandidates {
-			groups[index].Candidates = groups[index].Candidates[:MaxToolCandidates]
-		}
-	}
+	return applied
 }
 
 func candidateTrendRequest(timeRange TimeRange, candidate Candidate) trendToolRequest {
@@ -1126,12 +1274,18 @@ func completeMissingTrendSummaries(ctx context.Context, registry *ToolRegistry, 
 	}
 	covered := make(map[trendSummaryCoverageKey]struct{})
 	rankedSubQueries := make(map[string]struct{})
+	globalRankingAllowed := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		globalRankingAllowed[group.SubQueryID] = group.AllowGlobalRanking
+	}
 	for _, result := range *results {
 		if result.Name == ToolRankTrendValues && result.Available {
 			var ranked rankedTrendValuesResponse
 			if json.Unmarshal(result.Payload, &ranked) == nil {
 				for _, value := range ranked.Values {
-					rankedSubQueries[value.SubQueryID] = struct{}{}
+					if globalRankingAllowed[value.SubQueryID] {
+						rankedSubQueries[value.SubQueryID] = struct{}{}
+					}
 				}
 			}
 			continue
@@ -1501,7 +1655,10 @@ func emitValidatedDraft(ctx context.Context, registry *ToolRegistry, draft Draft
 	}
 	_, err := registry.Call(ctx, call)
 	if err != nil {
-		return emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: call.Params, Error: safeErrorFrom(err)})
+		if emitErr := emit(StreamEvent{Type: StreamEventOperation, Status: StreamFailed, Tool: string(call.Name), Params: call.Params, Error: safeErrorFrom(err)}); emitErr != nil {
+			return errors.Join(err, emitErr)
+		}
+		return err
 	}
 	return emit(StreamEvent{Type: StreamEventOperation, Status: StreamCompleted, Tool: string(call.Name), Params: call.Params})
 }
