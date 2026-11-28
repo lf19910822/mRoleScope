@@ -184,4 +184,25 @@ if [[ -e "$MROLESCOPE_RELEASE_TEST_LOG" ]] && grep -q 'mrolescope-deploy' "$MROL
   die 'mismatched image revision label reached the CVM deployment helper'
 fi
 
+rm -f -- "$MROLESCOPE_RELEASE_TEST_LOG"
+"$release_script" --deploy-test-api >"$temporary_dir/test-api-release-output.log"
+[[ "$(grep -c '^docker build ' "$MROLESCOPE_RELEASE_TEST_LOG")" -eq 1 ]] \
+  || die 'test API release did not build exactly one image'
+[[ "$(grep -c '^docker push ' "$MROLESCOPE_RELEASE_TEST_LOG")" -eq 1 ]] \
+  || die 'test API release did not push exactly one image'
+grep -Fq 'docker/Dockerfile.api' "$MROLESCOPE_RELEASE_TEST_LOG" \
+  || die 'test API release did not build the API image'
+if grep -Eq '^docker (build|push) .*mrolescope-(migrate|worker|web-edge)' "$MROLESCOPE_RELEASE_TEST_LOG"; then
+  die 'test API release built or pushed a formal-stack-only image'
+fi
+grep -Fq 'sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-test-api-deploy' "$MROLESCOPE_RELEASE_TEST_LOG" \
+  || die 'test API release did not use the restricted test helper'
+if grep -Fq 'sudo -u mrolescope-deploy sudo -n /usr/local/sbin/mrolescope-deploy ' "$MROLESCOPE_RELEASE_TEST_LOG"; then
+  die 'test API release invoked the formal deployment helper'
+fi
+for phase in preflight quality-gate image-publication asset-refresh remote-test-api-deployment total; do
+  grep -Fq "release timing: phase=${phase} elapsed_ms=" "$temporary_dir/test-api-release-output.log" \
+    || die "test API release output omitted timing for ${phase}"
+done
+
 printf '%s\n' 'Local release orchestrator test passed'

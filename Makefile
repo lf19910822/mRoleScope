@@ -44,7 +44,8 @@ deploy-config-check:
 	bash -n deploy/remote-development/bootstrap.sh \
 		deploy/remote-development/mrolescope-cert-issue \
 		deploy/remote-development/mrolescope-cert-renew \
-	deploy/remote-development/mrolescope-deploy \
+		deploy/remote-development/mrolescope-deploy \
+		deploy/remote-development/mrolescope-test-api-deploy \
 		deploy/remote-development/mrolescope-operations \
 		deploy/remote-development/mrolescope-sync \
 		deploy/remote-development/mrolescope-analysis \
@@ -67,7 +68,9 @@ deploy-config-check:
 	bash scripts/check-remote-development-ai-evaluation.sh deploy/remote-development/mrolescope-ai-evaluation deploy/remote-development/compose.yaml
 	bash scripts/test-check-remote-development-compose.sh
 	bash scripts/check-remote-development-compose.sh deploy/remote-development/compose.yaml
+	bash scripts/check-remote-test-api-deployment.sh
 	bash scripts/test-mrolescope-deploy-web-edge.sh
+	bash scripts/test-mrolescope-test-api-deploy.sh
 	bash scripts/test-mrolescope-deploy-image-cleanup.sh
 	bash scripts/test-release-remote-development.sh
 	bash scripts/test-deployment-asset-fingerprint.sh
@@ -90,6 +93,9 @@ deploy-config-check:
 		COS_ACCESS_KEY_ID=not-a-real-access-key \
 		COS_SECRET_ACCESS_KEY=not-a-real-secret \
 		$(DEPLOY_COMPOSE) -f deploy/remote-development/compose.yaml config --quiet; \
+		MROLESCOPE_TEST_API_IMAGE=docker.io/mrolescopeverify/mrolescope-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+		DATABASE_URL='postgres://mrolescope_verify:not-a-real-password@postgres:5432/mrolescope_verify?sslmode=disable' \
+		$(DEPLOY_COMPOSE) -f deploy/remote-development/test-api.compose.yaml config --quiet; \
 	fi
 
 remote-release-verify:
